@@ -122,21 +122,31 @@ docker compose --profile prod up -d --build
 Дурын Windows компьютер дээр системийг бүрэн ажиллагаатай босгох алхмууд:
 
 1. **Git** суулгана (байхгүй бол): <https://git-scm.com/download/win>
-2. **Docker Desktop** суулгана: <https://www.docker.com/products/docker-desktop/>
+2. **WSL2** суулгана — Docker-ын ажилладаг VM давхарга. Үүнгүйгээр Docker
+   Desktop *«Virtualization support not detected»* гэж гацдаг. PowerShell-ийг
+   **Run as Administrator**-оор нээж:
+
+   ```powershell
+   wsl --install --no-distribution
+   ```
+
+   Дуусмагц компьютерээ **restart** хийнэ. (Store хаалттай орчинд:
+   `wsl --install --no-distribution --web-download`.)
+3. **Docker Desktop** суулгана: <https://www.docker.com/products/docker-desktop/>
    - BIOS дээр VT-x идэвхтэй байх ёстой — дээрх зааврыг үз.
    - Суулгасны дараа Docker Desktop-ыг **нэг удаа гараар нээж**, эхний
      тохиргоог дуустал хүлээнэ: Accept дарах, WSL2 шинэчлэлт асуувал
      зөвшөөрөх, зүүн доод буланд **Engine running** гарах хүртэл.
    - Нээлттэй байсан терминалаа хааж **шинээр нээнэ** (`docker` команд
      PATH-д шинэ терминалд л орж ирнэ).
-3. Репог татна (private тул GitHub нэвтрэлт шаардана):
+4. Репог татна (private тул GitHub нэвтрэлт шаардана):
 
    ```powershell
    git clone https://github.com/ez4puljin/kolonk
    cd kolonk
    ```
 
-4. Асаана — **`.bat` файлыг ажиллуулна** (`.ps1`-г биш, учир нь шинэ PC-ийн
+5. Асаана — **`.bat` файлыг ажиллуулна** (`.ps1`-г биш, учир нь шинэ PC-ийн
    PowerShell бодлого `.ps1`-г шууд ажиллуулахыг хориглодог):
 
    ```powershell
@@ -149,7 +159,7 @@ docker compose --profile prod up -d --build
    систем бэлэн байна (демо хэрэглэгчид, ПИН `000000`). Ямар нэг зүйл дутуу
    бол скрипт улаанаар юу хийхийг зааж өгнө.
 
-5. **(Сонголт) Хуучин компьютерээс өгөгдлөө зөөх бол:**
+6. **(Сонголт) Хуучин компьютерээс өгөгдлөө зөөх бол:**
 
    ```powershell
    # Хуучин PC дээр — зөөвөрлөх багц үүсгэнэ:
@@ -168,7 +178,7 @@ docker compose --profile prod up -d --build
    .\restore-data.bat
    ```
 
-6. Өдөр тутмын удирдлага:
+7. Өдөр тутмын удирдлага:
 
    ```powershell
    .\start-docker.bat -Down    # зогсоох
@@ -188,6 +198,8 @@ docker compose --profile prod up -d --build
 | `Start-Process : ... The system cannot find the file specified` | Хуучин хувилбарын скрипт Docker Desktop-гүй машин дээр унадаг байсан — repo-гоо шинэчилнэ (`git pull`) |
 | `'docker' is not recognized as an internal or external command` | Docker суулгасны дараа хуучин терминал PATH-аа мэдэхгүй. → Терминалаа хааж шинээр нээнэ (скрипт өөрөө ч мэдэгдэж буй байрлалаас хайдаг) |
 | `Docker engine асаагүй байна.` | Docker Desktop-ын эхний тохиргоо дуусаагүй. → Цонхыг нь нээж Accept/WSL2-ыг дуусгаад **Engine running** болтол хүлээгээд дахин ажиллуулна |
+| Docker Desktop цонхонд: **Virtualization support not detected** | Ихэнхдээ BIOS биш — **WSL2 суугаагүйгээс** (админ эрхгүйгээр суулгасан Docker Desktop WSL-ээ идэвхжүүлж чаддаггүй). → Админ PowerShell-ээс `wsl --install --no-distribution` → restart → Docker Desktop дахин нээнэ. Үнэхээр BIOS-ийн асуудал бол дээрх VT-x зааврыг дагана |
+| `WSL2 суулгаагүй байна.` (скриптийн мэдэгдэл) | → Мөн адил: админ PowerShell-ээс `wsl --install --no-distribution`, дараа нь restart |
 | `BIOS дээр виртуалчлал (Intel VT-x) унтраалттай байна.` | → Дээрх BIOS зааврыг дагаж VT-x-ийг асаана |
 | `port is already allocated` / `bind: An attempt was made...` | 80, 8000, 5433, 6380 портын аль нэгийг өөр програм эзэлсэн (IIS, Skype 80-ийг эзэлдэг). → Тухайн програмыг зогсооно эсвэл `docker-compose.yml`-д портоо солино |
 

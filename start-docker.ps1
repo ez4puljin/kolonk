@@ -66,18 +66,28 @@ Ok "VT-x идэвхтэй"
 # Урьд нь суулгаагүй машин дээр Start-Process шууд дуудаад ойлгомжгүй алдаагаар
 # унадаг байсан — эндээс эрт, тодорхой заавартайгаар шалгана.
 Step "Docker Desktop шалгалт"
-$desktopExe = @(
-    "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe",
-    "$env:LOCALAPPDATA\Docker\Docker Desktop.exe",
-    "$env:LOCALAPPDATA\Programs\Docker\Docker\Docker Desktop.exe"
-) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+# Machine-wide болон per-user (админ эрхгүй суулгасан) байрлалууд; жинхэнэ
+# байрлалыг registry-гээс мөн асууна (InstallLocation).
+$dockerRoots = @(
+    "$env:ProgramFiles\Docker\Docker",
+    "$env:LOCALAPPDATA\Programs\DockerDesktop",
+    "$env:LOCALAPPDATA\Programs\Docker\Docker",
+    "$env:LOCALAPPDATA\Docker"
+)
+foreach ($rk in "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Docker Desktop",
+               "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Docker Desktop") {
+    $loc = (Get-ItemProperty $rk -ErrorAction SilentlyContinue).InstallLocation
+    if ($loc) { $dockerRoots = @($loc) + $dockerRoots }
+}
+$desktopExe = $dockerRoots | ForEach-Object { Join-Path $_ "Docker Desktop.exe" } |
+    Where-Object { Test-Path $_ } | Select-Object -First 1
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     # Дөнгөж суулгасны дараа нээлттэй байсан терминалын PATH шинэчлэгдээгүй
     # байдаг — CLI-ийн мэдэгдэж буй байрлалыг энэ процесст гараар нэмнэ.
-    foreach ($bin in @("$env:ProgramFiles\Docker\Docker\resources\bin",
-                       "$env:LOCALAPPDATA\Programs\Docker\Docker\resources\bin")) {
-        if ($bin -and (Test-Path (Join-Path $bin "docker.exe"))) {
+    foreach ($root in $dockerRoots) {
+        $bin = Join-Path $root "resources\bin"
+        if (Test-Path (Join-Path $bin "docker.exe")) {
             $env:PATH = "$bin;$env:PATH"
             break
         }
@@ -102,6 +112,29 @@ if (-not $dockerCli) {
     exit 1
 }
 Ok "Docker Desktop олдлоо"
+
+# ── 0.3. WSL2 — Docker-ын VM давхарга ──────────────────────────────────────
+# Docker Desktop суусан ч WSL2 байхгүй бол engine хэзээ ч асахгүй бөгөөд
+# Docker Desktop цонхондоо "Virtualization support not detected" гэсэн
+# төөрөгдүүлсэн алдаа харуулдаг (админ эрхгүй суулгалт WSL-ээ идэвхжүүлж
+# чаддаггүй). Hyper-V backend хэрэглэдэг машинд vmcompute үйлчилгээ байдаг
+# тул тэр тохиолдолд алгасна.
+Step "WSL2 шалгалт"
+cmd /c "wsl --status >nul 2>&1"
+if ($LASTEXITCODE -ne 0 -and -not (Get-Service vmcompute -ErrorAction SilentlyContinue)) {
+    Fail "WSL2 суулгаагүй байна — Docker Desktop-д зайлшгүй шаардлагатай."
+    Write-Host ""
+    Write-Host "  Засах (нэг удаа, дараа нь хэрэггүй):" -ForegroundColor Yellow
+    Write-Host "    1. Start цэснээс PowerShell-ийг «Run as Administrator»-оор нээнэ" -ForegroundColor Yellow
+    Write-Host "    2. Дараах командыг ажиллуулна:" -ForegroundColor Yellow
+    Write-Host "         wsl --install --no-distribution" -ForegroundColor Yellow
+    Write-Host "       (Store хаалттай бол: wsl --install --no-distribution --web-download)" -ForegroundColor Yellow
+    Write-Host "    3. Компьютерээ restart хийнэ" -ForegroundColor Yellow
+    Write-Host "    4. Docker Desktop-ыг нээж, 'Engine running' болтол хүлээнэ" -ForegroundColor Yellow
+    Write-Host "    5. Энэ скриптийг дахин ажиллуулна" -ForegroundColor Yellow
+    exit 1
+}
+Ok "VM давхарга (WSL2/Hyper-V) бэлэн"
 
 if ($Down) {
     Step "Зогсоож байна"
