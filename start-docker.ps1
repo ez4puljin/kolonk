@@ -1,13 +1,18 @@
 ﻿# Колонк — Docker горимоор асаах.
 #
-# УРЬДЧИЛСАН НӨХЦӨЛ: BIOS дээр Intel VT-x идэвхтэй байх ёстой.
+# ШИНЭ PC ДЭЭР start-docker.bat-аар ажиллуулна — шинэ Windows-ийн PowerShell
+# бодлого (ExecutionPolicy=Restricted) .ps1-г шууд ажиллуулахыг хориглодог тул
+# ".\start-docker.ps1" гэвэл "running scripts is disabled" алдаа гарна.
+#
+# УРЬДЧИЛСАН НӨХЦӨЛ: Docker Desktop суусан, BIOS дээр Intel VT-x идэвхтэй.
 # (ASUS: Delete → F7 → Advanced → CPU Configuration →
 #  Intel (VMX) Virtualization Technology → Enabled → F10)
 #
-#   .\start-docker.ps1            → dev горим (API 8000, frontend-ийг host дээр)
-#   .\start-docker.ps1 -Prod      → prod горим (бүгд Nginx-ээр http://localhost)
-#   .\start-docker.ps1 -Down      → зогсоох
-#   .\start-docker.ps1 -Reset     → өгөгдлийн сангийн volume-ыг устгаж шинээр эхлэх
+#   start-docker.bat            → dev горим (API 8000, frontend-ийг host дээр)
+#   start-docker.bat -Prod      → prod горим (бүгд Nginx-ээр http://localhost)
+#   start-docker.bat -Down      → зогсоох
+#   start-docker.bat -Reset     → өгөгдлийн сангийн volume-ыг устгаж шинээр эхлэх
+#   (PowerShell дотроос бол: .\start-docker.ps1 [-Prod|-Down|-Reset])
 
 param(
     [switch]$Prod,
@@ -32,9 +37,16 @@ function Invoke-Native([string]$commandLine) {
 }
 
 # ── 0. Урьдчилсан шалгалт ──────────────────────────────────────────────────
+# systeminfo удаан бөгөөд Windows-ийн хэлнээс хамаардаг (Hyper-V асаалттай үед
+# шаардлагатай мөр нь огт гардаггүй) тул CIM-ээр шалгана.
 Step "Виртуалчлалын шалгалт"
-$hv = (systeminfo | Select-String "Virtualization Enabled In Firmware") -replace '.*:\s*', ''
-if ($hv -match "No") {
+$vtOn = (Get-CimInstance Win32_ComputerSystem).HypervisorPresent
+if (-not $vtOn) {
+    # Hypervisor хараахан ажиллаагүй — процессорын firmware төлөвөөс харна.
+    $vtOn = [bool](Get-CimInstance Win32_Processor |
+        Where-Object { $_.VirtualizationFirmwareEnabled } | Select-Object -First 1)
+}
+if (-not $vtOn) {
     Fail "BIOS дээр виртуалчлал (Intel VT-x) унтраалттай байна."
     Write-Host ""
     Write-Host "  Docker Desktop Linux контейнер ажиллуулахад VT-x зайлшгүй шаардлагатай." -ForegroundColor Yellow
@@ -45,10 +57,51 @@ if ($hv -match "No") {
     Write-Host "    4. Intel (VMX) Virtualization Technology → Enabled" -ForegroundColor Yellow
     Write-Host "    5. F10 → хадгалж гарах" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "  Одоохондоо .\start-dev.ps1 (локал горим) ашиглана уу." -ForegroundColor Yellow
+    Write-Host "  Одоохондоо startup.bat (локал dev горим) ашиглана уу." -ForegroundColor Yellow
     exit 1
 }
 Ok "VT-x идэвхтэй"
+
+# ── 0.2. Docker Desktop суусан эсэх ────────────────────────────────────────
+# Урьд нь суулгаагүй машин дээр Start-Process шууд дуудаад ойлгомжгүй алдаагаар
+# унадаг байсан — эндээс эрт, тодорхой заавартайгаар шалгана.
+Step "Docker Desktop шалгалт"
+$desktopExe = @(
+    "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe",
+    "$env:LOCALAPPDATA\Docker\Docker Desktop.exe",
+    "$env:LOCALAPPDATA\Programs\Docker\Docker\Docker Desktop.exe"
+) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+
+if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+    # Дөнгөж суулгасны дараа нээлттэй байсан терминалын PATH шинэчлэгдээгүй
+    # байдаг — CLI-ийн мэдэгдэж буй байрлалыг энэ процесст гараар нэмнэ.
+    foreach ($bin in @("$env:ProgramFiles\Docker\Docker\resources\bin",
+                       "$env:LOCALAPPDATA\Programs\Docker\Docker\resources\bin")) {
+        if ($bin -and (Test-Path (Join-Path $bin "docker.exe"))) {
+            $env:PATH = "$bin;$env:PATH"
+            break
+        }
+    }
+}
+$dockerCli = Get-Command docker -ErrorAction SilentlyContinue
+
+if (-not $desktopExe -and -not $dockerCli) {
+    Fail "Docker Desktop суулгаагүй байна."
+    Write-Host ""
+    Write-Host "  Энэ скрипт ажиллахад Docker Desktop зайлшгүй шаардлагатай:" -ForegroundColor Yellow
+    Write-Host "    1. https://www.docker.com/products/docker-desktop/ -оос татаж суулгана" -ForegroundColor Yellow
+    Write-Host "    2. Docker Desktop-ыг НЭГ УДАА гараар нээж, эхний тохиргоог" -ForegroundColor Yellow
+    Write-Host "       (Accept, WSL2 шинэчлэлт) дуустал хүлээнэ" -ForegroundColor Yellow
+    Write-Host "    3. Дараа нь энэ скриптийг дахин ажиллуулна" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  Docker-гүйгээр ажиллуулах бол: startup.bat (локал dev горим)" -ForegroundColor Yellow
+    exit 1
+}
+if (-not $dockerCli) {
+    Fail "docker команд олдсонгүй. Терминалаа хааж, ШИНЭЭР нээгээд дахин оролдоно уу."
+    exit 1
+}
+Ok "Docker Desktop олдлоо"
 
 if ($Down) {
     Step "Зогсоож байна"
@@ -59,6 +112,10 @@ if ($Down) {
 
 # ── 0.5. .env — байхгүй бол автоматаар үүсгэнэ (шинэ PC) ──────────────────
 if (-not (Test-Path ".env")) {
+    if (-not (Test-Path ".env.example")) {
+        Fail ".env.example олдсонгүй — repo бүрэн татагдсан эсэхийг шалгана уу (git clone дахин хийх)."
+        exit 1
+    }
     Step ".env үүсгэж байна (.env.example-ээс, санамсаргүй нууцтай)"
     function New-Secret([int]$len) {
         # PowerShell 5.1-д ажиллана — үсэг/тооноос санамсаргүй тэмдэгт мөр.
@@ -81,9 +138,9 @@ if (-not (Test-Path ".env")) {
 # ── 1. Docker engine ───────────────────────────────────────────────────────
 Step "Docker engine"
 $ver = cmd /c "docker info --format ""{{.ServerVersion}}"" 2>nul"
-if (-not $ver) {
+if (-not $ver -and $desktopExe) {
     Warn "Docker Desktop асаж байна..."
-    Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"
+    Start-Process $desktopExe
     $deadline = (Get-Date).AddMinutes(5)
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 6
@@ -91,7 +148,15 @@ if (-not $ver) {
         if ($ver) { break }
     }
 }
-if (-not $ver) { Fail "Docker engine асаагүй байна"; exit 1 }
+if (-not $ver) {
+    Fail "Docker engine асаагүй байна."
+    Write-Host ""
+    Write-Host "  Анх суулгасны дараа Docker Desktop эхний тохиргоогоо гараар дуусгах" -ForegroundColor Yellow
+    Write-Host "  шаардлагатай: Docker Desktop цонхыг нээж Accept дарна, WSL2 шинэчлэлт" -ForegroundColor Yellow
+    Write-Host "  асуувал зөвшөөрч, зүүн доод буланд 'Engine running' болтол хүлээнэ." -ForegroundColor Yellow
+    Write-Host "  Дараа нь энэ скриптийг дахин ажиллуулна уу." -ForegroundColor Yellow
+    exit 1
+}
 Ok "engine $ver"
 
 if ($Reset) {

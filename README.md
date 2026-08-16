@@ -20,8 +20,12 @@
 
 | Файл | Үйлдэл |
 |---|---|
-| **`startup.bat`** | Бүх системийг асааж, браузерыг автоматаар нээнэ |
-| **`stop.bat`** | Бүгдийг зогсооно |
+| **`startup.bat`** | Локал dev: бүх системийг асааж, браузерыг автоматаар нээнэ |
+| **`stop.bat`** | Локал dev-ийг зогсооно |
+
+Docker-оор (шинэ PC, production) ажиллуулах бол `start-docker.bat` —
+доорх [Docker горим](#docker-горим) ба [Шинэ PC дээр суулгах](#шинэ-pc-дээр-суулгах-production)
+хэсгийг үз.
 
 `startup.bat` нь дараах бүхнийг хийнэ (цэвэр төлөвөөс ~15 секунд):
 
@@ -44,6 +48,11 @@
 .\start-dev.ps1 -Stop      # зогсоох
 ```
 
+> Шинэ PC дээр `.ps1`-г шууд ажиллуулбал PowerShell-ийн анхдагч бодлого
+> хориглодог (*"running scripts is disabled on this system"*). Хөгжүүлэгчийн
+> машинд нэг удаа `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` гэж
+> нээнэ, эсвэл `.bat` wrapper-уудыг ашиглана.
+
 - POS: http://localhost:5173
 - API баримт: http://localhost:8000/api/docs
 
@@ -51,6 +60,31 @@
 Memurai 6379 порт дээр, Python 3.12, Node 20+.
 
 ## Docker горим
+
+Бүх зүйлийг нэг команд хийнэ (cmd, PowerShell аль ч терминалаас):
+
+```bash
+.\start-docker.bat -Prod
+```
+
+| Команд | Үйлдэл |
+|---|---|
+| `.\start-docker.bat` | dev горим — API :8000, frontend-ийг host дээр `npm run dev` |
+| `.\start-docker.bat -Prod` | prod горим — бүгд Nginx-ээр **http://localhost** |
+| `.\start-docker.bat -Down` | зогсоох |
+| `.\start-docker.bat -Reset` | өгөгдлийн сангийн volume устгаж цэвэр эхлэх |
+
+Скрипт дараах бүхнийг өөрөө хийнэ: VT-x ба Docker Desktop шалгах (байхгүй бол
+юу хийхийг зааж өгнө) → `.env`-ыг санамсаргүй нууцтай үүсгэх → Docker Desktop
+асаах → build → миграц → сан хоосон бол seed.
+
+> **Яагаад `.bat` вэ?** Шинэ Windows PC дээр PowerShell-ийн анхдагч бодлого
+> (`ExecutionPolicy=Restricted`) `.ps1` файлыг шууд ажиллуулахыг хориглодог —
+> `.\start-docker.ps1` гэвэл *"running scripts is disabled on this system"*
+> алдаа гарна. `.bat` wrapper үүнийг тойрч өгдөг. PowerShell-ээс шууд бол:
+> `powershell -ExecutionPolicy Bypass -File .\start-docker.ps1 -Prod`
+
+Гараар compose ашиглах бол:
 
 ```bash
 docker compose --profile dev up -d
@@ -63,84 +97,99 @@ Prod (Nginx-ээр http://localhost):
 docker compose --profile prod up -d --build
 ```
 
-> **Энэ компьютер дээр Docker ажиллуулахын өмнө: BIOS дээр VT-x-ийг асаана.**
+> **BIOS дээр VT-x унтраалттай бол** скрипт *"BIOS дээр виртуалчлал (Intel
+> VT-x) унтраалттай байна"* гэж зогсоно — Docker Desktop Linux контейнер
+> ажиллуулахад VT-x зайлшгүй, үүнгүйгээр WSL2 ч ажиллахгүй. Гараар шалгах:
+> `systeminfo` → Hyper-V Requirements → `Virtualization Enabled In Firmware: No`
+> бол унтраалттай.
 >
-> Оношилгооны үр дүн (`systeminfo` → Hyper-V Requirements):
-> ```
-> Virtualization Enabled In Firmware: No
-> ```
-> Windows талын бүрэлдэхүүнүүд (`VirtualMachinePlatform`, `Microsoft-Windows-Subsystem-Linux`)
-> **аль хэдийн идэвхтэй**. Дутуу зүйл нь процессорын виртуалчлал BIOS дээр
-> унтраалттай байгаа явдал. Үүнгүйгээр WSL2 ажиллахгүй тул ямар ч дистро
-> (Ubuntu ч гэсэн) суулгаж чадахгүй, Docker Desktop Linux контейнер асаахгүй.
->
-> **ASUS ROG STRIX B360-I GAMING дээр хийх алхам:**
+> **ASUS ROG STRIX B360-I GAMING дээр асаах алхам:**
 > 1. Компьютерийг дахин асаах үед `Delete` товчийг дарж BIOS-д орно.
 > 2. `F7` дарж **Advanced Mode** руу шилжинэ.
 > 3. **Advanced** → **CPU Configuration**.
 > 4. **Intel (VMX) Virtualization Technology** → **Enabled**.
 > 5. `F10` → хадгалж гарна.
 >
-> Дараа нь Docker Desktop-ыг асаахад `docker-desktop` WSL дистро автоматаар
-> бүртгэгдэж, дээрх `docker compose` командууд ажиллана.
+> Бусад үйлдвэрлэгчийн BIOS-д мөн "Virtualization Technology", "VT-x", "SVM
+> Mode" (AMD) нэртэй тохиргоог **Enabled** болгоно. Дараа нь Docker Desktop
+> асаахад `docker-desktop` WSL дистро автоматаар бүртгэгдэнэ.
 >
-> VT-x асаах боломжгүй бол дээрх **локал горим** бүрэн ажиллах тул түүнийг
-> ашиглана уу — функцын хувьд ялгаагүй.
+> VT-x асаах боломжгүй бол **локал горим** (`startup.bat`) бүрэн ажиллах тул
+> түүнийг ашиглана уу — функцын хувьд ялгаагүй.
 
 ## Шинэ PC дээр суулгах (production)
 
 Дурын Windows компьютер дээр системийг бүрэн ажиллагаатай босгох алхмууд:
 
-1. **Docker Desktop** суулгана: <https://www.docker.com/products/docker-desktop/>
-   (BIOS дээр VT-x идэвхтэй байх ёстой — дээрх зааврыг үз. Суулгасны дараа
-   нэг удаа асааж дуустал хүлээнэ.)
-2. Репог татна (private тул GitHub нэвтрэлт шаардана):
+1. **Git** суулгана (байхгүй бол): <https://git-scm.com/download/win>
+2. **Docker Desktop** суулгана: <https://www.docker.com/products/docker-desktop/>
+   - BIOS дээр VT-x идэвхтэй байх ёстой — дээрх зааврыг үз.
+   - Суулгасны дараа Docker Desktop-ыг **нэг удаа гараар нээж**, эхний
+     тохиргоог дуустал хүлээнэ: Accept дарах, WSL2 шинэчлэлт асуувал
+     зөвшөөрөх, зүүн доод буланд **Engine running** гарах хүртэл.
+   - Нээлттэй байсан терминалаа хааж **шинээр нээнэ** (`docker` команд
+     PATH-д шинэ терминалд л орж ирнэ).
+3. Репог татна (private тул GitHub нэвтрэлт шаардана):
 
    ```powershell
    git clone https://github.com/ez4puljin/kolonk
    cd kolonk
    ```
 
-3. Асаана:
+4. Асаана — **`.bat` файлыг ажиллуулна** (`.ps1`-г биш, учир нь шинэ PC-ийн
+   PowerShell бодлого `.ps1`-г шууд ажиллуулахыг хориглодог):
 
    ```powershell
-   .\start-docker.ps1 -Prod
+   .\start-docker.bat -Prod
    ```
 
-   Скрипт бүгдийг өөрөө хийнэ: `.env`-ыг санамсаргүй нууцтай үүсгэх →
-   Docker Desktop асаах → build → бүх сервис асаах → миграц → сан хоосон
-   бол seed. Дуусахад **http://localhost** дээр систем бэлэн байна
-   (демо хэрэглэгчид, ПИН `000000`).
+   Скрипт бүгдийг өөрөө хийнэ: VT-x, Docker Desktop шалгах → `.env`-ыг
+   санамсаргүй нууцтай үүсгэх → Docker Desktop асаах → build → бүх сервис
+   асаах → миграц → сан хоосон бол seed. Дуусахад **http://localhost** дээр
+   систем бэлэн байна (демо хэрэглэгчид, ПИН `000000`). Ямар нэг зүйл дутуу
+   бол скрипт улаанаар юу хийхийг зааж өгнө.
 
-4. **(Сонголт) Хуучин компьютерээс өгөгдлөө зөөх бол:**
+5. **(Сонголт) Хуучин компьютерээс өгөгдлөө зөөх бол:**
 
    ```powershell
    # Хуучин PC дээр — зөөвөрлөх багц үүсгэнэ:
-   .\backup-data.ps1
+   .\backup-data.bat
    ```
 
    Скрипт эх сангаа өөрөө олно: Docker db ажиллаж байвал түүнээс, үгүй бол
    локал хөгжүүлэлтийн сангаас (5434). Docker ажиллаж байхад локал сангаас
-   авахыг хүсвэл `.\backup-data.ps1 -Local`.
+   авахыг хүсвэл `.\backup-data.bat -Local`.
 
    Гарсан `kolonk.dump` (+ `kolonk-uploads.zip` байвал) файлуудыг USB/cloud-оор
    шинэ PC-ийн repo хавтсанд хуулаад:
 
    ```powershell
    # Шинэ PC дээр — сан бүрэн дарагдаж, хуучин өгөгдөл орно:
-   .\restore-data.ps1
+   .\restore-data.bat
    ```
 
-5. Өдөр тутмын удирдлага:
+6. Өдөр тутмын удирдлага:
 
    ```powershell
-   .\start-docker.ps1 -Down    # зогсоох
-   .\start-docker.ps1 -Prod    # дахин асаах (өгөгдөл хадгалагдана)
+   .\start-docker.bat -Down    # зогсоох
+   .\start-docker.bat -Prod    # дахин асаах (өгөгдөл хадгалагдана)
    ```
 
    Тог тасрах/reboot-ын дараа Docker Desktop асмагц контейнерууд өөрсдөө
    сэргэнэ (`restart: unless-stopped`). Өгөгдөл `pgdata`, зургууд `uploads`,
    backup-ууд `backups` volume-д тус тус хадгалагдана.
+
+### Түгээмэл алдаа, шийдэл
+
+| Алдаа | Шалтгаан → Шийдэл |
+|---|---|
+| `... cannot be loaded because running scripts is disabled on this system` | `.ps1`-г шууд ажиллуулсан — шинэ PC-ийн PowerShell бодлого хориглодог. → `.bat` wrapper ашиглана: `.\start-docker.bat -Prod` (эсвэл `powershell -ExecutionPolicy Bypass -File .\start-docker.ps1 -Prod`) |
+| `Docker Desktop суулгаагүй байна.` | → <https://www.docker.com/products/docker-desktop/> -оос суулгаад нэг удаа гараар нээнэ |
+| `Start-Process : ... The system cannot find the file specified` | Хуучин хувилбарын скрипт Docker Desktop-гүй машин дээр унадаг байсан — repo-гоо шинэчилнэ (`git pull`) |
+| `'docker' is not recognized as an internal or external command` | Docker суулгасны дараа хуучин терминал PATH-аа мэдэхгүй. → Терминалаа хааж шинээр нээнэ (скрипт өөрөө ч мэдэгдэж буй байрлалаас хайдаг) |
+| `Docker engine асаагүй байна.` | Docker Desktop-ын эхний тохиргоо дуусаагүй. → Цонхыг нь нээж Accept/WSL2-ыг дуусгаад **Engine running** болтол хүлээгээд дахин ажиллуулна |
+| `BIOS дээр виртуалчлал (Intel VT-x) унтраалттай байна.` | → Дээрх BIOS зааврыг дагаж VT-x-ийг асаана |
+| `port is already allocated` / `bind: An attempt was made...` | 80, 8000, 5433, 6380 портын аль нэгийг өөр програм эзэлсэн (IIS, Skype 80-ийг эзэлдэг). → Тухайн програмыг зогсооно эсвэл `docker-compose.yml`-д портоо солино |
 
 ## Демо хэрэглэгчид
 
