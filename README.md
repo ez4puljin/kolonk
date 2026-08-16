@@ -119,6 +119,10 @@ docker compose --profile prod up -d --build
    .\backup-data.ps1
    ```
 
+   Скрипт эх сангаа өөрөө олно: Docker db ажиллаж байвал түүнээс, үгүй бол
+   локал хөгжүүлэлтийн сангаас (5434). Docker ажиллаж байхад локал сангаас
+   авахыг хүсвэл `.\backup-data.ps1 -Local`.
+
    Гарсан `kolonk.dump` (+ `kolonk-uploads.zip` байвал) файлуудыг USB/cloud-оор
    шинэ PC-ийн repo хавтсанд хуулаад:
 

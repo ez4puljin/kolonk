@@ -1,4 +1,4 @@
-# Колонк — өгөгдөл зөөвөрлөх багц үүсгэнэ (өөр PC руу нүүлгэхэд).
+﻿# Колонк — өгөгдөл зөөвөрлөх багц үүсгэнэ (өөр PC руу нүүлгэхэд).
 #
 #   .\backup-data.ps1
 #
@@ -9,9 +9,12 @@
 # Эх сангаа автоматаар олно:
 #   1) Docker db контейнер ажиллаж байвал → түүнээс
 #   2) Үгүй бол локал Postgres (127.0.0.1:5434, хөгжүүлэлтийн сан)
+#   -Local switch өгвөл docker ажиллаж байсан ч локал 5434-өөс авна.
 #
 # Хоёр файлыг USB/cloud-оор шинэ PC-ийн repo root-д хуулаад
 # тэнд .\restore-data.ps1 ажиллуулна. (Файлууд git-д ОРОХГҮЙ.)
+
+param([switch]$Local)
 
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
@@ -23,17 +26,15 @@ function Fail($m) { Write-Host "    $m" -ForegroundColor Red }
 $dumpPath = Join-Path $PSScriptRoot "kolonk.dump"
 
 # ── 1. Эх сангаа олох ──────────────────────────────────────────────────────
-$dockerDb = $false
-$null = docker compose ps --status running db --format "{{.Names}}" 2>$null
-if ($? ) {
-    $running = docker compose ps --status running db --format "{{.Names}}" 2>$null
-    if ("$running".Trim()) { $dockerDb = $true }
-}
+# PS 5.1-д docker-ын stderr ErrorRecord болдог тул cmd-ээр дамжуулна.
+$running = cmd /c "docker compose ps --status running db --format ""{{.Names}}"" 2>nul"
+$dockerDb = (-not $Local) -and [bool]"$running".Trim()
 
 if ($dockerDb) {
     Step "Docker db контейнерээс dump хийж байна"
-    docker compose exec -T db pg_dump -Fc -U kolonk -d kolonk > $dumpPath
-    if (-not $? -or -not (Test-Path $dumpPath) -or (Get-Item $dumpPath).Length -eq 0) {
+    # PS-ийн `>` нь binary гаралтыг гэмтээдэг тул cmd-ийн redirect ашиглана.
+    cmd /c "docker compose exec -T db pg_dump -Fc -U kolonk -d kolonk > ""$dumpPath"" 2>nul"
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $dumpPath) -or (Get-Item $dumpPath).Length -eq 0) {
         Fail "Dump амжилтгүй"; exit 1
     }
 } else {
@@ -48,17 +49,21 @@ if ($dockerDb) {
 
     $pgDump = "C:\Program Files\PostgreSQL\17\bin\pg_dump.exe"
     if (Test-Path $pgDump) {
+        # pg_dump кирилл замыг ойлгодоггүй тул түр (ASCII) зам руу бичээд зөөнө.
+        $tmpDump = Join-Path $env:TEMP "kolonk-transfer.dump"
+        if (Test-Path $tmpDump) { Remove-Item $tmpDump -Force }
         $env:PGPASSWORD = $dbPass
-        & $pgDump -Fc -h $dbHost -p $dbPort -U $dbUser -d $dbName -f $dumpPath
-        $dumpOk = $?
+        cmd /c "`"$pgDump`" -Fc -h $dbHost -p $dbPort -U $dbUser -d $dbName -f `"$tmpDump`" 2>&1"
+        $dumpOk = ($LASTEXITCODE -eq 0)
         Remove-Item Env:\PGPASSWORD
-        if (-not $dumpOk) { Fail "pg_dump амжилтгүй"; exit 1 }
+        if (-not $dumpOk -or -not (Test-Path $tmpDump)) { Fail "pg_dump амжилтгүй"; exit 1 }
+        Move-Item $tmpDump $dumpPath -Force
     } else {
         # Локал pg_dump байхгүй бол түр контейнерээр хийнэ (host.docker.internal).
+        # cmd-ийн redirect — PowerShell-ийн `>` binary файлыг гэмтээдэг.
         Step "Локал pg_dump олдсонгүй — Docker-ын pg_dump ашиглана"
-        docker run --rm -e PGPASSWORD=$dbPass postgres:17-alpine `
-            pg_dump -Fc -h host.docker.internal -p $dbPort -U $dbUser -d $dbName > $dumpPath
-        if (-not $? -or (Get-Item $dumpPath).Length -eq 0) { Fail "Dump амжилтгүй"; exit 1 }
+        cmd /c "docker run --rm -e PGPASSWORD=$dbPass postgres:17-alpine pg_dump -Fc -h host.docker.internal -p $dbPort -U $dbUser -d $dbName > ""$dumpPath"" 2>nul"
+        if ($LASTEXITCODE -ne 0 -or (Get-Item $dumpPath).Length -eq 0) { Fail "Dump амжилтгүй"; exit 1 }
     }
 }
 $size = [math]::Round((Get-Item $dumpPath).Length / 1MB, 2)
@@ -72,8 +77,8 @@ if ($dockerDb) {
     # Prod volume-оос түр хавтас руу гаргаж авна.
     $tmp = Join-Path $env:TEMP "kolonk-uploads-export"
     if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
-    docker compose cp api-prod:/code/uploads $tmp 2>$null
-    if ($? -and (Test-Path $tmp) -and (Get-ChildItem $tmp -Recurse -File | Select-Object -First 1)) {
+    cmd /c "docker compose cp api-prod:/code/uploads ""$tmp"" 2>nul"
+    if ((Test-Path $tmp) -and (Get-ChildItem $tmp -Recurse -File | Select-Object -First 1)) {
         if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
         Compress-Archive -Path "$tmp\*" -DestinationPath $zipPath
         Remove-Item $tmp -Recurse -Force

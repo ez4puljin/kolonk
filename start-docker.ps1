@@ -24,6 +24,13 @@ function Ok($m)   { Write-Host "    $m" -ForegroundColor Green }
 function Warn($m) { Write-Host "    $m" -ForegroundColor Yellow }
 function Fail($m) { Write-Host "    $m" -ForegroundColor Red }
 
+# PS 5.1: native командын stderr (docker compose-ын progress г.м.) ErrorRecord
+# болж $ErrorActionPreference=Stop-той хамт скриптийг унагадаг тул cmd-ээр
+# дамжуулж цэвэр текст болгоно. Exit code-ыг $LASTEXITCODE-оос шалгана.
+function Invoke-Native([string]$commandLine) {
+    & cmd /c "$commandLine 2>&1"
+}
+
 # ── 0. Урьдчилсан шалгалт ──────────────────────────────────────────────────
 Step "Виртуалчлалын шалгалт"
 $hv = (systeminfo | Select-String "Virtualization Enabled In Firmware") -replace '.*:\s*', ''
@@ -45,7 +52,7 @@ Ok "VT-x идэвхтэй"
 
 if ($Down) {
     Step "Зогсоож байна"
-    docker compose --profile dev --profile prod down
+    Invoke-Native "docker compose --profile dev --profile prod down"
     Ok "Зогслоо"
     exit 0
 }
@@ -73,31 +80,30 @@ if (-not (Test-Path ".env")) {
 
 # ── 1. Docker engine ───────────────────────────────────────────────────────
 Step "Docker engine"
-$null = docker info --format "{{.ServerVersion}}" 2>&1
-if (-not $?) {
+$ver = cmd /c "docker info --format ""{{.ServerVersion}}"" 2>nul"
+if (-not $ver) {
     Warn "Docker Desktop асаж байна..."
     Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"
     $deadline = (Get-Date).AddMinutes(5)
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 6
-        $null = docker info --format "{{.ServerVersion}}" 2>&1
-        if ($?) { break }
+        $ver = cmd /c "docker info --format ""{{.ServerVersion}}"" 2>nul"
+        if ($ver) { break }
     }
 }
-$ver = docker info --format "{{.ServerVersion}}" 2>&1
-if (-not $?) { Fail "Docker engine асаагүй байна: $ver"; exit 1 }
+if (-not $ver) { Fail "Docker engine асаагүй байна"; exit 1 }
 Ok "engine $ver"
 
 if ($Reset) {
     Step "Volume устгаж байна"
-    docker compose --profile dev --profile prod down -v
+    Invoke-Native "docker compose --profile dev --profile prod down -v"
     Ok "Цэвэрлэлээ"
 }
 
 # ── 2. Контейнерууд ────────────────────────────────────────────────────────
 Step "Контейнер асааж байна ($profileName)"
-docker compose --profile $profileName up -d --build
-if (-not $?) { Fail "docker compose амжилтгүй"; exit 1 }
+Invoke-Native "docker compose --profile $profileName up -d --build"
+if ($LASTEXITCODE -ne 0) { Fail "docker compose амжилтгүй"; exit 1 }
 
 # ── 3. API бэлэн болохыг хүлээх ────────────────────────────────────────────
 $apiSvc = if ($Prod) { "api-prod" } else { "api" }
@@ -113,7 +119,7 @@ while ((Get-Date) -lt $deadline) {
 }
 if (-not $ready) {
     Fail "API хариу өгөхгүй байна. Лог:"
-    docker compose --profile $profileName logs --tail 40 $apiSvc
+    Invoke-Native "docker compose --profile $profileName logs --tail 40 $apiSvc"
     exit 1
 }
 Ok "API бэлэн"
@@ -121,10 +127,10 @@ Ok "API бэлэн"
 # ── 4. Seed — зөвхөн ХООСОН өгөгдлийн санд ─────────────────────────────────
 # Restore хийсэн (бодит) өгөгдөл дээр demo дата эргэж нэмэгдэхээс сэргийлнэ.
 Step "Seed дата"
-$userCount = docker compose --profile $profileName exec -T db `
-    psql -U kolonk -d kolonk -tAc "SELECT count(*) FROM users" 2>$null
-if (-not $? -or "$userCount".Trim() -eq "" -or "$userCount".Trim() -eq "0") {
-    docker compose --profile $profileName exec -T $apiSvc python -m app.seed
+$userCount = cmd /c "docker compose --profile $profileName exec -T db psql -U kolonk -d kolonk -tAc ""SELECT count(*) FROM users"" 2>nul"
+if (-not "$userCount".Trim() -or "$userCount".Trim() -eq "0") {
+    Invoke-Native "docker compose --profile $profileName exec -T $apiSvc python -m app.seed"
+    if ($LASTEXITCODE -ne 0) { Fail "Seed амжилтгүй"; exit 1 }
     Ok "Seed орлоо (шинэ сан)"
 } else {
     Ok "Өгөгдөл аль хэдийн байна ($("$userCount".Trim()) хэрэглэгч) — seed алгасав"
