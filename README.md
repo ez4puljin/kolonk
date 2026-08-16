@@ -189,6 +189,31 @@ docker compose --profile prod up -d --build
    сэргэнэ (`restart: unless-stopped`). Өгөгдөл `pgdata`, зургууд `uploads`,
    backup-ууд `backups` volume-д тус тус хадгалагдана.
 
+### Гар утаснаас (Android / iPhone) хандах
+
+Түгээгчид гар утаснаасаа ашиглах бол утас, компьютер хоёр **нэг Wi-Fi сүлжээнд**
+байхад хангалттай:
+
+1. Компьютер дээрээ IP-гээ олно: терминалд `ipconfig` → *Wireless LAN adapter*
+   → **IPv4 Address** (жишээ нь `192.168.1.31`).
+2. Утасны browser-т (Chrome/Safari) `http://192.168.1.31` гэж нээнэ — систем
+   POS-ынхоо нэвтрэх дэлгэцийг шууд харуулна.
+
+Холбогдохгүй бол дараах дарааллаар шалгана:
+
+- **Windows-ийн сүлжээний төрөл**: Settings → Network & internet → Wi-Fi →
+  сүлжээнийхээ нэр → Network profile type → **Private** болгоно.
+- **Router-ын AP/Client isolation** идэвхтэй бол унтраана (зочны Wi-Fi ихэвчлэн
+  төхөөрөмж хооронд хориглодог).
+- Firewall дүрэм гараар нэмэх (админ PowerShell):
+
+  ```powershell
+  netsh advfirewall firewall add rule name="Kolonk HTTP 80" dir=in action=allow protocol=TCP localport=80
+  ```
+
+> Байнгын ашиглалтад router дээрээ энэ компьютерт **тогтмол IP** (DHCP
+> reservation) оноож өгвөл хаяг өөрчлөгдөхгүй.
+
 ### Түгээмэл алдаа, шийдэл
 
 | Алдаа | Шалтгаан → Шийдэл |

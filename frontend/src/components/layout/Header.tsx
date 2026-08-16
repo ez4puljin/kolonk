@@ -82,7 +82,8 @@ export function Header({ onLogout, loggingOut = false }: HeaderProps) {
         <button
           type="button"
           onClick={() => navigate("/shift")}
-          className="shrink-0"
+          // Гар утсанд хүрэлтийн талбай ≥44px байлгана — badge өөрөө жижиг.
+          className="flex min-h-11 shrink-0 items-center"
           aria-label={t.nav.shift}
         >
           {shift ? (

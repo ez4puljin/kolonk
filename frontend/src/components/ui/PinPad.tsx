@@ -89,7 +89,7 @@ export function PinPad({
   const dots = Array.from({ length: autoSubmitLength }, (_, index) => index < pin.length);
 
   return (
-    <div className={`flex w-full max-w-sm flex-col items-center gap-6 ${className}`}>
+    <div className={`flex w-full max-w-sm shrink-0 flex-col items-center gap-4 sm:gap-6 ${className}`}>
       {title ? <div className="text-lg font-semibold text-ink-invert">{title}</div> : null}
 
       <div className={`flex flex-col items-center gap-3 ${shake ? "animate-shake" : ""}`}>
@@ -110,7 +110,7 @@ export function PinPad({
         </div>
       </div>
 
-      <div className="grid w-full grid-cols-3 gap-3">
+      <div className="grid w-full grid-cols-3 gap-2.5 sm:gap-3">
         {KEYS.map((key, index) => {
           if (key === null) {
             return onCancel ? (
@@ -118,7 +118,7 @@ export function PinPad({
                 key="cancel"
                 type="button"
                 onClick={onCancel}
-                className="h-16 rounded-xl border border-brand-700 bg-brand-800/60 text-sm font-semibold text-ink-faint transition-colors active:bg-brand-700"
+                className="h-14 rounded-xl border border-brand-700 bg-brand-800/60 text-sm font-semibold text-ink-faint transition-colors active:bg-brand-700 sm:h-16"
               >
                 {t.common.cancel}
               </button>
@@ -134,7 +134,7 @@ export function PinPad({
                 type="button"
                 onClick={() => press("back")}
                 aria-label={t.common.delete}
-                className="flex h-16 items-center justify-center rounded-xl border border-brand-700 bg-brand-800/60 text-ink-faint transition-colors active:bg-brand-700"
+                className="flex h-14 items-center justify-center rounded-xl border border-brand-700 bg-brand-800/60 text-ink-faint transition-colors active:bg-brand-700 sm:h-16"
               >
                 <Delete className="h-6 w-6" />
               </button>
@@ -147,7 +147,7 @@ export function PinPad({
               type="button"
               onClick={() => press(key)}
               disabled={loading}
-              className="num h-16 rounded-xl border border-brand-700 bg-brand-800 text-2xl font-bold text-ink-invert transition-colors active:bg-brand-700 disabled:opacity-50"
+              className="num h-14 rounded-xl border border-brand-700 bg-brand-800 text-2xl font-bold text-ink-invert transition-colors active:bg-brand-700 disabled:opacity-50 sm:h-16"
             >
               {key}
             </button>
@@ -160,7 +160,7 @@ export function PinPad({
           type="button"
           onClick={() => submit(pin)}
           disabled={pin.length < minLength || loading}
-          className="flex h-16 w-full items-center justify-center gap-3 rounded-xl bg-success text-lg font-bold text-white transition-colors active:bg-success-dark disabled:opacity-40"
+          className="flex h-14 w-full items-center justify-center gap-3 rounded-xl bg-success text-lg font-bold text-white transition-colors active:bg-success-dark disabled:opacity-40 sm:h-16"
         >
           {loading ? <Spinner size="md" /> : null}
           {t.auth.enter}

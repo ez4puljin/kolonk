@@ -595,7 +595,7 @@ export function AttendantShiftPage() {
                       setOpenReadings((prev) => ({ ...prev, [nozzle.id]: value }))
                     }
                     maxDecimals={3}
-                    className="w-48"
+                    className="w-36 sm:w-48"
                   />
                 </div>
               ))}
@@ -773,7 +773,7 @@ export function AttendantShiftPage() {
                       setCloseReadings((prev) => ({ ...prev, [nozzle.id]: value }))
                     }
                     maxDecimals={3}
-                    className="w-48"
+                    className="w-36 sm:w-48"
                   />
                 </div>
               ))}

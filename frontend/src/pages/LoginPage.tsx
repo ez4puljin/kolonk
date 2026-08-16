@@ -81,7 +81,9 @@ export function LoginPage() {
   const shift = shiftPreview?.shift ?? null;
 
   return (
-    <div className="dark-scroll relative flex min-h-full flex-col overflow-y-auto bg-gradient-to-br from-brand-950 via-brand-900 to-brand-800">
+    // Хуудас өөрөө хэзээ ч гүйхгүй (overflow-hidden) — хэрэглэгч олон үед
+    // зөвхөн плиткануудын хэсэг дотроо гүйнэ.
+    <div className="dark-scroll relative flex h-full flex-col overflow-hidden bg-gradient-to-br from-brand-950 via-brand-900 to-brand-800">
       {/* Дэвсгэрийн гэрэлтэлт */}
       <div
         className="pointer-events-none absolute -top-40 -right-40 h-96 w-96 rounded-full bg-action/20 blur-3xl"
@@ -93,18 +95,20 @@ export function LoginPage() {
       />
 
       {/* Толгой */}
-      <header className="relative flex shrink-0 items-center justify-between gap-4 px-6 py-6 sm:px-10">
-        <div className="flex items-center gap-3.5">
-          <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-action shadow-lg shadow-action/30">
-            <Fuel className="h-6 w-6 text-white" />
+      <header className="relative flex shrink-0 items-center justify-between gap-3 px-4 py-3 sm:px-10 sm:py-6">
+        <div className="flex min-w-0 items-center gap-2.5 sm:gap-3.5">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-action shadow-lg shadow-action/30 sm:h-12 sm:w-12">
+            <Fuel className="h-5 w-5 text-white sm:h-6 sm:w-6" />
           </span>
-          <div>
-            <div className="text-xl leading-tight font-black tracking-tight text-white">{t.app.name}</div>
-            <div className="text-xs leading-tight text-slate-400">{t.app.tagline}</div>
+          <div className="min-w-0">
+            <div className="truncate text-lg leading-tight font-black tracking-tight text-white sm:text-xl">
+              {t.app.name}
+            </div>
+            <div className="truncate text-xs leading-tight text-slate-400">{t.app.tagline}</div>
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex shrink-0 items-center gap-4">
           {shift ? (
             <span className="hidden items-center gap-2 rounded-full border border-success/40 bg-success/10 px-3.5 py-2 text-sm font-semibold text-success sm:inline-flex">
               <Gauge className="h-4 w-4" />
@@ -114,37 +118,39 @@ export function LoginPage() {
           ) : null}
 
           <div className="text-right">
-            <div className="num text-2xl leading-tight font-bold text-white">{formatClock(now)}</div>
+            <div className="num text-xl leading-tight font-bold text-white sm:text-2xl">{formatClock(now)}</div>
             <div className="num text-xs leading-tight text-slate-400">{formatDate(now)}</div>
           </div>
         </div>
       </header>
 
       {/* Гол хэсэг */}
-      <main className="relative flex flex-1 items-center justify-center px-4 pb-10 sm:px-10">
+      <main className="relative flex min-h-0 flex-1 items-center justify-center px-4 pb-4 sm:px-10 sm:pb-10">
         {selected ? (
-          <section className="flex w-full max-w-md flex-col items-center gap-7 rounded-3xl border border-brand-700 bg-brand-900/70 p-7 shadow-2xl backdrop-blur">
+          // max-h-full + overflow-y-auto: намхан дэлгэцэнд (хуучин утас) карт
+          // дотроо гүйнэ — хуудас хөдлөхгүй.
+          <section className="scroll-touch flex max-h-full w-full max-w-md flex-col items-center gap-4 overflow-y-auto rounded-3xl border border-brand-700 bg-brand-900/70 p-4 shadow-2xl backdrop-blur sm:gap-7 sm:p-7">
             <button
               type="button"
               onClick={() => {
                 setSelected(null);
                 setError(null);
               }}
-              className="flex h-12 w-full items-center gap-2 rounded-xl px-2 text-sm font-semibold text-slate-400 transition-colors hover:text-white"
+              className="flex h-11 w-full shrink-0 items-center gap-2 rounded-xl px-2 text-sm font-semibold text-slate-400 transition-colors hover:text-white sm:h-12"
             >
               <ChevronLeft className="h-5 w-5" />
               {t.auth.changeUser}
             </button>
 
-            <div className="flex flex-col items-center gap-3">
+            <div className="flex shrink-0 flex-col items-center gap-2.5 sm:gap-3">
               <span
-                className="flex h-20 w-20 items-center justify-center rounded-2xl text-2xl font-black text-white shadow-lg"
+                className="flex h-16 w-16 items-center justify-center rounded-2xl text-xl font-black text-white shadow-lg sm:h-20 sm:w-20 sm:text-2xl"
                 style={{ backgroundColor: roleMeta(selected.role_code).color }}
               >
                 {initials(selected.full_name)}
               </span>
               <div className="text-center">
-                <div className="text-xl font-bold text-white">{selected.full_name}</div>
+                <div className="text-lg font-bold text-white sm:text-xl">{selected.full_name}</div>
                 <div className="text-sm text-slate-400">{selected.role_name_mn}</div>
               </div>
               <div className="text-sm text-slate-400">{t.auth.pinPrompt}</div>
@@ -161,10 +167,10 @@ export function LoginPage() {
             />
           </section>
         ) : (
-          <section className="w-full max-w-4xl">
-            <div className="mb-7 text-center">
-              <h1 className="text-3xl font-bold text-white">{t.auth.title}</h1>
-              <p className="mt-1.5 text-slate-400">{t.auth.subtitle}</p>
+          <section className="flex max-h-full w-full max-w-4xl flex-col">
+            <div className="mb-4 shrink-0 text-center sm:mb-7">
+              <h1 className="text-2xl font-bold text-white sm:text-3xl">{t.auth.title}</h1>
+              <p className="mt-1.5 text-sm text-slate-400 sm:text-base">{t.auth.subtitle}</p>
             </div>
 
             {isLoading ? (
@@ -187,7 +193,8 @@ export function LoginPage() {
                 {t.auth.noUsers}
               </div>
             ) : (
-              <div className="flex flex-col gap-7">
+              // Хэрэглэгч олон үед зөвхөн энэ хэсэг дотроо гүйнэ.
+              <div className="scroll-touch flex min-h-0 flex-col gap-4 overflow-y-auto sm:gap-7">
                 {grouped.map((group) => (
                   <div key={group.code}>
                     <div className="mb-3 flex items-center gap-3">
@@ -212,7 +219,7 @@ export function LoginPage() {
                               setSelected(user);
                               setError(null);
                             }}
-                            className="group relative flex min-h-36 flex-col items-center justify-center gap-3 overflow-hidden rounded-2xl border border-brand-700 bg-brand-800/70 px-3 py-5 transition-all duration-150 hover:-translate-y-0.5 hover:border-brand-600 hover:bg-brand-800 active:translate-y-0 active:bg-brand-700"
+                            className="group relative flex min-h-28 flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border border-brand-700 bg-brand-800/70 px-3 py-3.5 transition-all duration-150 hover:-translate-y-0.5 hover:border-brand-600 hover:bg-brand-800 active:translate-y-0 active:bg-brand-700 sm:min-h-36 sm:gap-3 sm:py-5"
                           >
                             <span
                               className="absolute inset-x-0 top-0 h-1.5"
@@ -220,13 +227,13 @@ export function LoginPage() {
                               aria-hidden="true"
                             />
                             <span
-                              className="flex h-16 w-16 items-center justify-center rounded-2xl text-xl font-black text-white shadow-md"
+                              className="flex h-13 w-13 items-center justify-center rounded-2xl text-lg font-black text-white shadow-md sm:h-16 sm:w-16 sm:text-xl"
                               style={{ backgroundColor: meta.color }}
                             >
                               {initials(user.full_name)}
                             </span>
                             <span className="w-full min-w-0">
-                              <span className="block truncate text-base font-bold text-white">
+                              <span className="block truncate text-sm font-bold text-white sm:text-base">
                                 {user.full_name}
                               </span>
                               <span className="block truncate text-xs text-slate-400">
@@ -246,11 +253,11 @@ export function LoginPage() {
       </main>
 
       {/* Хөл */}
-      <footer className="relative flex shrink-0 items-center justify-between gap-4 border-t border-brand-800 px-6 py-4 text-xs text-slate-500 sm:px-10">
-        <span>
+      <footer className="relative flex shrink-0 items-center justify-between gap-3 border-t border-brand-800 px-4 py-2.5 text-[11px] text-slate-500 sm:px-10 sm:py-4 sm:text-xs">
+        <span className="min-w-0 truncate">
           {t.app.fullName} · {t.app.version}
         </span>
-        <span className="inline-flex items-center gap-2">
+        <span className="inline-flex shrink-0 items-center gap-2">
           {online ? (
             <>
               <Wifi className="h-4 w-4 text-success" />
