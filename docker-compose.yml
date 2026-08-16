@@ -3,7 +3,8 @@ name: kolonk
 
 services:
   db:
-    image: postgres:16-alpine
+    # Локал хөгжүүлэлтийн Postgres 17-ийн dump-тай нийцүүлж 17 барина.
+    image: postgres:17-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: kolonk
@@ -64,6 +65,8 @@ services:
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2"
     volumes:
       - backups:/backups
+      # Ээлжийн зураг зэрэг хавсралтууд — rebuild хийхэд устахгүй.
+      - uploads:/code/uploads
     env_file: .env
     depends_on:
       db:
@@ -100,3 +103,4 @@ volumes:
   pgdata: {}
   redisdata: {}
   backups: {}
+  uploads: {}

@@ -16,3 +16,6 @@ backend/uploads/
 uploads/
 *.log
 .claude/scheduled_tasks.lock
+# Өгөгдөл зөөвөрлөх багц (backup-data.ps1) — git-ээр биш USB/cloud-оор зөөнө
+kolonk.dump
+kolonk-uploads.zip

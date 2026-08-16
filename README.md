@@ -87,6 +87,57 @@ docker compose --profile prod up -d --build
 > VT-x асаах боломжгүй бол дээрх **локал горим** бүрэн ажиллах тул түүнийг
 > ашиглана уу — функцын хувьд ялгаагүй.
 
+## Шинэ PC дээр суулгах (production)
+
+Дурын Windows компьютер дээр системийг бүрэн ажиллагаатай босгох алхмууд:
+
+1. **Docker Desktop** суулгана: <https://www.docker.com/products/docker-desktop/>
+   (BIOS дээр VT-x идэвхтэй байх ёстой — дээрх зааврыг үз. Суулгасны дараа
+   нэг удаа асааж дуустал хүлээнэ.)
+2. Репог татна (private тул GitHub нэвтрэлт шаардана):
+
+   ```powershell
+   git clone https://github.com/ez4puljin/kolonk
+   cd kolonk
+   ```
+
+3. Асаана:
+
+   ```powershell
+   .\start-docker.ps1 -Prod
+   ```
+
+   Скрипт бүгдийг өөрөө хийнэ: `.env`-ыг санамсаргүй нууцтай үүсгэх →
+   Docker Desktop асаах → build → бүх сервис асаах → миграц → сан хоосон
+   бол seed. Дуусахад **http://localhost** дээр систем бэлэн байна
+   (демо хэрэглэгчид, ПИН `000000`).
+
+4. **(Сонголт) Хуучин компьютерээс өгөгдлөө зөөх бол:**
+
+   ```powershell
+   # Хуучин PC дээр — зөөвөрлөх багц үүсгэнэ:
+   .\backup-data.ps1
+   ```
+
+   Гарсан `kolonk.dump` (+ `kolonk-uploads.zip` байвал) файлуудыг USB/cloud-оор
+   шинэ PC-ийн repo хавтсанд хуулаад:
+
+   ```powershell
+   # Шинэ PC дээр — сан бүрэн дарагдаж, хуучин өгөгдөл орно:
+   .\restore-data.ps1
+   ```
+
+5. Өдөр тутмын удирдлага:
+
+   ```powershell
+   .\start-docker.ps1 -Down    # зогсоох
+   .\start-docker.ps1 -Prod    # дахин асаах (өгөгдөл хадгалагдана)
+   ```
+
+   Тог тасрах/reboot-ын дараа Docker Desktop асмагц контейнерууд өөрсдөө
+   сэргэнэ (`restart: unless-stopped`). Өгөгдөл `pgdata`, зургууд `uploads`,
+   backup-ууд `backups` volume-д тус тус хадгалагдана.
+
 ## Демо хэрэглэгчид
 
 Бүх хэрэглэгчийн ПИН: **`000000`**

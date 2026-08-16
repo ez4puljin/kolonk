@@ -50,6 +50,27 @@ if ($Down) {
     exit 0
 }
 
+# ── 0.5. .env — байхгүй бол автоматаар үүсгэнэ (шинэ PC) ──────────────────
+if (-not (Test-Path ".env")) {
+    Step ".env үүсгэж байна (.env.example-ээс, санамсаргүй нууцтай)"
+    function New-Secret([int]$len) {
+        # PowerShell 5.1-д ажиллана — үсэг/тооноос санамсаргүй тэмдэгт мөр.
+        $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        $rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
+        $bytes = New-Object byte[] $len
+        $rng.GetBytes($bytes)
+        (($bytes | ForEach-Object { $chars[$_ % $chars.Length] }) -join "")
+    }
+    $dbPass = New-Secret 24
+    $jwtSecret = New-Secret 48
+    $envBody = (Get-Content ".env.example" -Raw) `
+        -replace "POSTGRES_PASSWORD=.*", "POSTGRES_PASSWORD=$dbPass" `
+        -replace "DATABASE_URL=.*", "DATABASE_URL=postgresql+asyncpg://kolonk:$dbPass@db:5432/kolonk" `
+        -replace "JWT_SECRET=.*", "JWT_SECRET=$jwtSecret"
+    [System.IO.File]::WriteAllText((Join-Path $PSScriptRoot ".env"), $envBody)
+    Ok ".env бэлэн (нууцууд автоматаар үүсэв)"
+}
+
 # ── 1. Docker engine ───────────────────────────────────────────────────────
 Step "Docker engine"
 $null = docker info --format "{{.ServerVersion}}" 2>&1
@@ -97,10 +118,17 @@ if (-not $ready) {
 }
 Ok "API бэлэн"
 
-# ── 4. Seed (идемпотент) ───────────────────────────────────────────────────
+# ── 4. Seed — зөвхөн ХООСОН өгөгдлийн санд ─────────────────────────────────
+# Restore хийсэн (бодит) өгөгдөл дээр demo дата эргэж нэмэгдэхээс сэргийлнэ.
 Step "Seed дата"
-docker compose --profile $profileName exec -T $apiSvc python -m app.seed
-Ok "Бэлэн"
+$userCount = docker compose --profile $profileName exec -T db `
+    psql -U kolonk -d kolonk -tAc "SELECT count(*) FROM users" 2>$null
+if (-not $? -or "$userCount".Trim() -eq "" -or "$userCount".Trim() -eq "0") {
+    docker compose --profile $profileName exec -T $apiSvc python -m app.seed
+    Ok "Seed орлоо (шинэ сан)"
+} else {
+    Ok "Өгөгдөл аль хэдийн байна ($("$userCount".Trim()) хэрэглэгч) — seed алгасав"
+}
 
 Write-Host ""
 if ($Prod) {
