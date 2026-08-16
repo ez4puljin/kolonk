@@ -1,0 +1,214 @@
+/* -------------------------------------------------------------------------
+   80мм дулааны принтерийн баримт + А4 ээлжийн тайлан.
+
+   `usePrint` нуугдмал iframe үүсгээд `document.head`-ийн бүх хэв маягийг
+   хуулдаг тул энэ файл зөвхөн импортлогдсон байхад хангалттай.
+   ------------------------------------------------------------------------- */
+
+.rc-sheet {
+  width: 72mm;
+  margin: 0 auto;
+  padding: 3mm 0 6mm;
+  background: #ffffff;
+  color: #000000;
+  font-family: "Cascadia Mono", "Consolas", ui-monospace, SFMono-Regular, "Courier New", monospace;
+  font-size: 11px;
+  line-height: 1.35;
+  -webkit-font-smoothing: none;
+}
+
+.rc-sheet * {
+  box-sizing: border-box;
+}
+
+.rc-center {
+  text-align: center;
+}
+
+.rc-right {
+  text-align: right;
+}
+
+.rc-strong {
+  font-weight: 700;
+}
+
+.rc-station {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.rc-muted {
+  font-size: 10px;
+}
+
+.rc-rule {
+  border: 0;
+  border-top: 1px dashed #000000;
+  margin: 2mm 0;
+}
+
+.rc-rule-solid {
+  border: 0;
+  border-top: 1px solid #000000;
+  margin: 2mm 0;
+}
+
+.rc-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 3mm;
+}
+
+.rc-row > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.rc-num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.rc-item {
+  margin-bottom: 1.5mm;
+}
+
+.rc-item-name {
+  overflow-wrap: anywhere;
+}
+
+.rc-item-calc {
+  padding-left: 3mm;
+}
+
+.rc-total {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.rc-qr {
+  display: block;
+  width: 32mm;
+  height: 32mm;
+  margin: 2mm auto 1mm;
+  image-rendering: pixelated;
+}
+
+.rc-code {
+  overflow-wrap: anywhere;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.rc-footer {
+  margin-top: 3mm;
+  font-size: 10px;
+}
+
+/* --- Ээлжийн тайлан (А4) ------------------------------------------------- */
+
+.sr-sheet {
+  width: 100%;
+  max-width: 190mm;
+  margin: 0 auto;
+  background: #ffffff;
+  color: #000000;
+  font-family: "Segoe UI", "Inter", "Noto Sans", system-ui, sans-serif;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.sr-title {
+  font-size: 17px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.sr-sub {
+  font-size: 11px;
+  margin-top: 1mm;
+}
+
+.sr-section {
+  margin-top: 5mm;
+  font-size: 12px;
+  font-weight: 700;
+  border-bottom: 1px solid #000000;
+  padding-bottom: 1mm;
+  text-transform: uppercase;
+}
+
+.sr-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 6mm;
+  padding: 0.7mm 0;
+  border-bottom: 1px dotted #999999;
+}
+
+.sr-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 2mm;
+}
+
+.sr-table th,
+.sr-table td {
+  border: 1px solid #666666;
+  padding: 1.2mm 2mm;
+  text-align: left;
+}
+
+.sr-table th {
+  background: #eeeeee;
+  font-weight: 700;
+}
+
+.sr-table td.sr-num,
+.sr-table th.sr-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sr-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 8mm;
+}
+
+.sr-sign {
+  display: flex;
+  justify-content: space-between;
+  gap: 10mm;
+  margin-top: 10mm;
+  font-size: 11px;
+}
+
+@media print {
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    background: #ffffff;
+    color: #000000;
+  }
+
+  .rc-sheet {
+    padding-top: 2mm;
+  }
+
+  .rc-sheet,
+  .sr-sheet {
+    page-break-inside: auto;
+  }
+}

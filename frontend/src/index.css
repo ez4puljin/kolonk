@@ -1,0 +1,351 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------------- */
+/* Дизайн токен — хяналтын өрөөний хар сүүдэр + цайвар агуулгын хуудас        */
+/* ------------------------------------------------------------------------- */
+@theme {
+  --font-sans: "Segoe UI", "Inter", "Noto Sans", system-ui, -apple-system,
+    "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+  --font-mono: "Cascadia Mono", "Consolas", ui-monospace, SFMono-Regular, monospace;
+
+  /* Хар бүрхүүл */
+  --color-brand: #0f172a;
+  --color-brand-950: #020617;
+  --color-brand-900: #0f172a;
+  --color-brand-800: #1e293b;
+  --color-brand-700: #334155;
+  --color-brand-600: #475569;
+  --color-brand-500: #64748b;
+  --color-panel: #1e293b;
+  --color-panel-soft: #334155;
+  --color-panel-line: #334155;
+
+  /* Цайвар агуулга */
+  --color-surface: #f8fafc;
+  --color-surface-alt: #f1f5f9;
+  --color-surface-sunken: #e2e8f0;
+  --color-line: #e2e8f0;
+  --color-line-strong: #cbd5e1;
+
+  /* Бичвэр */
+  --color-ink: #0f172a;
+  --color-ink-soft: #475569;
+  --color-ink-faint: #94a3b8;
+  --color-ink-invert: #f8fafc;
+
+  /* Утга илэрхийлэх өнгө */
+  --color-success: #10b981;
+  --color-success-dark: #059669;
+  --color-success-soft: #d1fae5;
+  --color-action: #2563eb;
+  --color-action-dark: #1d4ed8;
+  --color-action-soft: #dbeafe;
+  --color-warning: #f59e0b;
+  --color-warning-dark: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #ef4444;
+  --color-danger-dark: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-neutral-soft: #e2e8f0;
+
+  --radius-xl: 0.875rem;
+  --radius-2xl: 1.125rem;
+  --radius-3xl: 1.5rem;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Суурь                                                                      */
+/* ------------------------------------------------------------------------- */
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    min-height: 100%;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    background-color: var(--color-brand-900);
+    color: var(--color-ink);
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Хүрэлтийн интерфэйс — санамсаргүй сонголт, зураг чирэлтийг хаана */
+  button,
+  [role="button"],
+  label,
+  .no-select {
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+  }
+
+  button {
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  input,
+  textarea,
+  select {
+    font: inherit;
+    color: inherit;
+  }
+
+  /* Тоо оруулах талбарын дээш/доош сум — хүрэлтэнд хэрэггүй */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    appearance: none;
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type="number"] {
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--color-action);
+    outline-offset: 2px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line-strong);
+    border-radius: 9999px;
+  }
+
+  .dark-scroll ::-webkit-scrollbar-thumb {
+    background: var(--color-brand-700);
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Туслах ангиуд                                                              */
+/* ------------------------------------------------------------------------- */
+@layer utilities {
+  /* Мөнгө/литр — тогтмол өргөнтэй цифр (баганад эгнэнэ) */
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
+  .num-lg {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+    font-size: 2.5rem;
+    line-height: 1.05;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  .num-xl {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+    font-size: 3.5rem;
+    line-height: 1;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+  }
+
+  .touch-target {
+    min-height: 48px;
+  }
+
+  .touch-target-lg {
+    min-height: 64px;
+  }
+
+  .scroll-touch {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Хөдөлгөөн                                                                  */
+/* ------------------------------------------------------------------------- */
+@keyframes kolonk-shake {
+  10%,
+  90% {
+    transform: translateX(-2px);
+  }
+  20%,
+  80% {
+    transform: translateX(4px);
+  }
+  30%,
+  50%,
+  70% {
+    transform: translateX(-8px);
+  }
+  40%,
+  60% {
+    transform: translateX(8px);
+  }
+}
+
+@keyframes kolonk-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes kolonk-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes kolonk-pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgb(16 185 129 / 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 14px rgb(16 185 129 / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(16 185 129 / 0);
+  }
+}
+
+.animate-shake {
+  animation: kolonk-shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+.animate-fade-up {
+  animation: kolonk-fade-up 0.18s ease-out both;
+}
+
+.animate-pop {
+  animation: kolonk-pop 0.15s ease-out both;
+}
+
+.animate-pulse-ring {
+  animation: kolonk-pulse-ring 1.6s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-shake,
+  .animate-fade-up,
+  .animate-pop,
+  .animate-pulse-ring {
+    animation: none !important;
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Хэвлэх                                                                     */
+/* ------------------------------------------------------------------------- */
+.print-only {
+  display: none !important;
+}
+
+@media print {
+  @page {
+    margin: 6mm;
+  }
+
+  html,
+  body,
+  #root {
+    height: auto !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .no-print,
+  nav,
+  aside,
+  header.app-header {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .print-sheet {
+    width: 72mm;
+    margin: 0;
+    padding: 0;
+    font-size: 11px;
+    line-height: 1.35;
+    color: #000000;
+  }
+
+  /* A4 тайлан (бараа материал, санхүү) — өргөн хүснэгттэй, өнгөгүй хэвлэнэ. */
+  .report-sheet {
+    margin: 0;
+    padding: 0;
+    font-size: 10px;
+    color: #000000;
+  }
+
+  .report-sheet table {
+    width: 100%;
+    min-width: 0 !important;
+  }
+
+  .report-sheet th,
+  .report-sheet td {
+    border-color: #000000 !important;
+    padding: 2px 4px !important;
+  }
+
+  .report-sheet thead {
+    display: table-header-group;   /* хуудас бүрд толгой давтагдана */
+  }
+
+  .report-sheet tr {
+    break-inside: avoid;
+  }
+
+  .report-sheet .overflow-x-auto {
+    overflow: visible !important;
+  }
+
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+}

@@ -1,0 +1,4 @@
+node_modules/
+dist/
+.vite/
+# package-lock.json-ыг ХАСАХГҮЙ — Dockerfile `npm ci`-д ашиглана.
