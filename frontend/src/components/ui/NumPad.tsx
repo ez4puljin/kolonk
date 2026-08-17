@@ -95,17 +95,21 @@ export function NumPad({
   const [intPart, fracPart] = display.split(".");
   const pretty = fracPart === undefined ? formatNumber(intPart, 0) : `${formatNumber(intPart, 0)}.${fracPart}`;
 
+  // Өндөр нь дэлгэцээс хамаарч агшина — намхан утсанд NumPad бүтэн багтана.
   const keyClass =
-    "h-16 rounded-xl border border-line-strong bg-white text-2xl font-semibold text-ink " +
+    "h-[clamp(3rem,6.5svh,4rem)] rounded-xl border border-line-strong bg-white text-2xl font-semibold text-ink " +
     "transition-colors active:bg-surface-sunken hover:bg-surface-alt select-none";
 
   return (
     <div className={`flex w-full flex-col gap-3 ${className}`}>
       {label ? <div className="text-sm font-medium text-ink-soft">{label}</div> : null}
 
-      <div className="flex min-h-[72px] items-center justify-end rounded-xl border border-line-strong bg-surface-alt px-5 py-3">
-        <span className="num truncate text-[40px] leading-none font-bold text-ink">{pretty}</span>
-        {suffix ? <span className="ml-2 text-2xl font-semibold text-ink-soft">{suffix}</span> : null}
+      <div className="flex min-h-16 items-center justify-end rounded-xl border border-line-strong bg-surface-alt px-4 py-2.5 sm:min-h-[72px] sm:px-5 sm:py-3">
+        {/* Урт миль (12 орон + бутархай) утсанд ч бүтэн харагдана */}
+        <span className="num truncate text-[clamp(1.625rem,8.5vw,2.5rem)] leading-none font-bold text-ink">
+          {pretty}
+        </span>
+        {suffix ? <span className="ml-2 text-xl font-semibold text-ink-soft sm:text-2xl">{suffix}</span> : null}
       </div>
 
       {quick && quick.length > 0 ? (
@@ -154,7 +158,7 @@ export function NumPad({
         <button
           type="button"
           onClick={clear}
-          className="h-14 rounded-xl border border-line-strong bg-white text-base font-semibold text-ink-soft active:bg-surface-sunken"
+          className="h-[clamp(2.75rem,5.5svh,3.5rem)] rounded-xl border border-line-strong bg-white text-base font-semibold text-ink-soft active:bg-surface-sunken"
         >
           <span className="inline-flex items-center justify-center gap-2">
             <X className="h-5 w-5" />
@@ -164,7 +168,7 @@ export function NumPad({
         <button
           type="button"
           onClick={backspace}
-          className="h-14 rounded-xl border border-line-strong bg-white text-base font-semibold text-ink-soft active:bg-surface-sunken"
+          className="h-[clamp(2.75rem,5.5svh,3.5rem)] rounded-xl border border-line-strong bg-white text-base font-semibold text-ink-soft active:bg-surface-sunken"
         >
           <span className="inline-flex items-center justify-center gap-2">
             <Delete className="h-5 w-5" />
@@ -179,7 +183,7 @@ export function NumPad({
             <button
               type="button"
               onClick={onCancel}
-              className="h-16 rounded-xl border border-line-strong bg-white text-lg font-semibold text-ink active:bg-surface-sunken"
+              className="h-[clamp(3rem,6.5svh,4rem)] rounded-xl border border-line-strong bg-white text-lg font-semibold text-ink active:bg-surface-sunken"
             >
               {t.common.cancel}
             </button>
@@ -189,7 +193,7 @@ export function NumPad({
               type="button"
               onClick={onSubmit}
               disabled={submitDisabled}
-              className="h-16 rounded-xl bg-success text-lg font-bold text-white transition-colors active:bg-success-dark disabled:pointer-events-none disabled:opacity-45"
+              className="h-[clamp(3rem,6.5svh,4rem)] rounded-xl bg-success text-lg font-bold text-white transition-colors active:bg-success-dark disabled:pointer-events-none disabled:opacity-45"
             >
               {submitLabel ?? t.common.confirm}
             </button>

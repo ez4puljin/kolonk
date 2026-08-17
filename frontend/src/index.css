@@ -189,6 +189,15 @@
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
+
+  /* Хэвтээ гүйдэг рэйл — scrollbar нуухад агуулга хумигдахгүй */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* ------------------------------------------------------------------------- */

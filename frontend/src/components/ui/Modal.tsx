@@ -79,9 +79,9 @@ export function Modal({
         ].join(" ")}
       >
         {(title || dismissible) && (
-          <header className="flex shrink-0 items-start gap-4 border-b border-line bg-white px-6 py-4">
+          <header className="flex shrink-0 items-start gap-4 border-b border-line bg-white px-4 py-3 sm:px-6 sm:py-4">
             <div className="min-w-0 flex-1">
-              {title ? <h2 className="truncate text-xl font-bold text-ink">{title}</h2> : null}
+              {title ? <h2 className="truncate text-lg font-bold text-ink sm:text-xl">{title}</h2> : null}
               {subtitle ? <p className="mt-0.5 truncate text-sm text-ink-soft">{subtitle}</p> : null}
             </div>
             {dismissible ? (
@@ -97,10 +97,11 @@ export function Modal({
           </header>
         )}
 
-        <div className="scroll-touch min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</div>
+        <div className="scroll-touch min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">{children}</div>
 
         {footer ? (
-          <footer className="safe-bottom flex shrink-0 items-center justify-end gap-3 border-t border-line bg-white px-6 py-4">
+          // Утсанд товчнууд өргөнөө тэнцүү хувааж, хуруунд том бай болно.
+          <footer className="safe-bottom flex shrink-0 items-center justify-end gap-3 border-t border-line bg-white px-4 py-3 sm:px-6 sm:py-4 [&>button]:flex-1 sm:[&>button]:flex-none">
             {footer}
           </footer>
         ) : null}

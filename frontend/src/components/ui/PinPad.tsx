@@ -89,7 +89,9 @@ export function PinPad({
   const dots = Array.from({ length: autoSubmitLength }, (_, index) => index < pin.length);
 
   return (
-    <div className={`flex w-full max-w-sm shrink-0 flex-col items-center gap-4 sm:gap-6 ${className}`}>
+    // Товчнуудын өндөр дэлгэцийн өндрөөс (svh) хамаарна — намхан утсанд
+    // 44px хүртэл агшиж, ПИН дэлгэц scroll-гүй бүтэн багтана.
+    <div className={`flex w-full max-w-sm shrink-0 flex-col items-center gap-[clamp(0.625rem,1.8svh,1.5rem)] ${className}`}>
       {title ? <div className="text-lg font-semibold text-ink-invert">{title}</div> : null}
 
       <div className={`flex flex-col items-center gap-3 ${shake ? "animate-shake" : ""}`}>
@@ -105,12 +107,12 @@ export function PinPad({
             />
           ))}
         </div>
-        <div className="h-6 text-sm font-medium text-danger" role="alert">
+        <div className="h-5 text-sm font-medium text-danger" role="alert">
           {error ?? ""}
         </div>
       </div>
 
-      <div className="grid w-full grid-cols-3 gap-2.5 sm:gap-3">
+      <div className="grid w-full grid-cols-3 gap-[clamp(0.5rem,1.2svh,0.75rem)]">
         {KEYS.map((key, index) => {
           if (key === null) {
             return onCancel ? (
@@ -118,7 +120,7 @@ export function PinPad({
                 key="cancel"
                 type="button"
                 onClick={onCancel}
-                className="h-14 rounded-xl border border-brand-700 bg-brand-800/60 text-sm font-semibold text-ink-faint transition-colors active:bg-brand-700 sm:h-16"
+                className="h-[clamp(2.75rem,7svh,4rem)] rounded-xl border border-brand-700 bg-brand-800/60 text-sm font-semibold text-ink-faint transition-colors active:bg-brand-700"
               >
                 {t.common.cancel}
               </button>
@@ -134,7 +136,7 @@ export function PinPad({
                 type="button"
                 onClick={() => press("back")}
                 aria-label={t.common.delete}
-                className="flex h-14 items-center justify-center rounded-xl border border-brand-700 bg-brand-800/60 text-ink-faint transition-colors active:bg-brand-700 sm:h-16"
+                className="flex h-[clamp(2.75rem,7svh,4rem)] items-center justify-center rounded-xl border border-brand-700 bg-brand-800/60 text-ink-faint transition-colors active:bg-brand-700"
               >
                 <Delete className="h-6 w-6" />
               </button>
@@ -147,7 +149,7 @@ export function PinPad({
               type="button"
               onClick={() => press(key)}
               disabled={loading}
-              className="num h-14 rounded-xl border border-brand-700 bg-brand-800 text-2xl font-bold text-ink-invert transition-colors active:bg-brand-700 disabled:opacity-50 sm:h-16"
+              className="num h-[clamp(2.75rem,7svh,4rem)] rounded-xl border border-brand-700 bg-brand-800 text-2xl font-bold text-ink-invert transition-colors active:bg-brand-700 disabled:opacity-50"
             >
               {key}
             </button>
@@ -160,7 +162,7 @@ export function PinPad({
           type="button"
           onClick={() => submit(pin)}
           disabled={pin.length < minLength || loading}
-          className="flex h-14 w-full items-center justify-center gap-3 rounded-xl bg-success text-lg font-bold text-white transition-colors active:bg-success-dark disabled:opacity-40 sm:h-16"
+          className="flex h-[clamp(2.75rem,7svh,4rem)] w-full items-center justify-center gap-3 rounded-xl bg-success text-lg font-bold text-white transition-colors active:bg-success-dark disabled:opacity-40"
         >
           {loading ? <Spinner size="md" /> : null}
           {t.auth.enter}

@@ -581,9 +581,13 @@ export function AttendantShiftPage() {
           </Card>
 
           <Card title={t.attendant.openMile}>
-            <div className="flex flex-col gap-3">
+            {/* Утсанд: шошго дээрээ, талбар бүтэн өргөнөөр — урт миль таслагдахгүй. */}
+            <div className="flex flex-col divide-y divide-line">
               {nozzles.map(({ pump, nozzle }) => (
-                <div key={nozzle.id} className="flex items-center gap-3">
+                <div
+                  key={nozzle.id}
+                  className="flex flex-col gap-1.5 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:gap-3"
+                >
                   <span className="min-w-0 flex-1 text-[15px] font-semibold text-ink">
                     {pump.name} · №{nozzle.nozzle_number} {nozzle.fuel_name}
                   </span>
@@ -595,7 +599,7 @@ export function AttendantShiftPage() {
                       setOpenReadings((prev) => ({ ...prev, [nozzle.id]: value }))
                     }
                     maxDecimals={3}
-                    className="w-36 sm:w-48"
+                    className="w-full sm:w-52"
                   />
                 </div>
               ))}
@@ -603,15 +607,19 @@ export function AttendantShiftPage() {
           </Card>
         </div>
 
-        <Button
-          variant="success"
-          size="lg"
-          block
-          loading={openMutation.isPending}
-          onClick={handleOpen}
-        >
-          {t.attendant.openShift}
-        </Button>
+        {/* Утсанд доод цэсний дээр наалдаж, урт жагсаалт гүйлгэсэн ч үргэлж
+            гар дор байна. Десктопт энгийн байрлалдаа. */}
+        <div className="sticky bottom-20 z-10 drop-shadow-lg lg:static lg:bottom-auto lg:drop-shadow-none">
+          <Button
+            variant="success"
+            size="lg"
+            block
+            loading={openMutation.isPending}
+            onClick={handleOpen}
+          >
+            {t.attendant.openShift}
+          </Button>
+        </div>
       </div>
     );
   }
@@ -737,15 +745,16 @@ export function AttendantShiftPage() {
         }
       >
         <div className="flex flex-col gap-4">
-          {/* Алхамын заагч */}
-          <div className="flex flex-wrap gap-1.5">
+          {/* Алхамын заагч — утсанд нэг мөр хэвтээ гүйнэ, десктопт эвхэгдэнэ */}
+          <div className="scrollbar-none -mx-1 flex gap-1.5 overflow-x-auto px-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
             {STEP_META.map((meta, index) => (
               <button
                 key={meta.label}
                 type="button"
+                ref={index === step ? (el) => el?.scrollIntoView({ inline: "center", block: "nearest" }) : undefined}
                 onClick={() => setStep(index as WizardStep)}
                 className={[
-                  "flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-bold",
+                  "flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs font-bold whitespace-nowrap",
                   index === step
                     ? "bg-action text-white"
                     : "bg-surface-sunken text-ink-soft",
@@ -759,9 +768,12 @@ export function AttendantShiftPage() {
 
           {/* 0 — Эцсийн миль */}
           {step === 0 ? (
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col divide-y divide-line">
               {nozzles.map(({ pump, nozzle }) => (
-                <div key={nozzle.id} className="flex items-center gap-3">
+                <div
+                  key={nozzle.id}
+                  className="flex flex-col gap-1.5 py-3 first:pt-0 sm:flex-row sm:items-center sm:gap-3"
+                >
                   <span className="min-w-0 flex-1 text-[15px] font-semibold text-ink">
                     {pump.name} · №{nozzle.nozzle_number} {nozzle.fuel_name}
                   </span>
@@ -773,11 +785,11 @@ export function AttendantShiftPage() {
                       setCloseReadings((prev) => ({ ...prev, [nozzle.id]: value }))
                     }
                     maxDecimals={3}
-                    className="w-36 sm:w-48"
+                    className="w-full sm:w-52"
                   />
                 </div>
               ))}
-              <div className="flex">
+              <div className="flex pt-3">
                 <PhotoButton shiftId={shiftId} kind="close" />
               </div>
             </div>
@@ -853,7 +865,7 @@ export function AttendantShiftPage() {
                       )
                     }
                     maxDecimals={3}
-                    className="w-36"
+                    className="min-w-[9rem] flex-1"
                   />
                   <button
                     type="button"
@@ -934,7 +946,7 @@ export function AttendantShiftPage() {
                         value={row.value}
                         onChange={(value) => patch({ value })}
                         maxDecimals={3}
-                        className="w-40"
+                        className="min-w-[10rem] flex-1"
                       />
                     </div>
                     <div className="flex flex-wrap items-end gap-2">
@@ -951,7 +963,7 @@ export function AttendantShiftPage() {
                         value={row.product_qty}
                         onChange={(value) => patch({ product_qty: value })}
                         maxDecimals={3}
-                        className="w-32"
+                        className="min-w-[8rem] flex-1"
                       />
                     </div>
                   </div>
@@ -1003,7 +1015,7 @@ export function AttendantShiftPage() {
                       value={row.amount}
                       onChange={(value) => patch({ amount: value })}
                       suffix={t.units.mnt}
-                      className="w-44"
+                      className="min-w-[11rem] flex-1"
                     />
                     <PickerField
                       label={t.attendant.arMethod}
@@ -1066,7 +1078,7 @@ export function AttendantShiftPage() {
                       value={row.amount}
                       onChange={(value) => patch({ amount: value })}
                       suffix={t.units.mnt}
-                      className="w-44"
+                      className="min-w-[11rem] flex-1"
                     />
                     <PickerField
                       label={t.expenses.paymentMethod}
