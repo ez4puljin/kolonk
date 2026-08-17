@@ -185,18 +185,21 @@ export function AppShell() {
 
   const logoutMutation = useLogoutMutation();
 
-  // Насосны шууд телеметр — бүрхүүл ажиллаж байх хугацаанд нээлттэй.
-  usePumpSocket(true);
+  // ПОС унтраалттай үед Касс/Дэлгүүр цэс нуугдана — түгээгчийн горимд
+  // бүх борлуулалт өдрийн хаалтаар бүртгэгддэг.
+  const { enabled: posEnabled, loading: posLoading } = usePosEnabled();
+  const routeVisible = (to: string): boolean => posEnabled || !to.startsWith("/pos");
+
+  // Түгээгүүрийн шууд телеметр — ЗӨВХӨН ПОС асаалттай үед. Түгээгчийн
+  // горимд түгээгүүрийг системээс удирддаггүй тул socket хэрэггүй байсаар
+  // 30 секунд тутам дахин холбогдох гэж оролддог байв. Тохиргоо ирэх хүртэл
+  // мөн хүлээнэ — дэмий нэг холболт үүсгэхээс сэргийлнэ.
+  usePumpSocket(posEnabled && !posLoading);
 
   // Зам солигдоход гар утасны хажуугийн цэсийг хаана.
   useEffect(() => {
     setSidebar(false);
   }, [location.pathname, setSidebar]);
-
-  // ПОС унтраалттай үед Касс/Дэлгүүр цэс нуугдана — түгээгчийн горимд
-  // бүх борлуулалт өдрийн хаалтаар бүртгэгддэг.
-  const { enabled: posEnabled } = usePosEnabled();
-  const routeVisible = (to: string): boolean => posEnabled || !to.startsWith("/pos");
 
   const sections = NAV.map((section) => ({
     ...section,

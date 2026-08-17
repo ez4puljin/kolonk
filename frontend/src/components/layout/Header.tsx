@@ -4,6 +4,7 @@ import { LogOut, Menu, Wifi, WifiOff } from "lucide-react";
 
 import { useCurrentShift } from "../../api/queries/shifts";
 import { useSettings } from "../../api/queries/system";
+import { usePosEnabled } from "../../hooks/usePosEnabled";
 import { t } from "../../i18n/mn";
 import { formatClock, formatDate } from "../../lib/format";
 import { useAuthStore } from "../../stores/auth";
@@ -36,6 +37,7 @@ export function Header({ onLogout, loggingOut = false }: HeaderProps) {
   const user = useAuthStore((state) => state.user);
   const toggleSidebar = useUiStore((state) => state.toggleSidebar);
   const connection = usePumpsStore((state) => state.connection);
+  const { enabled: posEnabled } = usePosEnabled();
 
   const { data: settings } = useSettings();
   const { data: current } = useCurrentShift();
@@ -68,16 +70,20 @@ export function Header({ onLogout, loggingOut = false }: HeaderProps) {
       </div>
 
       <div className="ml-auto flex items-center gap-2 sm:gap-3">
-        <span
-          className="hidden items-center gap-1.5 text-xs font-medium text-slate-400 sm:flex"
-          title={connection === "online" ? t.common.online : t.common.offline}
-        >
-          {connection === "online" ? (
-            <Wifi className="h-4 w-4 text-success" />
-          ) : (
-            <WifiOff className="h-4 w-4 text-warning" />
-          )}
-        </span>
+        {/* Түгээгүүрийн холболтын дүрс — ПОС унтраалттай үед socket огт
+            нээгддэггүй тул байнга «офлайн» болж төөрөгдүүлэхээс нуугдана. */}
+        {posEnabled ? (
+          <span
+            className="hidden items-center gap-1.5 text-xs font-medium text-slate-400 sm:flex"
+            title={connection === "online" ? t.common.online : t.common.offline}
+          >
+            {connection === "online" ? (
+              <Wifi className="h-4 w-4 text-success" />
+            ) : (
+              <WifiOff className="h-4 w-4 text-warning" />
+            )}
+          </span>
+        ) : null}
 
         <button
           type="button"
