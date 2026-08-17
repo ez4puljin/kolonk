@@ -22,6 +22,7 @@ from app.schemas.auth import (
 )
 from app.schemas.system import OkResponse
 from app.security import create_token, verify_pin
+from app.services import login_guard_service
 from app.services.audit_service import audit
 
 router = APIRouter(prefix="/api", tags=["auth"])
@@ -30,6 +31,16 @@ BAD_PIN = "ПИН код буруу байна"
 
 
 def _client_ip(request: Request) -> str | None:
+    """Хэрэглэгчийн жинхэнэ IP.
+
+    ``CF-Connecting-IP``-г эхэнд харна: Cloudflare Tunnel-ээр орж ирэхэд
+    үүнийг өөрөө тавьдаг бөгөөд хэрэглэгчийн илгээсэн хуурамч утгыг
+    дарж бичдэг. ``X-Forwarded-For`` бол зөвхөн орон нутгийн nginx-ийн
+    ард ажиллах үеийн нөөц хувилбар.
+    """
+    cf_ip = request.headers.get("cf-connecting-ip")
+    if cf_ip:
+        return cf_ip.strip()[:64]
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
         return forwarded.split(",")[0].strip()[:64]
@@ -84,10 +95,17 @@ async def login(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> LoginResponse:
+    # ПИН таах халдлагаас хамгаална — систем интернэтэд гарсан тул
+    # хязгааргүй оролдлого бол 4-6 оронтой код хэдхэн минутад тайлагдана.
+    ip = _client_ip(request)
+    await login_guard_service.check_allowed(payload.user_id, ip)
+
     user = await db.scalar(select(User).where(User.id == payload.user_id))
     if user is None or not user.is_active or not verify_pin(payload.pin, user.pin_hash):
+        await login_guard_service.record_failure(payload.user_id, ip)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=BAD_PIN)
 
+    await login_guard_service.record_success(user.id, ip)
     user.last_login_at = datetime.now(UTC)
     await audit(
         db,
@@ -96,7 +114,7 @@ async def login(
         entity_type="user",
         entity_id=user.id,
         after={"username": user.username, "role": user.role.code},
-        ip=_client_ip(request),
+        ip=ip,
     )
 
     return LoginResponse(

@@ -99,6 +99,25 @@ services:
     depends_on:
       - api-prod
 
+  # Cloudflare Tunnel — систем интернэтэд HTTPS-ээр гарна.
+  #
+  # Гадагш зөвхөн ЭНЭ сервис холбогддог тул роутер дээр порт нээх,
+  # статик IP авах шаардлагагүй бөгөөд CGNAT-ын цаанаас ч ажиллана.
+  # `TUNNEL_TOKEN`-г Cloudflare Zero Trust самбар дээр tunnel үүсгэхэд
+  # өгдөг — .env файлд хийнэ.
+  #
+  # Prod ажиллаж байхад дараа нь нэмж асаана:
+  #   docker compose --profile prod --profile tunnel up -d
+  #
+  # `depends_on` зориуд алга: cloudflared эх сервер (nginx) руу өөрөө дахин
+  # холбогдож байдаг тул дараалал хамаарахгүй, харин prod профайлгүйгээр
+  # ганцаараа асаах боломжтой болно.
+  cloudflared:
+    profiles: ["tunnel"]
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN:-}
+
 volumes:
   pgdata: {}
   redisdata: {}
