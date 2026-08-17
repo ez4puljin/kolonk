@@ -56,6 +56,8 @@ MOVEMENT_NAMES: dict[str, str] = {
     str(InventoryTxType.ADJUSTMENT): "Тохируулга",
     str(InventoryTxType.CONVERT_OUT): "Задлалт (гарсан)",
     str(InventoryTxType.CONVERT_IN): "Задлалт (орсон)",
+    str(InventoryTxType.TRANSFER_OUT): "Шилжүүлэг (гарсан)",
+    str(InventoryTxType.TRANSFER_IN): "Шилжүүлэг (орсон)",
 }
 
 GROUP_BY_LABELS: dict[str, str] = {

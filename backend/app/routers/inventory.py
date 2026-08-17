@@ -34,6 +34,8 @@ from app.schemas.product import (
     INVENTORY_TX_NAMES_MN,
     SALE_MODE_NAMES_MN,
     BranchQty,
+    BranchTransferIn,
+    BranchTransferOut,
     BulkConversionIn,
     BulkConversionOut,
     InventoryAdjustmentIn,
@@ -366,6 +368,70 @@ async def create_adjustment(
     )
 
     return InventoryAdjustmentOut(product=_product_out(product), transaction=_tx_out(tx, product))
+
+
+# --------------------------------------------------------------------------- #
+# Салбар хоорондын шилжүүлэг
+# --------------------------------------------------------------------------- #
+@router.post("/inventory/transfers", response_model=BranchTransferOut, status_code=201)
+async def create_transfer(
+    payload: BranchTransferIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("inventory.manage")),
+) -> BranchTransferOut:
+    """Барааг нэг салбараас нөгөө рүү шилжүүлнэ.
+
+    Нийт нөөц хөдлөхгүй (1302 данс өөрчлөгдөхгүй) — зөвхөн салбар хоорондын
+    үлдэгдэл, өртөг шилжинэ.
+    """
+    product = await db.scalar(
+        select(Product)
+        .options(selectinload(Product.category))
+        .where(Product.id == payload.product_id)
+    )
+    if product is None:
+        raise HTTPException(status_code=404, detail="Бараа олдсонгүй")
+
+    for branch_id in (payload.from_branch_id, payload.to_branch_id):
+        branch = await db.scalar(select(Branch).where(Branch.id == branch_id))
+        if branch is None:
+            raise HTTPException(status_code=404, detail="Салбар олдсонгүй")
+        if not branch.is_active:
+            raise HTTPException(status_code=422, detail="Идэвхгүй салбар руу шилжүүлэх боломжгүй")
+
+    note = (payload.note or "").strip() or None
+    tx_out, tx_in = await inventory_service.transfer_product(
+        db,
+        product,
+        q3(payload.qty),
+        from_branch_id=payload.from_branch_id,
+        to_branch_id=payload.to_branch_id,
+        note=note,
+    )
+    await db.flush()
+
+    await audit(
+        db,
+        user_id=user.id,
+        action="inventory.transfer",
+        entity_type="product",
+        entity_id=product.id,
+        after={
+            "qty": str(q3(payload.qty)),
+            "from_branch_id": str(payload.from_branch_id),
+            "to_branch_id": str(payload.to_branch_id),
+            "unit_cost": str(tx_out.unit_cost),
+            "note": note,
+        },
+        ip=_client_ip(request),
+    )
+
+    return BranchTransferOut(
+        product=_product_out(product),
+        out_transaction=_tx_out(tx_out, product),
+        in_transaction=_tx_out(tx_in, product),
+    )
 
 
 # --------------------------------------------------------------------------- #

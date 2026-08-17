@@ -54,11 +54,16 @@ class Product(UUIDPKMixin, TimestampMixin, Base):
 
 
 class ProductBranchStock(UUIDPKMixin, TimestampMixin, Base):
-    """Салбар тус бүрийн барааны үлдэгдэл.
+    """Салбар тус бүрийн барааны үлдэгдэл ба өртөг.
 
     ``Product.stock_qty`` нь БҮХ салбарын нийлбэр хэвээр (журнал 1302 үүнтэй
     тулдаг), харин энэ хүснэгт салбар бүрийн задаргааг хөтөлнө.
     Инвариант: Σ(qty) == product.stock_qty.
+
+    ``avg_cost`` нь тухайн салбарын хөдлөх дундаж өртөг — салбар бүр өөр
+    үнээр татсан бол борлуулалтын өртөг (COGS) тухайн салбарынхаараа
+    бодогдоно. ``Product.avg_cost`` нь эдгээрийн жигнэсэн дундаж:
+    Σ(qty × avg_cost) / Σ(qty).
     """
 
     __tablename__ = "product_branch_stocks"
@@ -71,6 +76,9 @@ class ProductBranchStock(UUIDPKMixin, TimestampMixin, Base):
         PGUUID(as_uuid=True), ForeignKey("branches.id"), nullable=False, index=True
     )
     qty: Mapped[Decimal] = mapped_column(Liters, nullable=False, default=Decimal("0"))
+    avg_cost: Mapped[Decimal] = mapped_column(
+        UnitCost, nullable=False, default=Decimal("0"), server_default="0"
+    )
 
 
 class InventoryTransaction(UUIDPKMixin, TimestampMixin, Base):

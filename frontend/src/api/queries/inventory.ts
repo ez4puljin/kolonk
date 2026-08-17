@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../client";
 import type {
+  BranchTransferInput,
+  BranchTransferResult,
   BulkConversionInput,
   BulkConversionResult,
   InventoryAdjustment,
@@ -63,6 +65,19 @@ export function useAdjustInventoryMutation() {
       void queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
       void queryClient.invalidateQueries({ queryKey: ["products"] });
       void queryClient.invalidateQueries({ queryKey: ["accounting"] });
+    },
+  });
+}
+
+/** Салбар хоорондын шилжүүлэг — нийт нөөц хөдлөхгүй, өртөг хамт шилжинэ. */
+export function useBranchTransferMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: BranchTransferInput) =>
+      api.post<BranchTransferResult>("/api/inventory/transfers", payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
+      void queryClient.invalidateQueries({ queryKey: ["products"] });
     },
   });
 }

@@ -26,6 +26,8 @@ INVENTORY_TX_NAMES_MN: dict[str, str] = {
     InventoryTxType.ADJUSTMENT: "Тохируулга",
     InventoryTxType.CONVERT_OUT: "Задлалт (гарсан)",
     InventoryTxType.CONVERT_IN: "Задлалт (орсон)",
+    InventoryTxType.TRANSFER_OUT: "Шилжүүлэг (гарсан)",
+    InventoryTxType.TRANSFER_IN: "Шилжүүлэг (орсон)",
 }
 
 #: Борлуулах хэлбэрийн монгол нэр.
@@ -239,6 +241,25 @@ class InventoryAdjustmentIn(BaseModel):
 class InventoryAdjustmentOut(BaseModel):
     product: ProductOut
     transaction: InventoryTxOut
+
+
+# --------------------------------------------------------------------------- #
+# Салбар хоорондын шилжүүлэг
+# --------------------------------------------------------------------------- #
+class BranchTransferIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    product_id: uuid.UUID
+    from_branch_id: uuid.UUID
+    to_branch_id: uuid.UUID
+    qty: Decimal = Field(gt=0, description="Шилжүүлэх тоо хэмжээ")
+    note: str | None = Field(default=None, max_length=255)
+
+
+class BranchTransferOut(BaseModel):
+    product: ProductOut
+    out_transaction: InventoryTxOut
+    in_transaction: InventoryTxOut
 
 
 # --------------------------------------------------------------------------- #

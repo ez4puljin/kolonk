@@ -88,21 +88,79 @@ async def _move_branch_stock(
     product: Product,
     branch_id: uuid.UUID | None,
     delta: Decimal,
+    *,
+    in_unit_cost: Decimal | None = None,
 ) -> None:
     """Салбарын үлдэгдлийг ``delta``-гаар хөдөлгөнө.
 
     Нийт ``product.stock_qty``-г дуудагч аль хэдийн шинэчилсэн байх ёстой,
     ингэснээр Σ(салбар) == нийт инвариант хадгалагдана.  Салбарын үлдэгдэл
-    хүрэлцэхгүй бол 422 — өөр салбарын бараагаар зарж болохгүй."""
+    хүрэлцэхгүй бол 422 — өөр салбарын бараагаар зарж болохгүй.
+
+    ``in_unit_cost`` өгвөл (орлого) тухайн салбарын хөдлөх дунджийг дахин
+    бодно; зарлагад дундаж хөдлөхгүй."""
     if branch_id is None:
         return
     row = await _branch_stock(db, product.id, branch_id)
-    balance = q3(_d(row.qty) + delta)
+    old_qty = q3(_d(row.qty))
+    balance = q3(old_qty + delta)
     if balance < ZERO:
         raise HTTPException(
             status_code=422, detail="Энэ салбарт барааны үлдэгдэл хүрэлцэхгүй байна"
         )
+    if in_unit_cost is not None and delta > ZERO:
+        old_avg = q6(_d(row.avg_cost))
+        row.avg_cost = (
+            q6((old_qty * old_avg + delta * q6(in_unit_cost)) / balance)
+            if balance > ZERO
+            else q6(in_unit_cost)
+        )
     row.qty = balance
+
+
+async def branch_unit_cost(
+    db: AsyncSession, product: Product, branch_id: uuid.UUID | None
+) -> Decimal:
+    """Тухайн салбарын нэгж өртөг. Салбар/өртөг тодорхойгүй бол глобал дундаж.
+
+    Салбар бүр өөр үнээр татдаг тул борлуулалтын өртөг, тохируулга,
+    задлалт бүгд ЭНЭ утгыг ашиглана."""
+    if branch_id is None:
+        return q6(_d(product.avg_cost))
+    row = await db.scalar(
+        select(ProductBranchStock).where(
+            ProductBranchStock.product_id == product.id,
+            ProductBranchStock.branch_id == branch_id,
+        )
+    )
+    cost = q6(_d(row.avg_cost)) if row is not None else ZERO
+    return cost if cost > ZERO else q6(_d(product.avg_cost))
+
+
+async def sync_product_cost(db: AsyncSession, product: Product) -> None:
+    """Нийт дундаж өртгийг салбаруудын жигнэсэн дунджаар дахин бодно.
+
+        avg_cost = Σ(qty_салбар × cost_салбар) / Σ(qty_салбар)
+
+    Ингэснээр «нийт үлдэгдэл × дундаж өртөг» нь салбаруудын үнэлгээний
+    нийлбэртэй таарна.  Салбарын мөр огт байхгүй (эсвэл нийт үлдэгдэл 0)
+    бол өмнөх утгыг хөндөхгүй."""
+    rows = (
+        await db.scalars(
+            select(ProductBranchStock).where(ProductBranchStock.product_id == product.id)
+        )
+    ).all()
+    if not rows:
+        return
+    total_qty = ZERO
+    total_value = ZERO
+    for row in rows:
+        qty = q3(_d(row.qty))
+        total_qty += qty
+        total_value += qty * q6(_d(row.avg_cost))
+    if total_qty <= ZERO:
+        return
+    product.avg_cost = q6(total_value / total_qty)
 
 
 async def consume_product(
@@ -126,7 +184,8 @@ async def consume_product(
     if qty > stock:
         raise HTTPException(status_code=422, detail="Барааны үлдэгдэл хүрэлцэхгүй байна")
 
-    avg_cost = q6(_d(product.avg_cost))
+    # Өртөг нь ЗАРСАН САЛБАРЫНХ — салбар бүр өөр үнээр татсан байж болно.
+    avg_cost = await branch_unit_cost(db, product, branch_id)
     balance_after = q3(stock - qty)
     cogs = q2(qty * avg_cost)
 
@@ -184,7 +243,9 @@ async def receive_product(
     balance_after = q3(denominator)
     product.stock_qty = balance_after
     product.avg_cost = new_avg
-    await _move_branch_stock(db, product, branch_id, qty)
+    # Салбарын хөдлөх дундаж — таталт тухайн салбарын өртгийг хөдөлгөнө.
+    await _move_branch_stock(db, product, branch_id, qty, in_unit_cost=unit_cost)
+    await sync_product_cost(db, product)
 
     _record(
         db,
@@ -271,8 +332,8 @@ async def convert_to_bulk(
     if qty > stock:
         raise HTTPException(status_code=422, detail="Барааны үлдэгдэл хүрэлцэхгүй байна")
 
-    # --- Зарлага: ширхэг бараа ---
-    unit_cost = q6(_d(source.avg_cost))
+    # --- Зарлага: ширхэг бараа (задалж буй САЛБАРЫН өртгөөр) ---
+    unit_cost = await branch_unit_cost(db, source, branch_id)
     total_cost = qty * unit_cost  # бүтэн нарийвчлалаар — дугуйлалт хийхгүй
     source_balance = q3(stock - qty)
     source.stock_qty = source_balance
@@ -302,7 +363,9 @@ async def convert_to_bulk(
 
     target_balance = q3(denominator)
     target.stock_qty = target_balance
-    await _move_branch_stock(db, target, branch_id, out_qty)
+    await _move_branch_stock(db, target, branch_id, out_qty, in_unit_cost=in_unit_cost)
+    await sync_product_cost(db, source)
+    await sync_product_cost(db, target)
     tx_in = _record(
         db,
         target,
@@ -315,6 +378,74 @@ async def convert_to_bulk(
         note=note or f"{source.name_mn} × {qty}",
         branch_id=branch_id,
     )
+    return tx_out, tx_in
+
+
+async def transfer_product(
+    db: AsyncSession,
+    product: Product,
+    qty: Decimal,
+    *,
+    from_branch_id: uuid.UUID,
+    to_branch_id: uuid.UUID,
+    note: str | None = None,
+    ref_type: str = "branch_transfer",
+    ref_id: uuid.UUID | None = None,
+) -> tuple[InventoryTransaction, InventoryTransaction]:
+    """Салбар хооронд бараа шилжүүлнэ.
+
+    Нийт ``product.stock_qty`` ХӨДӨЛӨХГҮЙ — бараа компанийн дотор л
+    байрлалаа сольж байгаа тул 1302 дансны үлдэгдэл өөрчлөгдөхгүй, журналын
+    бичилт шаардлагагүй.  Өртөг бүрэн шилжинэ: өгсөн салбарын дундаж
+    өртгөөр үнэлж, авсан салбарын хөдлөх дунджийг дахин бодно.
+
+    Буцаана: (гарсан мөр, орсон мөр).
+    """
+    if from_branch_id == to_branch_id:
+        raise HTTPException(status_code=422, detail="Ижил салбар руу шилжүүлэх боломжгүй")
+
+    qty = q3(qty)
+    if qty <= ZERO:
+        raise HTTPException(status_code=422, detail="Шилжүүлэх тоо хэмжээ 0-ээс их байх ёстой")
+
+    unit_cost = await branch_unit_cost(db, product, from_branch_id)
+    total_qty = q3(_d(product.stock_qty))
+
+    # --- Гарах салбар (үлдэгдэл хүрэлцэхгүй бол _move_branch_stock 422 өгнө) ---
+    await _move_branch_stock(db, product, from_branch_id, -qty)
+    source_row = await _branch_stock(db, product.id, from_branch_id)
+    tx_out = _record(
+        db,
+        product,
+        tx_type=InventoryTxType.TRANSFER_OUT,
+        qty=-qty,
+        unit_cost=unit_cost,
+        balance_after=q3(_d(source_row.qty)),
+        ref_type=ref_type,
+        ref_id=ref_id,
+        note=note,
+        branch_id=from_branch_id,
+    )
+
+    # --- Орох салбар: хөдлөх дундаж шилжсэн өртгөөр ---
+    await _move_branch_stock(db, product, to_branch_id, qty, in_unit_cost=unit_cost)
+    dest_row = await _branch_stock(db, product.id, to_branch_id)
+    tx_in = _record(
+        db,
+        product,
+        tx_type=InventoryTxType.TRANSFER_IN,
+        qty=qty,
+        unit_cost=unit_cost,
+        balance_after=q3(_d(dest_row.qty)),
+        ref_type=ref_type,
+        ref_id=ref_id,
+        note=note,
+        branch_id=to_branch_id,
+    )
+
+    # Нийт үлдэгдэл хэвээр; дундаж өртөг салбаруудаас дахин бодогдоно.
+    product.stock_qty = total_qty
+    await sync_product_cost(db, product)
     return tx_out, tx_in
 
 
@@ -341,6 +472,8 @@ async def adjust_product(
     if balance_after < ZERO:
         raise HTTPException(status_code=422, detail="Барааны үлдэгдэл хүрэлцэхгүй байна")
 
+    # Тохируулгыг тухайн салбарын өртгөөр үнэлнэ (дундаж хөдлөхгүй).
+    unit_cost = await branch_unit_cost(db, product, branch_id)
     product.stock_qty = balance_after
     await _move_branch_stock(db, product, branch_id, qty)
     return _record(
@@ -348,7 +481,7 @@ async def adjust_product(
         product,
         tx_type=InventoryTxType.ADJUSTMENT,
         qty=qty,
-        unit_cost=q6(_d(product.avg_cost)),
+        unit_cost=unit_cost,
         balance_after=balance_after,
         ref_type=ref_type,
         ref_id=ref_id,

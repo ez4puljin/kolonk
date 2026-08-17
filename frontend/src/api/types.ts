@@ -45,7 +45,9 @@ export type InventoryTxType =
   | "refund"
   | "adjustment"
   | "convert_out"
-  | "convert_in";
+  | "convert_in"
+  | "transfer_out"
+  | "transfer_in";
 export type SaleType = "fuel" | "store" | "mixed";
 export type SaleStatus = "draft" | "completed" | "refunded" | "partial_refund";
 export type ItemType = "fuel" | "product";
@@ -694,6 +696,21 @@ export interface BulkConversionResult {
   qty: string;
   out_qty: string;
   cost: MoneyStr;
+  out_transaction: InventoryTransaction;
+  in_transaction: InventoryTransaction;
+}
+
+/** Салбар хоорондын шилжүүлэг — нийт нөөц хөдлөхгүй, өртөг хамт шилжинэ. */
+export interface BranchTransferInput {
+  product_id: UUID;
+  from_branch_id: UUID;
+  to_branch_id: UUID;
+  qty: string;
+  note?: string | null;
+}
+
+export interface BranchTransferResult {
+  product: Product;
   out_transaction: InventoryTransaction;
   in_transaction: InventoryTransaction;
 }

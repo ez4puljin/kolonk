@@ -1,9 +1,13 @@
 import { useMemo, useState } from "react";
-import { Boxes, Scissors, SlidersHorizontal } from "lucide-react";
+import { ArrowLeftRight, Boxes, Scissors, SlidersHorizontal } from "lucide-react";
 
 import { errorMessage } from "../../api/client";
 import { useBranches } from "../../api/queries/branches";
-import { useAdjustInventoryMutation, useInventory } from "../../api/queries/inventory";
+import {
+  useAdjustInventoryMutation,
+  useBranchTransferMutation,
+  useInventory,
+} from "../../api/queries/inventory";
 import { useProductCategories } from "../../api/queries/products";
 import type { InventoryRow, ProductSaleMode } from "../../api/types";
 import { PageHeader } from "../../components/layout/PageHeader";
@@ -58,6 +62,15 @@ export function InventoryPage() {
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  // Салбар хоорондын шилжүүлэг
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferProductId, setTransferProductId] = useState("");
+  const [transferFrom, setTransferFrom] = useState("");
+  const [transferTo, setTransferTo] = useState("");
+  const [transferQty, setTransferQty] = useState("");
+  const [transferNote, setTransferNote] = useState("");
+  const [transferError, setTransferError] = useState<string | null>(null);
+
   const categoriesQuery = useProductCategories();
   const branchesQuery = useBranches();
   const inventoryQuery = useInventory({
@@ -68,6 +81,7 @@ export function InventoryPage() {
     limit: 1000,
   });
   const adjustMutation = useAdjustInventoryMutation();
+  const transferMutation = useBranchTransferMutation();
 
   const branches = useMemo(
     () => (branchesQuery.data ?? []).filter((branch) => branch.is_active),
@@ -214,11 +228,26 @@ export function InventoryPage() {
         title={t.inventory.title}
         subtitle={t.inventory.valuation}
         actions={
-          canConvert ? (
-            <Button variant="secondary" size="lg" icon={<Scissors />} onClick={() => setConvertOpen(true)}>
-              {t.inventory.convertTitle}
-            </Button>
-          ) : null
+          <>
+            {canManage && branches.length > 1 ? (
+              <Button
+                variant="secondary"
+                size="lg"
+                icon={<ArrowLeftRight />}
+                onClick={() => {
+                  setTransferOpen(true);
+                  setTransferError(null);
+                }}
+              >
+                {t.inventory.transferTitle}
+              </Button>
+            ) : null}
+            {canConvert ? (
+              <Button variant="secondary" size="lg" icon={<Scissors />} onClick={() => setConvertOpen(true)}>
+                {t.inventory.convertTitle}
+              </Button>
+            ) : null}
+          </>
         }
       />
 
@@ -313,6 +342,109 @@ export function InventoryPage() {
         onClose={() => setConvertOpen(false)}
         branchId={branchId || null}
       />
+
+      {/* Салбар хоорондын шилжүүлэг — нийт нөөц хөдлөхгүй, өртөг хамт явна */}
+      <Modal
+        open={transferOpen}
+        onClose={() => setTransferOpen(false)}
+        size="md"
+        title={t.inventory.transferTitle}
+        subtitle={t.inventory.transferHint}
+        footer={
+          <>
+            <Button variant="secondary" size="md" onClick={() => setTransferOpen(false)}>
+              {t.common.cancel}
+            </Button>
+            <Button
+              variant="primary"
+              size="md"
+              disabled={
+                transferProductId === "" ||
+                transferFrom === "" ||
+                transferTo === "" ||
+                transferFrom === transferTo ||
+                dToNumber(transferQty) <= 0
+              }
+              loading={transferMutation.isPending}
+              onClick={() => {
+                setTransferError(null);
+                transferMutation.mutate(
+                  {
+                    product_id: transferProductId,
+                    from_branch_id: transferFrom,
+                    to_branch_id: transferTo,
+                    qty: transferQty,
+                    note: transferNote.trim() || null,
+                  },
+                  {
+                    onSuccess: () => {
+                      toastSuccess(t.inventory.transferDone);
+                      setTransferOpen(false);
+                      setTransferProductId("");
+                      setTransferQty("");
+                      setTransferNote("");
+                    },
+                    onError: (cause) => setTransferError(errorMessage(cause)),
+                  },
+                );
+              }}
+            >
+              {t.common.confirm}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <PickerField
+            label={t.products.product}
+            value={transferProductId}
+            options={allRows.map((row) => ({
+              value: row.product_id,
+              label: `${row.name_mn} · ${formatQty(row.stock_qty, row.unit)}`,
+            }))}
+            onChange={setTransferProductId}
+          />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <PickerField
+              label={t.inventory.transferFrom}
+              value={transferFrom}
+              options={branches.map((branch) => ({ value: branch.id, label: branch.name }))}
+              onChange={setTransferFrom}
+            />
+            <PickerField
+              label={t.inventory.transferTo}
+              value={transferTo}
+              options={branches
+                .filter((branch) => branch.id !== transferFrom)
+                .map((branch) => ({ value: branch.id, label: branch.name }))}
+              onChange={setTransferTo}
+            />
+          </div>
+          <NumberField
+            name="inventory-transfer-qty"
+            label={t.inventory.adjustQty}
+            value={transferQty}
+            onChange={setTransferQty}
+            maxDecimals={3}
+            hint={
+              transferProductId && transferFrom
+                ? `${t.inventory.onHand}: ${formatQty(
+                    allRows
+                      .find((row) => row.product_id === transferProductId)
+                      ?.branches.find((item) => item.branch_id === transferFrom)?.qty ?? "0",
+                  )}`
+                : undefined
+            }
+          />
+          <TextAreaField label={t.common.note} value={transferNote} onChange={setTransferNote} />
+
+          {transferError ? (
+            <p className="rounded-xl bg-danger-soft px-4 py-3 text-sm font-medium text-danger-dark">
+              {transferError}
+            </p>
+          ) : null}
+        </div>
+      </Modal>
 
       <Modal
         open={adjusting !== null}

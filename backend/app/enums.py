@@ -48,6 +48,10 @@ class InventoryTxType(StrEnum):
     CONVERT_OUT = "convert_out"
     #: Задлан хөрвүүлэлт — грам бүтээгдэхүүн рүү орсон орлого.
     CONVERT_IN = "convert_in"
+    #: Салбар хоорондын шилжүүлэг — өгсөн салбарын зарлага.
+    TRANSFER_OUT = "transfer_out"
+    #: Салбар хоорондын шилжүүлэг — авсан салбарын орлого.
+    TRANSFER_IN = "transfer_in"
 
 
 class ProductSaleMode(StrEnum):
