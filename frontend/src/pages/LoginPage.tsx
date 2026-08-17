@@ -130,29 +130,39 @@ export function LoginPage() {
           // Хэмжээсүүд дэлгэцийн өндрөөс (svh) хамаарч агшиж тэлдэг тул ПИН-ий
           // карт ямар ч утсанд scroll-гүй бүтэн багтана. overflow-y-auto нь
           // зөвхөн хэвтээ эргүүлсэн утасны аюулгүйн нөөц.
-          <section className="scroll-touch flex max-h-full w-full max-w-md flex-col items-center gap-[clamp(0.625rem,2svh,1.75rem)] overflow-y-auto rounded-3xl border border-brand-700 bg-brand-900/70 p-[clamp(0.875rem,2.2svh,1.75rem)] shadow-2xl backdrop-blur">
+          <section className="scroll-touch flex max-h-full w-full max-w-md flex-col items-center gap-[clamp(0.375rem,2svh,1.75rem)] overflow-y-auto rounded-3xl border border-brand-700 bg-brand-900/70 p-[clamp(0.5rem,2.2svh,1.75rem)] shadow-2xl backdrop-blur">
             <button
               type="button"
               onClick={() => {
                 setSelected(null);
                 setError(null);
               }}
-              className="flex h-9 w-full shrink-0 items-center gap-2 rounded-xl px-2 text-sm font-semibold text-slate-400 transition-colors hover:text-white"
+              // Хүрэлтийн доод хэмжээ 44px. Зөвхөн маш намхан дэлгэцэд (iPhone SE,
+              // Safari-ийн хэрэгслийн мөртэй) багасгана — тэнд ПИН товчлуур
+              // бүтэн багтах нь илүү чухал.
+              className="flex h-11 w-full shrink-0 items-center gap-2 rounded-xl px-2 text-sm font-semibold text-slate-400 transition-colors hover:text-white [@media(max-height:600px)]:h-8"
             >
               <ChevronLeft className="h-5 w-5" />
               {t.auth.changeUser}
             </button>
 
-            <div className="flex shrink-0 flex-col items-center gap-[clamp(0.5rem,1.2svh,0.75rem)]">
+            {/* Намхан дэлгэцэд (iPhone SE) аватар, нэр ХЭВТЭЭ эгнэнэ: босоо
+                хураахад 108px → 52px болж, ПИН товчлуур бүтэн багтана.
+                Өндөр дэлгэцэд урьдын адил босоо, том аватартай. */}
+            <div className="flex w-full shrink-0 flex-row items-center justify-center gap-3 [@media(min-height:640px)]:flex-col [@media(min-height:640px)]:gap-[clamp(0.5rem,1.2svh,0.75rem)]">
               <span
-                className="flex h-[clamp(3.25rem,8svh,5rem)] w-[clamp(3.25rem,8svh,5rem)] items-center justify-center rounded-2xl text-xl font-black text-white shadow-lg sm:text-2xl"
+                className="flex h-[clamp(2.75rem,8svh,5rem)] w-[clamp(2.75rem,8svh,5rem)] shrink-0 items-center justify-center rounded-2xl text-xl font-black text-white shadow-lg sm:text-2xl"
                 style={{ backgroundColor: roleMeta(selected.role_code).color }}
               >
                 {initials(selected.full_name)}
               </span>
-              <div className="text-center">
-                <div className="text-lg font-bold text-white sm:text-xl">{selected.full_name}</div>
-                <div className="text-sm text-slate-400">{selected.role_name_mn}</div>
+              <div className="min-w-0 text-left [@media(min-height:640px)]:text-center">
+                <div className="truncate text-lg font-bold text-white sm:text-xl">
+                  {selected.full_name}
+                </div>
+                <div className="truncate text-sm text-slate-400">
+                  {selected.branch?.name ?? selected.role_name_mn}
+                </div>
               </div>
               {/* Намхан дэлгэцэд нуугдана — "Нэвтрэх" гарчиг хангалттай. */}
               <div className="hidden text-sm text-slate-400 [@media(min-height:700px)]:block">
@@ -174,7 +184,12 @@ export function LoginPage() {
           <section className="flex max-h-full w-full max-w-6xl flex-col">
             <div className="mb-3 shrink-0 text-center sm:mb-6">
               <h1 className="text-2xl font-bold text-white sm:text-3xl">{t.auth.title}</h1>
-              <p className="mt-1.5 text-sm text-slate-400 sm:text-base">{t.auth.subtitle}</p>
+              {/* Намхан дэлгэцэд (iPhone SE, Safari-ийн хэрэгслийн мөр зай
+                  идсэн үед) нуугдана — хайрцгууд өөрсдөө ойлгомжтой бөгөөд
+                  энэ мөрөөс болж сүүлийн эгнээ таслагдахаас сэргийлнэ. */}
+              <p className="mt-1.5 hidden text-sm text-slate-400 [@media(min-height:600px)]:block sm:text-base">
+                {t.auth.subtitle}
+              </p>
             </div>
 
             {isLoading ? (

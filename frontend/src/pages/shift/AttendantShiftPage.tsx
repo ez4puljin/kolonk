@@ -856,8 +856,14 @@ export function AttendantShiftPage() {
         <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
           {nozzles.map(({ pump, nozzle }) => (
             <div key={nozzle.id} className="num min-w-0 rounded-xl border border-line bg-white px-3 py-2">
-              <div className="truncate text-[11px] font-semibold text-ink-soft sm:text-xs">
-                {pump.name} · №{nozzle.nozzle_number} {nozzle.fuel_name}
+              {/* Хоёр мөрөөр: нэг мөрөнд багтаахад утсанд ТҮЛШНИЙ НЭР
+                  таслагддаг байв — түгээгч аль хошуу болохоо ялгаж
+                  чадахгүй болно. */}
+              <div className="text-[11px] font-semibold text-ink-soft sm:text-xs">
+                <span className="block truncate">{pump.name}</span>
+                <span className="block truncate">
+                  №{nozzle.nozzle_number} {nozzle.fuel_name}
+                </span>
               </div>
               <div className="truncate text-base font-bold text-ink sm:text-lg">
                 {formatNumber(nozzle.totalizer, 1)}
