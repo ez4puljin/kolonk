@@ -18,7 +18,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.deps import get_current_user, require_permission
-from app.models.product import Product, ProductCategory
+from app.models.product import Product, ProductBranchStock, ProductCategory
 from app.models.user import User
 from app.money import q2, q3
 from app.enums import ProductSaleMode
@@ -157,13 +157,35 @@ async def _bulk_names(
 
 
 async def _one_out(
-    db: AsyncSession, product: Product, category_name: str | None = None
+    db: AsyncSession,
+    product: Product,
+    category_name: str | None = None,
+    *,
+    branch_id: uuid.UUID | None = None,
 ) -> ProductOut:
     names = await _bulk_names(db, [product])
     hit = names.get(product.bulk_product_id) if product.bulk_product_id else None
+
+    # Салбар зааж өгсөн бол үлдэгдэл, үнэ нь тухайн салбарынхаар харагдана.
+    stock_override: Decimal | None = None
+    price_override: Decimal | None = None
+    if branch_id is not None:
+        from app.services.pricing_service import product_price_override
+
+        qty = await db.scalar(
+            select(ProductBranchStock.qty).where(
+                ProductBranchStock.product_id == product.id,
+                ProductBranchStock.branch_id == branch_id,
+            )
+        )
+        stock_override = q3(qty or ZERO)
+        price_override = await product_price_override(db, product.id, branch_id)
+
     return _to_out(
         product,
         category_name,
+        stock_override=stock_override,
+        price_override=price_override,
         bulk_name=hit[0] if hit else None,
         bulk_unit=hit[1] if hit else None,
     )
@@ -385,7 +407,21 @@ async def list_products(
     if is_active is not None:
         conditions.append(Product.is_active.is_(is_active))
     if low_stock:
-        conditions.append(Product.stock_qty <= Product.min_stock)
+        if branch_id is None:
+            conditions.append(Product.stock_qty <= Product.min_stock)
+        else:
+            # Салбарын горимд ТУХАЙН САЛБАРЫН үлдэгдлээр шүүнэ — глобал
+            # нийлбэр хангалттай ч нэг салбарт дууссан байж болно.
+            branch_qty = (
+                select(ProductBranchStock.qty)
+                .where(
+                    ProductBranchStock.product_id == Product.id,
+                    ProductBranchStock.branch_id == branch_id,
+                )
+                .correlate(Product)
+                .scalar_subquery()
+            )
+            conditions.append(func.coalesce(branch_qty, ZERO) <= Product.min_stock)
 
     total = await db.scalar(select(func.count()).select_from(Product).where(*conditions)) or 0
     products = (
@@ -414,7 +450,6 @@ async def list_products(
         return ProductListOut(items=[out(p) for p in products], total=int(total))
 
     # Салбарын горим: үлдэгдэл + үнэ тухайн салбарынхаар.
-    from app.models.product import ProductBranchStock
     from app.services.pricing_service import product_price_map
 
     ids = [p.id for p in products]
@@ -443,10 +478,13 @@ async def list_products(
 @router.get("/products/{product_id}", response_model=ProductOut)
 async def get_product(
     product_id: uuid.UUID,
+    branch_id: uuid.UUID | None = Query(
+        default=None, description="Үлдэгдэл, үнийг энэ салбарынхаар харуулна"
+    ),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> ProductOut:
-    return await _one_out(db, await _load_product(db, product_id))
+    return await _one_out(db, await _load_product(db, product_id), branch_id=branch_id)
 
 
 # --------------------------------------------------------------------------- #

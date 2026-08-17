@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import require_permission
+from app.models.branch import Branch
 from app.models.fuel import Fuel, Tank
 from app.models.product import Product, ProductCategory
 from app.models.user import User
@@ -37,11 +38,15 @@ async def filter_options(
         await db.scalars(select(ProductCategory).order_by(ProductCategory.sort_order))
     ).all()
     products = (await db.scalars(select(Product).order_by(Product.name_mn))).all()
+    branches = (
+        await db.scalars(select(Branch).where(Branch.is_active.is_(True)).order_by(Branch.name))
+    ).all()
 
     return {
         "accounts": [
             {"code": code, "name": name} for code, name in svc.ACCOUNT_NAMES.items()
         ],
+        "branches": [{"id": str(b.id), "code": b.code, "name": b.name} for b in branches],
         "locations": [
             {"id": str(t.id), "code": t.name, "name": t.name, "account_code": svc.ACC.INV_FUEL}
             for t in tanks
@@ -65,6 +70,7 @@ def _params(
     fuel_id: uuid.UUID | None = Query(default=None),
     product_id: uuid.UUID | None = Query(default=None),
     category_id: uuid.UUID | None = Query(default=None),
+    branch_id: uuid.UUID | None = Query(default=None),
     group_by: str = Query(default="account_location_item"),
     tx_type: str = Query(default="all"),
     note_search: str | None = Query(default=None),
@@ -79,6 +85,7 @@ def _params(
         "fuel_id": fuel_id,
         "product_id": product_id,
         "category_id": category_id,
+        "branch_id": branch_id,
         "group_by": group_by,
         "tx_type": tx_type,
         "note_search": note_search,

@@ -24,6 +24,7 @@ from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import InventoryTxType, TankMovementType
+from app.models.branch import Branch
 from app.models.fuel import Fuel, Tank, TankMovement
 from app.models.product import InventoryTransaction, Product, ProductCategory
 from app.money import q2, q3, q6
@@ -153,6 +154,7 @@ def _fuel_stmt(
     *,
     tank_id: uuid.UUID | None,
     fuel_id: uuid.UUID | None,
+    branch_id: uuid.UUID | None = None,
 ) -> Select:
     stmt = (
         select(TankMovement, Tank, Fuel)
@@ -163,6 +165,9 @@ def _fuel_stmt(
         stmt = stmt.where(TankMovement.tank_id == tank_id)
     if fuel_id is not None:
         stmt = stmt.where(Tank.fuel_id == fuel_id)
+    if branch_id is not None:
+        # Түлш саванд байдаг тул салбарыг савны харьяалалаар тодорхойлно.
+        stmt = stmt.where(Tank.branch_id == branch_id)
     return stmt
 
 
@@ -170,6 +175,7 @@ def _goods_stmt(
     *,
     product_id: uuid.UUID | None,
     category_id: uuid.UUID | None,
+    branch_id: uuid.UUID | None = None,
 ) -> Select:
     stmt = (
         select(InventoryTransaction, Product, ProductCategory)
@@ -180,6 +186,8 @@ def _goods_stmt(
         stmt = stmt.where(InventoryTransaction.product_id == product_id)
     if category_id is not None:
         stmt = stmt.where(Product.category_id == category_id)
+    if branch_id is not None:
+        stmt = stmt.where(InventoryTransaction.branch_id == branch_id)
     return stmt
 
 
@@ -191,6 +199,7 @@ async def _load_movements(
     fuel_id: uuid.UUID | None,
     product_id: uuid.UUID | None,
     category_id: uuid.UUID | None,
+    branch_id: uuid.UUID | None = None,
     until: Any,
     since: Any | None,
 ) -> list[Movement]:
@@ -206,7 +215,9 @@ async def _load_movements(
         want_goods = False
 
     if want_fuel:
-        stmt = _fuel_stmt(tank_id=tank_id, fuel_id=fuel_id).where(TankMovement.created_at < until)
+        stmt = _fuel_stmt(tank_id=tank_id, fuel_id=fuel_id, branch_id=branch_id).where(
+            TankMovement.created_at < until
+        )
         if since is not None:
             stmt = stmt.where(TankMovement.created_at >= since)
         for mv, tank, fuel in (await db.execute(stmt.order_by(TankMovement.created_at))).all():
@@ -233,9 +244,9 @@ async def _load_movements(
             )
 
     if want_goods:
-        stmt = _goods_stmt(product_id=product_id, category_id=category_id).where(
-            InventoryTransaction.created_at < until
-        )
+        stmt = _goods_stmt(
+            product_id=product_id, category_id=category_id, branch_id=branch_id
+        ).where(InventoryTransaction.created_at < until)
         if since is not None:
             stmt = stmt.where(InventoryTransaction.created_at >= since)
         rows = (await db.execute(stmt.order_by(InventoryTransaction.created_at))).all()
@@ -342,13 +353,17 @@ async def inventory_movement_report(
     fuel_id: uuid.UUID | None = None,
     product_id: uuid.UUID | None = None,
     category_id: uuid.UUID | None = None,
+    branch_id: uuid.UUID | None = None,
     group_by: str = "account_location_item",
     tx_type: str = "all",
     note_search: str | None = None,
     include_details: bool = False,
     skip_empty: bool = True,
 ) -> dict[str, Any]:
-    """Бараа материалын хөдөлгөөний тайлан /өртгөөр/."""
+    """Бараа материалын хөдөлгөөний тайлан /өртгөөр/.
+
+    ``branch_id`` — түлшийг савны, барааг гүйлгээний харьяалалаар шүүнэ.
+    """
     start = day_start(date_from)
     end = day_end(date_to)
 
@@ -358,6 +373,7 @@ async def inventory_movement_report(
         "fuel_id": fuel_id,
         "product_id": product_id,
         "category_id": category_id,
+        "branch_id": branch_id,
     }
 
     opening = await _load_movements(db, until=start, since=None, **common)
@@ -424,6 +440,10 @@ async def inventory_movement_report(
 
     # Шүүлтийн нөхцлийг эх хэлээр бичих (тайлангийн толгойд гарна).
     conditions: list[str] = []
+    if branch_id is not None:
+        branch = await db.get(Branch, branch_id)
+        if branch:
+            conditions.append(f"Салбар: {branch.name}")
     if account_code:
         conditions.append(f"Данс: {account_code} - {ACCOUNT_NAMES.get(account_code, '')}")
     if tank_id is not None:

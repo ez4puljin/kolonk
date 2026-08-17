@@ -3,6 +3,7 @@ import { Package, Pencil, Plus, Power, Scissors, TrendingUp } from "lucide-react
 
 import { errorMessage } from "../../api/client";
 import { useCreatePriceChangeMutation } from "../../api/queries/approvals";
+import { useBranches } from "../../api/queries/branches";
 import {
   useCreateProductMutation,
   useDeleteProductMutation,
@@ -77,6 +78,8 @@ export function ProductsPage() {
 
   const [query, setQuery] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  // Салбар сонговол үлдэгдэл, зарах үнэ нь ТУХАЙН САЛБАРЫНХААР харагдана.
+  const [branchId, setBranchId] = useState("");
   const [stockFilter, setStockFilter] = useState<StockFilter>("all");
   const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
   const [offset, setOffset] = useState(0);
@@ -95,8 +98,10 @@ export function ProductsPage() {
   const [deactivating, setDeactivating] = useState<Product | null>(null);
 
   const categoriesQuery = useProductCategories();
+  const branchesQuery = useBranches();
   const productsQuery = useProducts({
     category_id: categoryId || undefined,
+    branch_id: branchId || undefined,
     low_stock: stockFilter === "low" ? true : undefined,
     sale_mode: modeFilter === "all" ? undefined : modeFilter,
     limit: 500,
@@ -392,6 +397,21 @@ export function ProductsPage() {
           }}
           className="min-w-[14rem]"
         />
+        {(branchesQuery.data ?? []).length > 1 ? (
+          <PickerField
+            label={t.branches.title}
+            value={branchId}
+            options={[
+              { value: "", label: t.branches.allBranches },
+              ...(branchesQuery.data ?? []).map((b) => ({ value: b.id, label: b.name })),
+            ]}
+            onChange={(next) => {
+              setBranchId(next);
+              setOffset(0);
+            }}
+            className="min-w-[13rem]"
+          />
+        ) : null}
         <ChipGroup<ModeFilter>
           value={modeFilter}
           onChange={(next) => {

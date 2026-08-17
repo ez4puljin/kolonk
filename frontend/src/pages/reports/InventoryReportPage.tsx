@@ -262,6 +262,19 @@ export function InventoryReportPage() {
         size="lg"
       >
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {(options?.branches ?? []).length > 1 ? (
+            <TouchSelect
+              label={t.branches.title}
+              value={(draft.branch_id as string) ?? ANY}
+              onChange={(v) => setDraft((d) => ({ ...d, branch_id: v === ANY ? null : (v as never) }))}
+              options={[
+                { value: ANY, label: t.branches.allBranches },
+                ...(options?.branches ?? []).map((b) => ({ value: b.id as string, label: b.name })),
+              ]}
+              columns={1}
+            />
+          ) : null}
+
           <TouchSelect
             label={t.inventoryReport.account}
             value={draft.account_code ?? ANY}

@@ -264,6 +264,7 @@ async def inventory_snapshot(
 @router.get("/inventory/transactions", response_model=InventoryTxListOut)
 async def list_transactions(
     product_id: uuid.UUID | None = Query(default=None),
+    branch_id: uuid.UUID | None = Query(default=None, description="Зөвхөн энэ салбарын хөдөлгөөн"),
     tx_type: InventoryTxType | None = Query(default=None),
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
@@ -275,6 +276,8 @@ async def list_transactions(
     conditions = []
     if product_id is not None:
         conditions.append(InventoryTransaction.product_id == product_id)
+    if branch_id is not None:
+        conditions.append(InventoryTransaction.branch_id == branch_id)
     if tx_type is not None:
         conditions.append(InventoryTransaction.tx_type == str(tx_type))
     if date_from is not None:

@@ -73,6 +73,7 @@ class InventoryFilterOptions(BaseModel):
     """Шүүлтийн цонхны сонголтууд."""
 
     accounts: list[dict] = []
+    branches: list[dict] = []
     locations: list[dict] = []
     fuels: list[dict] = []
     categories: list[dict] = []

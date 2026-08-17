@@ -980,6 +980,8 @@ export interface InventoryReportParams {
   fuel_id?: UUID | null;
   product_id?: UUID | null;
   category_id?: UUID | null;
+  /** Салбар — түлшийг савны, барааг гүйлгээний харьяалалаар шүүнэ. */
+  branch_id?: UUID | null;
   group_by?: string;
   tx_type?: string;
   note_search?: string | null;
@@ -989,6 +991,7 @@ export interface InventoryReportParams {
 
 export interface InventoryFilterOptions {
   accounts: { code: string; name: string }[];
+  branches: { id: UUID; code: string; name: string }[];
   locations: { id: UUID; code: string; name: string; account_code: string }[];
   fuels: { id: UUID; code: string; name: string }[];
   categories: { id: UUID; name: string }[];
