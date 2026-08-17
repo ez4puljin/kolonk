@@ -21,6 +21,7 @@ import { NumPadModal } from "../../components/pos/NumPadModal";
 import { Button } from "../../components/ui/Button";
 import { Spinner } from "../../components/ui/Spinner";
 import { usePermission } from "../../hooks/usePermission";
+import { usePosEnabled } from "../../hooks/usePosEnabled";
 import { t } from "../../i18n/mn";
 import { QUICK_CASH } from "../../lib/constants";
 import { dCmp, dSub, toDisplay } from "../../lib/decimal";
@@ -57,12 +58,8 @@ function variance(actual: string, book: string): string {
 }
 
 export function ShiftPage() {
-  const { data: settingsProbe } = useSettings();
   // ПОС унтраалттай бол ээлж түгээгчийн өдрийн горимоор явна.
-  const posEnabled =
-    settingsProbe === undefined
-      ? true
-      : settingsProbe.pos_sales_enabled === true || settingsProbe.pos_sales_enabled === "true";
+  const { enabled: posEnabled } = usePosEnabled();
   if (!posEnabled) return <AttendantShiftPage />;
   return <PosShiftPage />;
 }

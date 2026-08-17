@@ -35,7 +35,7 @@ import {
 } from "lucide-react";
 
 import { useLogoutMutation } from "../../api/queries/auth";
-import { useSettings } from "../../api/queries/system";
+import { usePosEnabled } from "../../hooks/usePosEnabled";
 import { usePumpSocket } from "../../hooks/usePumpSocket";
 import { usePermission } from "../../hooks/usePermission";
 import { t } from "../../i18n/mn";
@@ -195,11 +195,7 @@ export function AppShell() {
 
   // ПОС унтраалттай үед Касс/Дэлгүүр цэс нуугдана — түгээгчийн горимд
   // бүх борлуулалт өдрийн хаалтаар бүртгэгддэг.
-  const { data: navSettings } = useSettings();
-  const posEnabled =
-    navSettings === undefined
-      ? true
-      : navSettings.pos_sales_enabled === true || navSettings.pos_sales_enabled === "true";
+  const { enabled: posEnabled } = usePosEnabled();
   const routeVisible = (to: string): boolean => posEnabled || !to.startsWith("/pos");
 
   const sections = NAV.map((section) => ({

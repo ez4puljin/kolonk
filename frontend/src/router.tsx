@@ -1,11 +1,12 @@
 import { Suspense, lazy, type ComponentType, type ReactNode } from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { ShieldAlert } from "lucide-react";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { PowerOff, ShieldAlert } from "lucide-react";
 
 import { AppShell } from "./components/layout/AppShell";
 import { Button } from "./components/ui/Button";
 import { Spinner } from "./components/ui/Spinner";
 import { usePermission } from "./hooks/usePermission";
+import { usePosEnabled } from "./hooks/usePosEnabled";
 import { t } from "./i18n/mn";
 import { homeForRole } from "./lib/constants";
 import { useAuthStore } from "./stores/auth";
@@ -163,6 +164,38 @@ function RequirePermission({ code, children }: { code: string | readonly string[
   return <>{children}</>;
 }
 
+/**
+ * ПОС унтраалттай үед кассын замууд хаагдана.
+ *
+ * Цэснээс нуугдсан ч хаягаар шууд орох боломж үлдэхээс сэргийлнэ —
+ * түгээгчийн горимд бүх борлуулалт зөвхөн өдрийн хаалтаар бүртгэгдэнэ.
+ */
+function RequirePos({ children }: { children: ReactNode }) {
+  const { enabled, loading } = usePosEnabled();
+
+  if (loading) return <RouteFallback />;
+  if (!enabled) return <PosDisabled />;
+  return <>{children}</>;
+}
+
+function PosDisabled() {
+  const navigate = useNavigate();
+  return (
+    <div className="flex min-h-[60vh] flex-1 flex-col items-center justify-center gap-5 text-center">
+      <span className="flex h-20 w-20 items-center justify-center rounded-full bg-warning-soft text-warning-dark">
+        <PowerOff className="h-10 w-10" />
+      </span>
+      <div className="space-y-2">
+        <h1 className="text-2xl font-bold text-ink">{t.pos.disabled}</h1>
+        <p className="max-w-md text-ink-soft">{t.pos.disabledHint}</p>
+      </div>
+      <Button variant="secondary" size="lg" onClick={() => navigate("/shift", { replace: true })}>
+        {t.nav.shift}
+      </Button>
+    </div>
+  );
+}
+
 /** Дүрийн дагуу нүүр дэлгэц рүү. */
 function HomeRedirect() {
   const roleCode = useAuthStore((state) => state.user?.role_code ?? null);
@@ -194,12 +227,14 @@ export function AppRoutes() {
         >
           <Route index element={<HomeRedirect />} />
 
-          {/* Касс */}
+          {/* Касс — тохиргоонд ПОС унтраалттай бол бүхэлдээ хаагдана */}
           <Route
             path="/pos"
             element={
               <RequirePermission code="sales.create">
-                <PosPage />
+                <RequirePos>
+                  <PosPage />
+                </RequirePos>
               </RequirePermission>
             }
           />
@@ -207,7 +242,9 @@ export function AppRoutes() {
             path="/pos/store"
             element={
               <RequirePermission code="sales.create">
-                <PosStorePage />
+                <RequirePos>
+                  <PosStorePage />
+                </RequirePos>
               </RequirePermission>
             }
           />
@@ -215,7 +252,9 @@ export function AppRoutes() {
             path="/pos/bulk"
             element={
               <RequirePermission code="sales.create">
-                <PosBulkPage />
+                <RequirePos>
+                  <PosBulkPage />
+                </RequirePos>
               </RequirePermission>
             }
           />
@@ -223,7 +262,9 @@ export function AppRoutes() {
             path="/pos/payment"
             element={
               <RequirePermission code="sales.create">
-                <PosPaymentPage />
+                <RequirePos>
+                  <PosPaymentPage />
+                </RequirePos>
               </RequirePermission>
             }
           />

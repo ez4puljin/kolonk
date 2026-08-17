@@ -21,7 +21,7 @@ from app.deps import require_permission, user_permissions
 from app.enums import PaymentMethod
 from app.models.user import User
 from app.schemas.sale import ReceiptOut, SaleCreate, SaleCreatedOut, SaleListOut, SaleOut
-from app.services import sale_service
+from app.services import sale_service, shift_service
 
 router = APIRouter(prefix="/api", tags=["sales"])
 
@@ -39,6 +39,15 @@ async def create_sale(
     db: AsyncSession = Depends(get_db),
     user: User = CanCreate,
 ) -> SaleCreatedOut:
+    # Тохиргоонд ПОС унтраалттай бол кассын борлуулалт хаалттай — түгээгчийн
+    # горимд бүх борлуулалт өдрийн хаалтаар (attendant_service) бүртгэгдэнэ.
+    # Тэр урсгал sale_service.create_sale-ийг дотроос нь дууддаг тул шалгалт
+    # зөвхөн энэ гадаад цэгт байна.
+    if await shift_service.attendant_mode(db):
+        raise HTTPException(
+            status_code=409,
+            detail="Тохиргоонд ПОС борлуулалт унтраалттай байна. Өдрийн хаалтаар бүртгэнэ үү",
+        )
     sale = await sale_service.create_sale(db, user, payload)
     detail = await sale_service.sale_detail(db, sale)
     receipt = await sale_service.receipt_payload(db, sale)

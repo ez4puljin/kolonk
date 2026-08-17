@@ -10,7 +10,7 @@
 
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Banknote, Database, Droplets, Fuel, Gauge, Package, TriangleAlert } from "lucide-react";
+import { Database, Fuel, Gauge, Package, TriangleAlert } from "lucide-react";
 
 import { useBranches } from "../../api/queries/branches";
 import { useBranchShifts, useFuelTrend } from "../../api/queries/dashboards";
@@ -23,10 +23,10 @@ import { Card } from "../../components/ui/Card";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { ProgressBar } from "../../components/ui/ProgressBar";
 import { Spinner } from "../../components/ui/Spinner";
-import { StatBox } from "../../components/ui/StatBox";
+import { usePosEnabled } from "../../hooks/usePosEnabled";
 import { t } from "../../i18n/mn";
 import { dToNumber } from "../../lib/decimal";
-import { formatDateTime, formatLiters, formatMNT, formatMoneyExact, formatPct } from "../../lib/format";
+import { formatDateTime, formatLiters, formatMNT, formatPct } from "../../lib/format";
 
 function fillPct(tank: Tank): number {
   const pct = Number(tank.fill_pct);
@@ -140,6 +140,7 @@ export function CashierDashboard() {
 
   const branchShifts = useBranchShifts();
   const trendQuery = useFuelTrend(7);
+  const { enabled: posEnabled } = usePosEnabled();
 
   const shift = current?.shift ?? null;
   const tanks = useMemo(() => tanksPage?.items ?? [], [tanksPage]);
@@ -179,46 +180,19 @@ export function CashierDashboard() {
       <PageHeader
         title={t.dashboard.title}
         actions={
-          <>
-            <Button variant="secondary" size="md" icon={<Package />} onClick={() => navigate("/pos/store")}>
-              {t.pos.store}
-            </Button>
-            <Button variant="primary" size="md" icon={<Fuel />} onClick={() => navigate("/pos")}>
-              {t.pos.forecourt}
-            </Button>
-          </>
+          /* ПОС унтраалттай үед кассын товч огт гарахгүй. */
+          posEnabled ? (
+            <>
+              <Button variant="secondary" size="md" icon={<Package />} onClick={() => navigate("/pos/store")}>
+                {t.pos.store}
+              </Button>
+              <Button variant="primary" size="md" icon={<Fuel />} onClick={() => navigate("/pos")}>
+                {t.pos.forecourt}
+              </Button>
+            </>
+          ) : undefined
         }
       />
-
-      {/* Өөрийн ээлжийн үндсэн үзүүлэлт */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatBox
-          label={t.dashboard.todaySales}
-          value={formatMoneyExact(current?.sales.gross_total ?? "0", false)}
-          unit={t.units.mnt}
-          size="lg"
-          tone="action"
-          icon={<Banknote className="h-6 w-6" />}
-          hint={`${current?.sales.count ?? 0} ${t.common.rows}`}
-        />
-        <StatBox
-          label={t.dashboard.todayLiters}
-          value={formatLiters(current?.sales.fuel_liters ?? "0", 2)}
-          size="lg"
-          tone="success"
-          icon={<Droplets className="h-6 w-6" />}
-          hint={formatMNT(current?.sales.fuel_amount ?? "0")}
-        />
-        <StatBox
-          label={t.dashboard.cashInDrawer}
-          value={formatMoneyExact(current?.cash.expected_cash ?? "0", false)}
-          unit={t.units.mnt}
-          size="lg"
-          tone="warning"
-          icon={<Banknote className="h-6 w-6" />}
-          hint={`${t.shift.openingCash}: ${formatMNT(current?.cash.opening_cash ?? "0")}`}
-        />
-      </div>
 
       {/* Салбар бүрийн түгээгчийн ээлж */}
       <Card
