@@ -183,20 +183,36 @@ export function OwnerDashboard() {
   });
 
   const trendQuery = useQuery({
-    queryKey: ["reports", "sales-summary", { granularity: "day", from: rangeFrom, to: rangeTo }],
+    queryKey: [
+      "reports",
+      "sales-summary",
+      { granularity: "day", from: rangeFrom, to: rangeTo, branchId },
+    ],
     queryFn: () =>
       api.get<SalesSummaryReport>("/api/reports/sales", {
-        params: { granularity: "day", date_from: rangeFrom, date_to: rangeTo },
+        params: {
+          granularity: "day",
+          date_from: rangeFrom,
+          date_to: rangeTo,
+          ...(branchId ? { branch_id: branchId } : {}),
+        },
       }),
     enabled: can("reports.view"),
     staleTime: 120_000,
   });
 
+  // Кассын зөрүү — сонгосон салбарын хаагдсан ээлжүүдээр.
   const shiftsQuery = useQuery({
-    queryKey: ["shifts", "list", { from: monthFrom, to: rangeTo, status: "closed" }],
+    queryKey: ["shifts", "list", { from: monthFrom, to: rangeTo, status: "closed", branchId }],
     queryFn: () =>
       api.get<Paged<ShiftSummary>>("/api/shifts", {
-        params: { date_from: monthFrom, date_to: rangeTo, status: "closed", limit: 200 },
+        params: {
+          date_from: monthFrom,
+          date_to: rangeTo,
+          status: "closed",
+          limit: 200,
+          ...(branchId ? { branch_id: branchId } : {}),
+        },
       }),
     enabled: can("shifts.view_all"),
     staleTime: 120_000,

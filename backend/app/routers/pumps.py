@@ -262,14 +262,25 @@ async def create_pump(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_permission("pumps.manage")),
 ) -> PumpOut:
-    clash = await db.scalar(select(func.count()).select_from(Pump).where(Pump.number == payload.number))
+    from app.services.branch_service import resolve_branch_id
+
+    branch_id = await resolve_branch_id(db, user, payload.branch_id)
+    # Дугаар зөвхөн ТУХАЙН САЛБАР дотроо давхардахгүй — салбар бүр өөрийн
+    # «1-р насос»-той байна.
+    clash = await db.scalar(
+        select(func.count())
+        .select_from(Pump)
+        .where(Pump.number == payload.number, Pump.branch_id == branch_id)
+    )
     if clash:
-        raise HTTPException(status_code=422, detail="Ийм дугаартай насос бүртгэгдсэн байна")
+        raise HTTPException(
+            status_code=422, detail="Энэ салбарт ийм дугаартай насос бүртгэгдсэн байна"
+        )
 
     pump = Pump(
         number=payload.number,
         name=payload.name.strip(),
-        branch_id=payload.branch_id,
+        branch_id=branch_id,
         position_x=payload.position_x,
         position_y=payload.position_y,
         driver=payload.driver,
@@ -325,11 +336,16 @@ async def update_pump(
     before = _snapshot(pump)
 
     if changes.get("number") is not None and changes["number"] != pump.number:
+        target_branch = changes.get("branch_id", pump.branch_id)
         clash = await db.scalar(
-            select(func.count()).select_from(Pump).where(Pump.number == changes["number"])
+            select(func.count())
+            .select_from(Pump)
+            .where(Pump.number == changes["number"], Pump.branch_id == target_branch)
         )
         if clash:
-            raise HTTPException(status_code=422, detail="Ийм дугаартай насос бүртгэгдсэн байна")
+            raise HTTPException(
+                status_code=422, detail="Энэ салбарт ийм дугаартай насос бүртгэгдсэн байна"
+            )
 
     if changes.get("name") is not None:
         changes["name"] = str(changes["name"]).strip()

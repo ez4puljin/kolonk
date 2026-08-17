@@ -52,6 +52,7 @@ async def list_sales(
     shift_id: uuid.UUID | None = Query(default=None),
     method: PaymentMethod | None = Query(default=None),
     customer_id: uuid.UUID | None = Query(default=None),
+    branch_id: uuid.UUID | None = Query(default=None, description="Зөвхөн энэ салбарын борлуулалт"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -66,6 +67,9 @@ async def list_sales(
             if shift is None:
                 return SaleListOut(items=[], total=0)
             shift_id = shift.id
+    elif branch_id is None and getattr(user, "branch_id", None) is not None:
+        # Салбартай хэрэглэгч (жишээ нь салбарын менежер) зөвхөн өөрийн салбарыг.
+        branch_id = user.branch_id
 
     result = await sale_service.list_sales(
         db,
@@ -75,6 +79,7 @@ async def list_sales(
         method=str(method) if method else None,
         customer_id=customer_id,
         cashier_id=cashier_id,
+        branch_id=branch_id,
         limit=limit,
         offset=offset,
     )

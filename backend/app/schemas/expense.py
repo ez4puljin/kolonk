@@ -32,6 +32,8 @@ class ExpenseCreate(BaseModel):
     bank_account_id: uuid.UUID | None = None
     invoice_no: str | None = None
     description: str | None = None
+    #: Аль салбарын зардал вэ (хоосон бол хэрэглэгчийн/үндсэн салбар).
+    branch_id: uuid.UUID | None = None
 
 
 class ExpenseOut(BaseModel):

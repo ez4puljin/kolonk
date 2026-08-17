@@ -778,6 +778,8 @@ export interface ExpenseCreate {
   bank_account_id?: UUID | null;
   invoice_no?: string | null;
   description?: string | null;
+  /** Аль салбарын зардал вэ (хоосон бол хэрэглэгчийн/үндсэн салбар). */
+  branch_id?: UUID | null;
 }
 
 /* ------------------------------------------------------------------ *

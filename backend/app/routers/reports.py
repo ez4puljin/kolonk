@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, Query
@@ -37,58 +38,69 @@ def _range(date_from: date | None, date_to: date | None) -> tuple[date, date]:
 # --------------------------------------------------------------------------- #
 # JSON тайлангууд
 # --------------------------------------------------------------------------- #
+#: Тайлан бүр салбараар шүүгдэнэ — олон салбартай станцад зайлшгүй.
+BranchFilter = Query(default=None, description="Зөвхөн энэ салбарын дүн")
+
+
 @router.get("/reports/sales", response_model=SalesReportOut)
 async def sales_report(
     granularity: str = Query(default="day", description="day | month | year"),
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
+    branch_id: uuid.UUID | None = BranchFilter,
     db: AsyncSession = Depends(get_db),
     user: User = CanView,
 ) -> dict:
     start, end = _range(date_from, date_to)
-    return await report_service.sales_summary(db, start, end, granularity)
+    return await report_service.sales_summary(db, start, end, granularity, branch_id)
 
 
 @router.get("/reports/sales/detail", response_model=SalesDetailOut)
 async def sales_detail_report(
     day: date | None = Query(default=None, alias="date"),
+    branch_id: uuid.UUID | None = BranchFilter,
     db: AsyncSession = Depends(get_db),
     user: User = CanView,
 ) -> dict:
-    return await report_service.sales_detail(db, day or report_service.today_local())
+    return await report_service.sales_detail(
+        db, day or report_service.today_local(), branch_id
+    )
 
 
 @router.get("/reports/fuel", response_model=FuelReportOut)
 async def fuel_report(
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
+    branch_id: uuid.UUID | None = BranchFilter,
     db: AsyncSession = Depends(get_db),
     user: User = CanView,
 ) -> dict:
     start, end = _range(date_from, date_to)
-    return await report_service.fuel_report(db, start, end)
+    return await report_service.fuel_report(db, start, end, branch_id)
 
 
 @router.get("/reports/tender", response_model=TenderBreakdownOut)
 async def tender_report(
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
+    branch_id: uuid.UUID | None = BranchFilter,
     db: AsyncSession = Depends(get_db),
     user: User = CanView,
 ) -> dict:
     start, end = _range(date_from, date_to)
-    return await report_service.tender_breakdown(db, start, end)
+    return await report_service.tender_breakdown(db, start, end, branch_id)
 
 
 @router.get("/reports/tank-loss", response_model=TankLossOut)
 async def tank_loss_report(
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
+    branch_id: uuid.UUID | None = BranchFilter,
     db: AsyncSession = Depends(get_db),
     user: User = CanView,
 ) -> dict:
     start, end = _range(date_from, date_to)
-    return await report_service.tank_loss_report(db, start, end)
+    return await report_service.tank_loss_report(db, start, end, branch_id)
 
 
 @router.get("/reports/top-products", response_model=list[TopProductRow])
@@ -96,11 +108,12 @@ async def top_products_report(
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
     limit: int = Query(default=10, ge=1, le=100),
+    branch_id: uuid.UUID | None = BranchFilter,
     db: AsyncSession = Depends(get_db),
     user: User = CanView,
 ) -> list[dict]:
     start, end = _range(date_from, date_to)
-    return await report_service.top_products(db, start, end, limit)
+    return await report_service.top_products(db, start, end, limit, branch_id)
 
 
 @router.get("/reports/top-customers", response_model=list[TopCustomerRow])
@@ -108,11 +121,12 @@ async def top_customers_report(
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
     limit: int = Query(default=10, ge=1, le=100),
+    branch_id: uuid.UUID | None = BranchFilter,
     db: AsyncSession = Depends(get_db),
     user: User = CanView,
 ) -> list[dict]:
     start, end = _range(date_from, date_to)
-    return await report_service.top_customers(db, start, end, limit)
+    return await report_service.top_customers(db, start, end, limit, branch_id)
 
 
 # --------------------------------------------------------------------------- #
@@ -123,11 +137,12 @@ async def sales_report_xlsx(
     granularity: str = Query(default="day", description="day | month | year"),
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
+    branch_id: uuid.UUID | None = BranchFilter,
     db: AsyncSession = Depends(get_db),
     user: User = CanView,
 ) -> StreamingResponse:
     start, end = _range(date_from, date_to)
-    data = await report_service.sales_summary(db, start, end, granularity)
+    data = await report_service.sales_summary(db, start, end, granularity, branch_id)
     content = excel_service.sales_report_xlsx(data)
     return excel_service.xlsx_response(content, f"Борлуулалт_{start}_{end}.xlsx")
 
@@ -136,11 +151,12 @@ async def sales_report_xlsx(
 async def fuel_report_xlsx(
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
+    branch_id: uuid.UUID | None = BranchFilter,
     db: AsyncSession = Depends(get_db),
     user: User = CanView,
 ) -> StreamingResponse:
     start, end = _range(date_from, date_to)
-    data = await report_service.fuel_report(db, start, end)
+    data = await report_service.fuel_report(db, start, end, branch_id)
     content = excel_service.fuel_report_xlsx(data)
     return excel_service.xlsx_response(content, f"Түлш_{start}_{end}.xlsx")
 

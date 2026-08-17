@@ -15,6 +15,8 @@ export interface ExpenseListParams {
   date_to?: string;
   account_code?: string;
   payment_method?: string;
+  /** Зөвхөн энэ салбарын зардал. */
+  branch_id?: string;
   limit?: number;
   offset?: number;
 }

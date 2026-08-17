@@ -13,6 +13,7 @@ import { Plus, Receipt, Wallet } from "lucide-react";
 
 import { useExpenseCategories, useExpenses, useCreateExpenseMutation } from "../../api/queries/expenses";
 import { useBankAccounts } from "../../api/queries/bank";
+import { useBranches } from "../../api/queries/branches";
 import { useSuppliers } from "../../api/queries/procurement";
 import type { Expense, ExpenseCategory } from "../../api/types";
 import { NumPadModal } from "../../components/pos/NumPadModal";
@@ -55,11 +56,23 @@ export function ExpensesPage() {
   const [dateFrom, setDateFrom] = useState(monthStartIso);
   const [dateTo, setDateTo] = useState(todayIso);
   const [formOpen, setFormOpen] = useState(false);
+  //  Салбарын шүүлт (жагсаалт) ба маягтын салбар — олон салбартай үед л.
+  const [filterBranchId, setFilterBranchId] = useState("");
 
   const categoriesQuery = useExpenseCategories();
   const suppliersQuery = useSuppliers({ limit: 200 });
   const bankAccountsQuery = useBankAccounts({ active_only: true });
-  const listQuery = useExpenses({ date_from: dateFrom, date_to: dateTo, limit: 200 });
+  const branchesQuery = useBranches();
+  const branches = useMemo(
+    () => (branchesQuery.data ?? []).filter((branch) => branch.is_active),
+    [branchesQuery.data],
+  );
+  const listQuery = useExpenses({
+    date_from: dateFrom,
+    date_to: dateTo,
+    branch_id: filterBranchId || undefined,
+    limit: 200,
+  });
   const createMutation = useCreateExpenseMutation();
 
   const openNumPad = useUiStore((state) => state.openNumPad);
@@ -132,6 +145,9 @@ export function ExpensesPage() {
         bank_account_id: method === "bank" ? bankAccountId : null,
         invoice_no: invoiceNo.trim() || null,
         description: description.trim() || null,
+        // Шүүлтэд сонгосон салбарт бичнэ; сонгоогүй бол сервер хэрэглэгчийн
+        // (эсвэл үндсэн) салбарыг өөрөө ононо.
+        branch_id: filterBranchId || null,
       },
       {
         onSuccess: (created) => {
@@ -243,13 +259,27 @@ export function ExpensesPage() {
           icon={<Receipt />}
         />
         <Card className="p-4">
-          <DateRangePicker
-            value={{ from: dateFrom, to: dateTo }}
-            onChange={(range) => {
-              setDateFrom(range.from);
-              setDateTo(range.to);
-            }}
-          />
+          <div className="flex flex-col gap-3">
+            <DateRangePicker
+              value={{ from: dateFrom, to: dateTo }}
+              onChange={(range) => {
+                setDateFrom(range.from);
+                setDateTo(range.to);
+              }}
+            />
+            {branches.length > 1 ? (
+              <TouchSelect
+                label={t.branches.title}
+                value={filterBranchId}
+                onChange={setFilterBranchId}
+                options={[
+                  { value: "", label: t.branches.allBranches },
+                  ...branches.map((branch) => ({ value: branch.id, label: branch.name })),
+                ]}
+                columns={1}
+              />
+            ) : null}
+          </div>
         </Card>
       </div>
 

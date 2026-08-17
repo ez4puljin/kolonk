@@ -1088,6 +1088,7 @@ async def list_sales(
     method: str | None = None,
     customer_id: uuid.UUID | None = None,
     cashier_id: uuid.UUID | None = None,
+    branch_id: uuid.UUID | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
@@ -1099,6 +1100,8 @@ async def list_sales(
         conditions.append(Sale.completed_at <= day_end(date_to))
     if shift_id is not None:
         conditions.append(Sale.shift_id == shift_id)
+    if branch_id is not None:
+        conditions.append(Sale.branch_id == branch_id)
     if customer_id is not None:
         conditions.append(Sale.customer_id == customer_id)
     if cashier_id is not None:

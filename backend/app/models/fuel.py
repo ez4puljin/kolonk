@@ -60,13 +60,15 @@ class TankMovement(UUIDPKMixin, TimestampMixin, Base):
 
 class Pump(UUIDPKMixin, TimestampMixin, Base):
     __tablename__ = "pumps"
+    #: Дугаар САЛБАР ДОТРОО давхардахгүй — салбар бүр «1-р насос»-той байна.
+    __table_args__ = (UniqueConstraint("branch_id", "number", name="uq_pump_branch_number"),)
 
     #: Аль салбарынх вэ (олон салбарын тайлан, шүүлтэд ашиглана).
     branch_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("branches.id"), index=True
     )
 
-    number: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
+    number: Mapped[int] = mapped_column(Integer, nullable=False)
     name: Mapped[str] = mapped_column(String(64), nullable=False)
     #: Талбай дахь бодит байршил — тохиргооны зураглал ба ПОС-ын дараалалд.
     position_x: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

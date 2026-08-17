@@ -1182,6 +1182,7 @@ async def list_shifts(
     date_from: Any = None,
     date_to: Any = None,
     status: str | None = None,
+    branch_id: uuid.UUID | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
@@ -1194,6 +1195,8 @@ async def list_shifts(
         filters.append(Shift.opened_at <= end)
     if status:
         filters.append(Shift.status == status)
+    if branch_id is not None:
+        filters.append(Shift.branch_id == branch_id)
 
     total = await db.scalar(select(func.count(Shift.id)).where(*filters)) or 0
 

@@ -51,6 +51,7 @@ async def list_expenses(
     date_to: date | None = Query(default=None),
     account_code: str | None = Query(default=None),
     payment_method: str | None = Query(default=None),
+    branch_id: uuid.UUID | None = Query(default=None, description="Зөвхөн энэ салбарын зардал"),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -62,6 +63,7 @@ async def list_expenses(
         date_to=date_to,
         account_code=account_code,
         payment_method=payment_method,
+        branch_id=branch_id,
         limit=limit,
         offset=offset,
     )
@@ -86,6 +88,7 @@ async def create_expense(
         bank_account_id=payload.bank_account_id,
         invoice_no=payload.invoice_no,
         description=payload.description,
+        branch_id=payload.branch_id,
     )
     return await _one(db, expense.id)
 

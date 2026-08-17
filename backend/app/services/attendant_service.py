@@ -656,6 +656,9 @@ async def daily_close(
             amount=q2(_d(exp.amount)),
             payment_method=str(exp.payment_method or "cash"),
             description=(exp.description or "").strip() or "Өдрийн хаалт",
+            # Зарлага ээлжийн салбарт бичигдэнэ — эс бөгөөс салбарын цэвэр
+            # ашигт харагдахгүй үлдэнэ.
+            branch_id=shift.branch_id,
         )
         expense_total = q2(expense_total + q2(_d(exp.amount)))
 

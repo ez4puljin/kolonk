@@ -63,9 +63,17 @@ async def list_categories(db: AsyncSession) -> list[dict[str, Any]]:
     return [{"code": a.code, "name_mn": a.name_mn} for a in rows]
 
 
-async def _open_shift_id(db: AsyncSession) -> uuid.UUID | None:
-    shift = await db.scalar(select(Shift).where(Shift.status == str(ShiftStatus.OPEN)).limit(1))
-    return shift.id if shift else None
+async def _open_shift_id(
+    db: AsyncSession, branch_id: uuid.UUID | None = None
+) -> uuid.UUID | None:
+    """Бэлнээр төлсөн зардлыг хавсаргах нээлттэй ээлж.
+
+    Салбар заавал шүүнэ — эс бөгөөс өөр салбарын нээлттэй ээлжид хавсарч,
+    тэр ээлжийн кассын зөрүүг хуурамчаар гажуудуулна."""
+    stmt = select(Shift.id).where(Shift.status == str(ShiftStatus.OPEN))
+    if branch_id is not None:
+        stmt = stmt.where(Shift.branch_id == branch_id)
+    return await db.scalar(stmt.order_by(Shift.opened_at.desc()).limit(1))
 
 
 async def create_expense(
@@ -81,12 +89,16 @@ async def create_expense(
     bank_account_id: uuid.UUID | None = None,
     invoice_no: str | None = None,
     description: str | None = None,
+    branch_id: uuid.UUID | None = None,
     post_now: bool = True,
 ) -> Expense:
     """Зардлын баримт үүсгэж, шууд ерөнхий дэвтэрт бичнэ.
 
     `amount` нь **төлсөн нийт дүн**. `has_vat=True` үед НӨАТ дүнд шингэсэн гэж
     үзэж (`vat = нийт / 11`) салгана — борлуулалттай ижил дүрэм.
+
+    `branch_id` заагаагүй бол хэрэглэгчийн (эсвэл үндсэн) салбарт бичигдэнэ —
+    салбаргүй зардал ямар ч салбарын цэвэр ашигт харагдахгүй үлддэг.
     """
     if account_code not in ACC.OPERATING_EXPENSES:
         raise HTTPException(status_code=422, detail="Зардлын данс биш байна")
@@ -130,15 +142,19 @@ async def create_expense(
 
     exp_date = expense_date or today_local()
 
+    from app.services.branch_service import resolve_branch_id
+
+    target_branch = await resolve_branch_id(db, user, branch_id)
     expense = Expense(
         expense_date=exp_date,
+        branch_id=target_branch,
         account_code=account_code,
         payment_method=method,
         subtotal=subtotal,
         vat_amount=vat,
         total=total,
         supplier_id=supplier_id,
-        shift_id=await _open_shift_id(db) if method == "cash" else None,
+        shift_id=await _open_shift_id(db, target_branch) if method == "cash" else None,
         bank_account_id=bank_account_id,
         invoice_no=(invoice_no or "").strip() or None,
         description=(description or "").strip() or None,
@@ -241,6 +257,7 @@ async def list_expenses(
     date_to: date | None = None,
     account_code: str | None = None,
     payment_method: str | None = None,
+    branch_id: uuid.UUID | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> dict[str, Any]:
@@ -253,6 +270,8 @@ async def list_expenses(
         filters.append(Expense.account_code == account_code)
     if payment_method:
         filters.append(Expense.payment_method == payment_method)
+    if branch_id is not None:
+        filters.append(Expense.branch_id == branch_id)
 
     total_count = await db.scalar(select(func.count()).select_from(Expense).where(*filters)) or 0
     total_amount = (
@@ -339,13 +358,22 @@ async def list_expenses(
     }
 
 
-async def expense_total(db: AsyncSession, date_from: date, date_to: date) -> Decimal:
-    """Тухайн хугацааны бүртгэгдсэн зардлын нийт дүн (самбарт ашиглана)."""
-    value = await db.scalar(
-        select(func.coalesce(func.sum(Expense.total), ZERO)).where(
-            Expense.status == str(DocStatus.POSTED),
-            Expense.expense_date >= date_from,
-            Expense.expense_date <= date_to,
-        )
-    )
+async def expense_total(
+    db: AsyncSession,
+    date_from: date,
+    date_to: date,
+    branch_id: uuid.UUID | None = None,
+) -> Decimal:
+    """Тухайн хугацааны бүртгэгдсэн зардлын нийт дүн (самбарт ашиглана).
+
+    ``branch_id`` өгвөл зөвхөн тэр салбарын зардал — эс бөгөөс салбар бүрийн
+    цэвэр ашиг компанийн бүх зардлыг өөр дээрээ авч буруу гарна."""
+    conditions = [
+        Expense.status == str(DocStatus.POSTED),
+        Expense.expense_date >= date_from,
+        Expense.expense_date <= date_to,
+    ]
+    if branch_id is not None:
+        conditions.append(Expense.branch_id == branch_id)
+    value = await db.scalar(select(func.coalesce(func.sum(Expense.total), ZERO)).where(*conditions))
     return q2(_d(value))

@@ -308,18 +308,25 @@ async def list_shifts(
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
     status: str | None = Query(default=None),
+    branch_id: uuid.UUID | None = Query(default=None, description="Зөвхөн энэ салбарын ээлж"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_permission("shifts.view_all")),
 ) -> dict[str, Any]:
-    """Ээлжийн жагсаалт — огноо/төлвөөр шүүх, хуудаслах."""
+    """Ээлжийн жагсаалт — огноо/төлөв/салбараар шүүх, хуудаслах."""
     if status is not None and status not in tuple(ShiftStatus):
         raise HTTPException(status_code=422, detail="Ээлжийн төлөв буруу байна")
     if date_from is not None and date_to is not None and date_from > date_to:
         raise HTTPException(status_code=422, detail="Эхлэх огноо дуусах огнооноос хойш байж болохгүй")
     return await shift_service.list_shifts(
-        db, date_from=date_from, date_to=date_to, status=status, limit=limit, offset=offset
+        db,
+        date_from=date_from,
+        date_to=date_to,
+        status=status,
+        branch_id=branch_id,
+        limit=limit,
+        offset=offset,
     )
 
 

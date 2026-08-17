@@ -18,7 +18,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
-from sqlalchemy import Text, case, cast, func, literal, select
+from sqlalchemy import Text, case, cast, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -190,14 +190,21 @@ def _period_date(moment: Any) -> date | None:
     return None
 
 
-def _sale_scope(start: datetime, end: datetime) -> tuple[Any, ...]:
-    """Тайланд орох борлуулалт: ноорог биш, дуусгасан огноотой, мужид багтсан."""
-    return (
+def _sale_scope(
+    start: datetime, end: datetime, branch_id: uuid.UUID | None = None
+) -> tuple[Any, ...]:
+    """Тайланд орох борлуулалт: ноорог биш, дуусгасан огноотой, мужид багтсан.
+
+    ``branch_id`` өгвөл зөвхөн тэр салбарын борлуулалт."""
+    conditions: tuple[Any, ...] = (
         Sale.status != SaleStatus.DRAFT,
         Sale.completed_at.is_not(None),
         Sale.completed_at >= start,
         Sale.completed_at <= end,
     )
+    if branch_id is not None:
+        conditions += (Sale.branch_id == branch_id,)
+    return conditions
 
 
 # --------------------------------------------------------------------------- #
@@ -208,12 +215,13 @@ async def sales_summary(
     date_from: date,
     date_to: date,
     granularity: str = "day",
+    branch_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     """Хугацааны борлуулалтын хураангуй — өдөр/сар/жилээр бүлэглэсэн."""
     gran = _granularity(granularity)
     _check_range(date_from, date_to)
     start, end = _range_bounds(date_from, date_to)
-    scope = _sale_scope(start, end)
+    scope = _sale_scope(start, end, branch_id)
 
     period = _period_expr(gran, Sale.completed_at).label("period")
     head_rows = (
@@ -312,10 +320,12 @@ async def sales_summary(
 # --------------------------------------------------------------------------- #
 # Өдрийн дэлгэрэнгүй
 # --------------------------------------------------------------------------- #
-async def sales_detail(db: AsyncSession, day: date) -> dict[str, Any]:
+async def sales_detail(
+    db: AsyncSession, day: date, branch_id: uuid.UUID | None = None
+) -> dict[str, Any]:
     """Нэг өдрийн борлуулалт бүрийн жагсаалт — түгээгч, төлбөрийн задаргаатай."""
     start, end = _range_bounds(day, day)
-    scope = _sale_scope(start, end)
+    scope = _sale_scope(start, end, branch_id)
 
     sale_rows = (
         await db.execute(
@@ -459,11 +469,13 @@ async def sales_detail(db: AsyncSession, day: date) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # Түлшний тайлан
 # --------------------------------------------------------------------------- #
-async def fuel_report(db: AsyncSession, date_from: date, date_to: date) -> dict[str, Any]:
+async def fuel_report(
+    db: AsyncSession, date_from: date, date_to: date, branch_id: uuid.UUID | None = None
+) -> dict[str, Any]:
     """Түлшний төрөл болон насос/хошуу тус бүрийн борлуулалт, ашиг."""
     _check_range(date_from, date_to)
     start, end = _range_bounds(date_from, date_to)
-    scope = _sale_scope(start, end)
+    scope = _sale_scope(start, end, branch_id)
 
     grade_rows = (
         await db.execute(
@@ -570,11 +582,16 @@ async def fuel_report(db: AsyncSession, date_from: date, date_to: date) -> dict[
 # --------------------------------------------------------------------------- #
 # Төлбөрийн хэлбэрийн задаргаа
 # --------------------------------------------------------------------------- #
-async def tender_breakdown(db: AsyncSession, date_from: date, date_to: date) -> dict[str, Any]:
+async def tender_breakdown(
+    db: AsyncSession,
+    date_from: date,
+    date_to: date,
+    branch_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
     """Төлбөрийн хэрэгсэл тус бүрийн тоо, дүн, эзлэх хувь."""
     _check_range(date_from, date_to)
     start, end = _range_bounds(date_from, date_to)
-    scope = _sale_scope(start, end)
+    scope = _sale_scope(start, end, branch_id)
 
     rows = (
         await db.execute(
@@ -619,7 +636,9 @@ async def tender_breakdown(db: AsyncSession, date_from: date, date_to: date) -> 
     }
 
 
-async def _tender_map(db: AsyncSession, start: datetime, end: datetime) -> dict[str, Decimal]:
+async def _tender_map(
+    db: AsyncSession, start: datetime, end: datetime, branch_id: uuid.UUID | None = None
+) -> dict[str, Decimal]:
     """``{арга: дүн}`` — бүх аргыг (0 утгатайг ч) агуулсан толь."""
     rows = (
         await db.execute(
@@ -629,7 +648,7 @@ async def _tender_map(db: AsyncSession, start: datetime, end: datetime) -> dict[
             )
             .select_from(Payment)
             .join(Sale, Payment.sale_id == Sale.id)
-            .where(*_sale_scope(start, end))
+            .where(*_sale_scope(start, end, branch_id))
             .group_by(Payment.method)
         )
     ).all()
@@ -645,6 +664,7 @@ async def top_products(
     date_from: date,
     date_to: date,
     limit: int = 10,
+    branch_id: uuid.UUID | None = None,
 ) -> list[dict[str, Any]]:
     """Хамгийн их борлуулалттай бараа."""
     _check_range(date_from, date_to)
@@ -664,7 +684,7 @@ async def top_products(
             .select_from(SaleItem)
             .join(Sale, SaleItem.sale_id == Sale.id)
             .join(Product, SaleItem.product_id == Product.id)
-            .where(*_sale_scope(start, end), SaleItem.item_type == ItemType.PRODUCT)
+            .where(*_sale_scope(start, end, branch_id), SaleItem.item_type == ItemType.PRODUCT)
             .group_by(Product.id, Product.sku, Product.name_mn, Product.unit)
             .order_by(func.coalesce(func.sum(SaleItem.amount), 0).desc())
             .limit(limit)
@@ -698,11 +718,12 @@ async def top_customers(
     date_from: date,
     date_to: date,
     limit: int = 10,
+    branch_id: uuid.UUID | None = None,
 ) -> list[dict[str, Any]]:
     """Хамгийн их худалдан авалттай харилцагч."""
     _check_range(date_from, date_to)
     start, end = _range_bounds(date_from, date_to)
-    scope = _sale_scope(start, end)
+    scope = _sale_scope(start, end, branch_id)
 
     rows = (
         await db.execute(
@@ -737,7 +758,7 @@ async def top_customers(
                 *scope,
                 SaleItem.item_type == ItemType.FUEL,
                 Sale.customer_id.in_(customer_ids),
-            )
+            )  # scope нь салбарын шүүлтийг агуулна
             .group_by(Sale.customer_id)
         )
     ).all()
@@ -759,11 +780,17 @@ async def top_customers(
 # --------------------------------------------------------------------------- #
 # Савны хорогдол
 # --------------------------------------------------------------------------- #
-async def tank_loss_report(db: AsyncSession, date_from: date, date_to: date) -> dict[str, Any]:
+async def tank_loss_report(
+    db: AsyncSession,
+    date_from: date,
+    date_to: date,
+    branch_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
     """Сав тус бүрийн хэмжилтийн зөрүү (дутагдал/илүүдэл) литр ба өртгөөр."""
     _check_range(date_from, date_to)
     start, end = _range_bounds(date_from, date_to)
 
+    branch_scope = (Tank.branch_id == branch_id,) if branch_id is not None else ()
     is_loss = TankMovement.liters < 0
     rows = (
         await db.execute(
@@ -785,6 +812,7 @@ async def tank_loss_report(db: AsyncSession, date_from: date, date_to: date) -> 
                 TankMovement.movement_type == TankMovementType.VARIANCE,
                 TankMovement.created_at >= start,
                 TankMovement.created_at <= end,
+                *branch_scope,
             )
             .group_by(Tank.id, Tank.name, Fuel.code, Fuel.name_mn)
             .order_by(Tank.name)
@@ -992,7 +1020,7 @@ async def cashier_dashboard(db: AsyncSession, user: User) -> dict[str, Any]:
 
     mine = await _sales_totals(db, start, end, cashier_id=user.id)
     station = await _sales_totals(db, start, end, branch_id=branch_id)
-    tender = await _tender_map(db, start, end)
+    tender = await _tender_map(db, start, end, branch_id)
 
     return {
         "date": day,
@@ -1068,15 +1096,28 @@ async def owner_dashboard(
     month = await _sales_totals(db, month_start, month_end, branch_id=branch_id)
     year = await _sales_totals(db, year_start, year_end, branch_id=branch_id)
 
-    loss = await tank_loss_report(db, month_from, day)
-    tender_today = await tender_breakdown(db, day, day)
+    loss = await tank_loss_report(db, month_from, day, branch_id)
+    tender_today = await tender_breakdown(db, day, day, branch_id)
 
+    # Батлах хүсэлтүүд: үнийн өөрчлөлтийн branch_id=NULL нь БҮХ салбарт
+    # үйлчилдэг тул салбарын горимд түүнийг ч хамруулна.
+    price_scope = (
+        [or_(PriceChange.branch_id == branch_id, PriceChange.branch_id.is_(None))]
+        if branch_id is not None
+        else []
+    )
     pending_prices = await db.scalar(
-        select(func.count(PriceChange.id)).where(PriceChange.status == ApprovalStatus.PENDING)
+        select(func.count(PriceChange.id)).where(
+            PriceChange.status == ApprovalStatus.PENDING, *price_scope
+        )
     )
-    pending_refunds = await db.scalar(
-        select(func.count(Refund.id)).where(Refund.status == ApprovalStatus.PENDING)
-    )
+    refund_stmt = select(func.count(Refund.id)).where(Refund.status == ApprovalStatus.PENDING)
+    if branch_id is not None:
+        # Буцаалт нь ээлжээрээ салбартай холбогдоно.
+        refund_stmt = refund_stmt.join(Shift, Refund.shift_id == Shift.id).where(
+            Shift.branch_id == branch_id
+        )
+    pending_refunds = await db.scalar(refund_stmt)
 
     ar_open = await db.scalar(
         select(func.coalesce(func.sum(ArInvoice.amount - ArInvoice.amount_paid), 0)).where(
@@ -1096,8 +1137,8 @@ async def owner_dashboard(
     )
 
     # Үйл ажиллагааны зардал — бохир ашгаас хасаж цэвэр ашгийг гаргана.
-    expense_today = await expense_service.expense_total(db, day, day)
-    expense_month = await expense_service.expense_total(db, month_from, day)
+    expense_today = await expense_service.expense_total(db, day, day, branch_id)
+    expense_month = await expense_service.expense_total(db, month_from, day, branch_id)
 
     return {
         "date": day,
@@ -1128,7 +1169,7 @@ async def owner_dashboard(
             "value": loss["totals"]["value"],
         },
         "tender_breakdown_today": tender_today["items"],
-        "top_products": await top_products(db, month_from, day, 5),
+        "top_products": await top_products(db, month_from, day, 5, branch_id),
         "pending": {
             "price_changes": int(pending_prices or 0),
             "refunds": int(pending_refunds or 0),
