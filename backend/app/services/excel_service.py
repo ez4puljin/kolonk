@@ -287,8 +287,8 @@ def fuel_report_xlsx(data: Any) -> bytes:
     ]
     _build_sheet(ws, headers, rows, formats, widths, total_row=total_row)
 
-    pumps_ws = wb.create_sheet("Насос")
-    pump_headers = ["Насос", "Нэр", "Хошуу", "Литр", "Дүн"]
+    pumps_ws = wb.create_sheet("Түгээгүүр")
+    pump_headers = ["Түгээгүүр", "Нэр", "Хошуу", "Литр", "Дүн"]
     pump_formats: list[str | None] = [INT_FMT, None, INT_FMT, LITER_FMT, MONEY_FMT]
     pump_rows = []
     for row in _get(data, "pumps", []) or []:

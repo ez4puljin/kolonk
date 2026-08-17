@@ -54,8 +54,6 @@ class PaymentIn(BaseModel):
     method: PaymentMethod = PaymentMethod.CASH
     amount: Decimal = Field(gt=0)
     contract_id: uuid.UUID | None = None
-    voucher_code: str | None = Field(default=None, max_length=32)
-    card_no: str | None = Field(default=None, max_length=32)
     received: Decimal | None = Field(default=None, ge=0, description="Бэлнээр авсан мөнгө")
     ref_no: str | None = Field(default=None, max_length=64)
 
@@ -102,8 +100,6 @@ class PaymentOut(BaseModel):
     method_name: str = ""
     amount: Decimal
     contract_id: uuid.UUID | None = None
-    voucher_id: uuid.UUID | None = None
-    prepaid_card_id: uuid.UUID | None = None
     received: Decimal | None = None
     change_given: Decimal | None = None
     ref_no: str | None = None

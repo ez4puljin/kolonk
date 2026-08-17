@@ -44,8 +44,6 @@ EBARIMT_PAYMENT_CODES: dict[str, str] = {
     PaymentMethod.QR: "QR",
     PaymentMethod.TRANSFER: "BANK_TRANSFER",
     PaymentMethod.CONTRACT: "BANK_TRANSFER",
-    PaymentMethod.VOUCHER: "CASH",
-    PaymentMethod.PREPAID: "CASH",
 }
 
 ZERO = Decimal("0.00")

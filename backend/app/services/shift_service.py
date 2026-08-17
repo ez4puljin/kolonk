@@ -61,8 +61,6 @@ TENDER_ORDER: list[str] = [
     PaymentMethod.QR,
     PaymentMethod.TRANSFER,
     PaymentMethod.CONTRACT,
-    PaymentMethod.VOUCHER,
-    PaymentMethod.PREPAID,
 ]
 
 TENDER_NAMES_MN: dict[str, str] = {
@@ -71,8 +69,6 @@ TENDER_NAMES_MN: dict[str, str] = {
     PaymentMethod.QR: "QR",
     PaymentMethod.TRANSFER: "Шилжүүлэг",
     PaymentMethod.CONTRACT: "Зээл",
-    PaymentMethod.VOUCHER: "Ваучер",
-    PaymentMethod.PREPAID: "Урьдчилсан карт",
 }
 
 STATUS_NAMES_MN: dict[str, str] = {

@@ -104,10 +104,12 @@ def test_tender_account_mapping() -> None:
     assert ACC.tender_account(PaymentMethod.CARD) == ACC.CARD_CLEARING == "1102"
     assert ACC.tender_account(PaymentMethod.QR) == ACC.QR_CLEARING == "1103"
     assert ACC.tender_account(PaymentMethod.CONTRACT) == ACC.AR_CONTRACT == "1201"
-    assert ACC.tender_account(PaymentMethod.VOUCHER) == ACC.VOUCHER_LIABILITY == "2301"
-    assert ACC.tender_account(PaymentMethod.PREPAID) == ACC.PREPAID_LIABILITY == "2302"
     # мөр (str) хэлбэрээр ч ажиллана
     assert ACC.tender_account("cash") == "1101"
+    # Ваучер, урьдчилсан карт системээс хасагдсан — төлбөрийн хэрэгсэл биш.
+    for gone in ("voucher", "prepaid"):
+        with pytest.raises(ValueError):
+            ACC.tender_account(gone)
 
 
 def test_tender_account_unknown_raises() -> None:
@@ -120,7 +122,7 @@ def test_coa_seed_covers_every_constant() -> None:
     required = {
         ACC.CASH, ACC.CARD_CLEARING, ACC.QR_CLEARING, ACC.BANK, ACC.AR_CONTRACT,
         ACC.INV_FUEL, ACC.INV_GOODS, ACC.VAT_INPUT, ACC.AP_SUPPLIER, ACC.VAT_OUTPUT,
-        ACC.VOUCHER_LIABILITY, ACC.PREPAID_LIABILITY, ACC.OWNER_CAPITAL, ACC.RETAINED,
+        ACC.OWNER_CAPITAL, ACC.RETAINED,
         ACC.REV_FUEL, ACC.REV_GOODS, ACC.SALES_RETURNS, ACC.OTHER_INCOME,
         ACC.COGS_FUEL, ACC.COGS_GOODS, ACC.FUEL_LOSS, ACC.CASH_SHORT,
     }
@@ -362,21 +364,6 @@ def test_sale_contract_payment_carries_customer_dim() -> None:
     assert ar[0].dims.customer_id == CUSTOMER
 
 
-def test_sale_with_voucher_and_prepaid_tenders() -> None:
-    items = [product_item("22000.00", "14000.00")]
-    payments = [
-        payment(PaymentMethod.VOUCHER, "10000.00"),
-        payment(PaymentMethod.PREPAID, "7000.00"),
-        payment(PaymentMethod.QR, "5000.00"),
-    ]
-    sale = make_sale(items, payments)
-    lines = rules.build_sale_lines(sale, items, payments)
-    assert_balanced(lines)
-    assert account_sum(lines, ACC.VOUCHER_LIABILITY, "debit") == D("10000.00")
-    assert account_sum(lines, ACC.PREPAID_LIABILITY, "debit") == D("7000.00")
-    assert account_sum(lines, ACC.QR_CLEARING, "debit") == D("5000.00")
-
-
 def test_sale_builder_is_pure() -> None:
     items = [fuel_item(FUEL_A, TANK_A, "58800.00", "45000.00"), product_item("5500.00", "3300.00")]
     payments = [payment(PaymentMethod.CASH, "64300.00")]
@@ -391,26 +378,12 @@ def test_sale_builder_is_pure() -> None:
     assert sale.vat_amount == make_sale(items, payments).vat_amount
 
 
-# --------------------------------------------------------------------------- #
-# Ваучер / урьдчилсан карт
-# --------------------------------------------------------------------------- #
-def test_voucher_sold_lines() -> None:
-    voucher = SimpleNamespace(id=uuid4(), code="V-0001", face_value=D("50000.00"), customer_id=CUSTOMER)
-    lines = rules.build_voucher_sold_lines(voucher, PaymentMethod.CASH)
-    assert_balanced(lines)
-    assert account_sum(lines, ACC.CASH, "debit") == D("50000.00")
-    assert account_sum(lines, ACC.VOUCHER_LIABILITY, "credit") == D("50000.00")
-    assert lines[1].dims.customer_id == CUSTOMER
-    assert rules.build_voucher_sold_lines(SimpleNamespace(face_value=ZERO, customer_id=None)) == []
-
-
-def test_prepaid_topup_lines() -> None:
-    card = SimpleNamespace(id=uuid4(), card_no="P-77", customer_id=CUSTOMER, balance=ZERO)
-    lines = rules.build_prepaid_topup_lines(card, D("120000.00"), PaymentMethod.CARD)
-    assert_balanced(lines)
-    assert account_sum(lines, ACC.CARD_CLEARING, "debit") == D("120000.00")
-    assert account_sum(lines, ACC.PREPAID_LIABILITY, "credit") == D("120000.00")
-    assert rules.build_prepaid_topup_lines(card, ZERO) == []
+def test_voucher_and_prepaid_builders_are_gone() -> None:
+    """Ваучер, урьдчилсан карт системээс бүрмөсөн хасагдсан."""
+    assert not hasattr(rules, "build_voucher_sold_lines")
+    assert not hasattr(rules, "build_prepaid_topup_lines")
+    assert not hasattr(PaymentMethod, "VOUCHER")
+    assert not hasattr(PaymentMethod, "PREPAID")
 
 
 # --------------------------------------------------------------------------- #
@@ -643,8 +616,6 @@ def test_every_builder_returns_balanced_lines() -> None:
 
     batches = [
         rules.build_sale_lines(sale, items, payments),
-        rules.build_voucher_sold_lines(SimpleNamespace(code="V1", face_value=D("20000.00"), customer_id=None)),
-        rules.build_prepaid_topup_lines(SimpleNamespace(card_no="C1", customer_id=None), D("33333.33")),
         rules.build_fuel_receipt_lines(receipt),
         rules.build_purchase_lines(purchase),
         rules.build_ap_payment_lines(SimpleNamespace(supplier_id=SUPPLIER, amount=D("11.11"), paid_from="cash")),

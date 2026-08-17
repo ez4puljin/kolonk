@@ -238,7 +238,7 @@ class TestClassification:
         # Гэрээт борлуулалт бүх дэлгэц, тайланд «Зээл» гэж нэрлэгдэнэ.
         assert method_label(PaymentMethod.CONTRACT) == "Зээл"
         assert method_label(PaymentMethod.TRANSFER) == "Шилжүүлэг"
-        assert method_label(PaymentMethod.PREPAID) == "Урьдчилсан карт"
+        assert method_label(PaymentMethod.CARD) == "Карт"
 
 
 # --------------------------------------------------------------------------- #

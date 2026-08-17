@@ -110,8 +110,6 @@ const InventoryPage = lazyPage("InventoryPage");
 const PriceChangesPage = lazyPage("PriceChangesPage");
 const CustomersPage = lazyPage("CustomersPage");
 const ContractsPage = lazyPage("ContractsPage");
-const VouchersPage = lazyPage("VouchersPage");
-const PrepaidCardsPage = lazyPage("PrepaidCardsPage");
 const SalesPage = lazyPage("SalesPage");
 const SaleDetailPage = lazyPage("SaleDetailPage");
 const RefundPage = lazyPage("RefundPage");
@@ -430,22 +428,6 @@ export function AppRoutes() {
             element={
               <RequirePermission code="contracts.manage">
                 <ContractsPage />
-              </RequirePermission>
-            }
-          />
-          <Route
-            path="/vouchers"
-            element={
-              <RequirePermission code="instruments.manage">
-                <VouchersPage />
-              </RequirePermission>
-            }
-          />
-          <Route
-            path="/prepaid"
-            element={
-              <RequirePermission code="instruments.manage">
-                <PrepaidCardsPage />
               </RequirePermission>
             }
           />

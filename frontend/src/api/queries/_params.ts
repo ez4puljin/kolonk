@@ -48,14 +48,9 @@ export function searchActiveOnly(params: AnyParams): QueryParams {
   return rename(params, { q: "search" });
 }
 
-/** Зөвхөн `q` → `search` (contracts, prepaid-cards). */
+/** Зөвхөн `q` → `search` (contracts). */
 export function searchOnly(params: AnyParams): QueryParams {
   return rename(params, { q: "search" });
-}
-
-/** Ваучерыг `code`-оор хайдаг. */
-export function voucherParams(params: AnyParams): QueryParams {
-  return rename(params, { q: "code", search: "code" });
 }
 
 /** Нэр солих шаардлагагүй — зөвхөн хоосон утгыг цэвэрлэнэ. */

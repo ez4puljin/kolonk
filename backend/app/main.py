@@ -28,8 +28,6 @@ ROUTER_MODULES = [
     "payroll",
     "customers",
     "contracts",
-    "vouchers",
-    "prepaid_cards",
     "sales",
     "refunds",
     "price_changes",

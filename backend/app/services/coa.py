@@ -115,8 +115,6 @@ class ACC:
         # Шилжүүлэг эквайрингийн тооцоо дамждаггүй — банкинд шууд орно.
         PaymentMethod.TRANSFER: BANK,
         PaymentMethod.CONTRACT: AR_CONTRACT,
-        PaymentMethod.VOUCHER: VOUCHER_LIABILITY,
-        PaymentMethod.PREPAID: PREPAID_LIABILITY,
     }
 
     #: Өртгийн данснууд (ашгийн тайланд борлуулсан бүтээгдэхүүний өртөг).

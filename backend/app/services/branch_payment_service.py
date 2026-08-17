@@ -25,8 +25,6 @@ DEFAULT_ORDER: tuple[str, ...] = (
     str(PaymentMethod.QR),
     str(PaymentMethod.TRANSFER),
     str(PaymentMethod.CONTRACT),
-    str(PaymentMethod.VOUCHER),
-    str(PaymentMethod.PREPAID),
 )
 
 #: Бэлэн мөнгийг хааж болохгүй — хариулт өгөх, ээлжийн касс үүн дээр тулгуурладаг.

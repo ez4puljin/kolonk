@@ -4,14 +4,11 @@ import {
   CreditCard,
   FileText,
   QrCode,
-  Ticket,
-  Wallet,
   type LucideIcon,
 } from "lucide-react";
 
 import type {
   ApprovalStatus,
-  CardStatus,
   ContractStatus,
   DocStatus,
   EbarimtStatus,
@@ -20,7 +17,6 @@ import type {
   PumpStatus,
   SaleStatus,
   ShiftStatus,
-  VoucherStatus,
 } from "../api/types";
 import { t } from "../i18n/mn";
 
@@ -52,7 +48,7 @@ export interface TenderMeta {
   /** Бэлэн мөнгө шиг хариулт гардаг эсэх. */
   givesChange: boolean;
   /** Нэмэлт мэдээлэл шаардах эсэх. */
-  requires: "none" | "contract" | "voucher" | "card" | "ref";
+  requires: "none" | "contract" | "ref";
 }
 
 export const TENDER_METHODS: readonly TenderMeta[] = [
@@ -95,22 +91,6 @@ export const TENDER_METHODS: readonly TenderMeta[] = [
     color: colors.warning,
     givesChange: false,
     requires: "contract",
-  },
-  {
-    value: "voucher",
-    label: t.tender.voucher,
-    icon: Ticket,
-    color: "#DB2777",
-    givesChange: false,
-    requires: "voucher",
-  },
-  {
-    value: "prepaid",
-    label: t.tender.prepaid,
-    icon: Wallet,
-    color: "#0891B2",
-    givesChange: false,
-    requires: "card",
   },
 ] as const;
 
@@ -194,18 +174,7 @@ export const CONTRACT_STATUS_META: Record<ContractStatus, StatusMeta> = {
   closed: meta(t.status.closed, "neutral", colors.neutral, CHIP.neutral),
 };
 
-export const VOUCHER_STATUS_META: Record<VoucherStatus, StatusMeta> = {
-  active: meta(t.status.active, "success", colors.success, CHIP.success),
-  redeemed: meta(t.status.redeemed, "action", colors.action, CHIP.action),
-  void: meta(t.status.void, "danger", colors.danger, CHIP.danger),
-  expired: meta(t.status.expired, "neutral", colors.neutral, CHIP.neutral),
-};
 
-export const CARD_STATUS_META: Record<CardStatus, StatusMeta> = {
-  active: meta(t.status.active, "success", colors.success, CHIP.success),
-  blocked: meta(t.status.blocked, "danger", colors.danger, CHIP.danger),
-  closed: meta(t.status.closed, "neutral", colors.neutral, CHIP.neutral),
-};
 
 export const EBARIMT_STATUS_META: Record<EbarimtStatus, StatusMeta> = {
   pending: meta(t.status.pending, "warning", colors.warning, CHIP.warning),

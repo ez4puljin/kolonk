@@ -27,7 +27,7 @@ class BranchPaymentMethod(UUIDPKMixin, TimestampMixin, Base):
         PGUUID(as_uuid=True), ForeignKey("branches.id", ondelete="CASCADE"),
         nullable=False, index=True,
     )
-    #: ``PaymentMethod`` утга — cash / card / qr / contract / voucher / prepaid.
+    #: ``PaymentMethod`` утга — cash / card / qr / transfer / contract.
     method: Mapped[str] = mapped_column(String(16), nullable=False)
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

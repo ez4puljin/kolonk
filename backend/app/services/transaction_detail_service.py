@@ -37,8 +37,6 @@ TENDER_NAMES = {
     "qr": "QR",
     "transfer": "Шилжүүлэг",
     "contract": "Зээл",
-    "voucher": "Ваучер",
-    "prepaid": "Урьдчилсан карт",
 }
 
 

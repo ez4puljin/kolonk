@@ -51,23 +51,13 @@ export type InventoryTxType =
 export type SaleType = "fuel" | "store" | "mixed";
 export type SaleStatus = "draft" | "completed" | "refunded" | "partial_refund";
 export type ItemType = "fuel" | "product";
-export type PaymentMethod =
-  | "cash"
-  | "card"
-  | "qr"
-  | "transfer"
-  | "contract"
-  | "voucher"
-  | "prepaid";
+export type PaymentMethod = "cash" | "card" | "qr" | "transfer" | "contract";
 export type DocStatus = "draft" | "posted";
 export type ApprovalStatus = "pending" | "approved" | "rejected";
 export type RefundType = "full" | "partial";
 export type AccountType = "asset" | "liability" | "equity" | "revenue" | "expense";
 export type InvoiceStatus = "open" | "partial" | "paid";
 export type ContractStatus = "active" | "suspended" | "closed";
-export type VoucherStatus = "active" | "redeemed" | "void" | "expired";
-export type CardStatus = "active" | "blocked" | "closed";
-export type CardTxType = "topup" | "redeem" | "refund";
 export type CustomerType = "b2b" | "individual";
 export type EbarimtStatus = "pending" | "sent" | "failed";
 export type CashAccount = "bank" | "cash";
@@ -1477,95 +1467,6 @@ export interface ArPaymentResult {
 }
 
 // --------------------------------------------------------------------------
-// Ваучер, урьдчилсан төлбөрт карт
-// --------------------------------------------------------------------------
-
-export interface Voucher {
-  id: UUID;
-  code: string;
-  face_value: MoneyStr;
-  status: VoucherStatus | string;
-  status_name: string;
-  customer_id: UUID | null;
-  customer_name: string | null;
-  sold_sale_id: UUID | null;
-  redeemed_sale_id: UUID | null;
-  sold_at: IsoDateTime | null;
-  redeemed_at: IsoDateTime | null;
-  expires_at: IsoDateTime | null;
-  created_at: IsoDateTime | null;
-}
-
-export interface VoucherIssueRequest {
-  count: number;
-  face_value: MoneyStr;
-  expires_at?: IsoDateTime | null;
-  customer_id?: UUID | null;
-}
-
-export interface VoucherSellRequest {
-  tender_method: PaymentMethod;
-  customer_id?: UUID | null;
-}
-
-export interface VoucherVoidRequest {
-  reason?: string | null;
-}
-
-export interface VoucherValidateResult {
-  valid: boolean;
-  message: string;
-  voucher: Voucher | null;
-}
-
-export interface PrepaidCard {
-  id: UUID;
-  card_no: string;
-  holder_name: string | null;
-  customer_id: UUID | null;
-  customer_name: string | null;
-  balance: MoneyStr;
-  status: CardStatus | string;
-  status_name: string;
-  created_at: IsoDateTime | null;
-  updated_at: IsoDateTime | null;
-}
-
-export interface PrepaidCardCreate {
-  card_no: string;
-  holder_name?: string | null;
-  customer_id?: UUID | null;
-  initial_amount?: MoneyStr;
-  tender_method?: PaymentMethod;
-}
-
-export interface CardTopupRequest {
-  amount: MoneyStr;
-  tender_method: PaymentMethod;
-}
-
-export interface CardBlockRequest {
-  reason?: string | null;
-}
-
-export interface CardTransaction {
-  id: UUID;
-  card_id: UUID;
-  tx_type: CardTxType | string;
-  tx_type_name: string;
-  amount: MoneyStr;
-  balance_after: MoneyStr;
-  sale_id: UUID | null;
-  created_at: IsoDateTime | null;
-}
-
-export interface CardOperationResult {
-  card: PrepaidCard;
-  transaction: CardTransaction | null;
-  journal_entry_id: UUID | null;
-}
-
-// --------------------------------------------------------------------------
 // Борлуулалт
 // --------------------------------------------------------------------------
 
@@ -1587,8 +1488,6 @@ export interface PaymentInput {
   method: PaymentMethod;
   amount: MoneyStr;
   contract_id?: UUID | null;
-  voucher_code?: string | null;
-  card_no?: string | null;
   received?: MoneyStr | null;
   ref_no?: string | null;
 }
@@ -1626,8 +1525,6 @@ export interface Payment {
   method_name: string;
   amount: MoneyStr;
   contract_id: UUID | null;
-  voucher_id: UUID | null;
-  prepaid_card_id: UUID | null;
   received: MoneyStr | null;
   change_given: MoneyStr | null;
   ref_no: string | null;

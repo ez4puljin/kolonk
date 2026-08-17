@@ -27,8 +27,6 @@ export interface TenderLine {
   contractLabel: string | null;
   /** Гэрээний литр тутмын хөнгөлөлт (түлшний дүн дахин бодоход). */
   discountPerL: MoneyStr | null;
-  voucherCode: string | null;
-  cardNo: string | null;
   refNo: string | null;
 }
 
@@ -37,7 +35,7 @@ export interface SplitTenderListProps {
   remaining: MoneyStr;
   onEditAmount: (line: TenderLine) => void;
   onRemove: (id: string) => void;
-  /** Мөр бүрийн нэмэлт талбарууд (гэрээ хайх, ваучерын код, ...). */
+  /** Мөр бүрийн нэмэлт талбарууд (гэрээ хайх, гүйлгээний дугаар, ...). */
   renderDetail?: (line: TenderLine) => ReactNode;
 }
 

@@ -28,8 +28,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.enums import (
-    CardStatus,
-    CardTxType,
     ContractStatus,
     EbarimtStatus,
     EventType,
@@ -39,10 +37,8 @@ from app.enums import (
     SaleType,
     ShiftStatus,
     SourceType,
-    VoucherStatus,
 )
 from app.models.fuel import Fuel, PumpNozzle, Tank
-from app.models.instrument import PrepaidCard, PrepaidCardTransaction, Voucher
 from app.models.partner import Contract, Customer
 from app.models.product import Product
 from app.models.sale import Payment, Sale, SaleItem
@@ -213,8 +209,6 @@ class ResolvedTender:
     change: Decimal | None = None
     ref_no: str | None = None
     contract: Contract | None = None
-    voucher: Voucher | None = None
-    card: PrepaidCard | None = None
 
 
 def _get(source: Any, key: str, default: Any = None) -> Any:
@@ -504,9 +498,6 @@ async def _resolve_payments(
     tenders: list[ResolvedTender] = []
     contract_cache: dict[uuid.UUID, Contract] = {}
     contract_used: dict[uuid.UUID, Decimal] = {}
-    card_cache: dict[str, PrepaidCard] = {}
-    card_used: dict[str, Decimal] = {}
-    voucher_codes: set[str] = set()
 
     if sale_contract is not None:
         contract_cache[sale_contract.id] = sale_contract
@@ -541,67 +532,9 @@ async def _resolve_payments(
             contract_used[contract_id] = used
             tender.contract = contract
 
-        elif method == str(PaymentMethod.VOUCHER):
-            code = (_clean(_get(raw, "voucher_code")) or "").upper()
-            if not code:
-                raise HTTPException(status_code=422, detail="Ваучерын код оруулаагүй байна")
-            if code in voucher_codes:
-                raise HTTPException(status_code=422, detail="Нэг ваучерыг давхардуулж ашиглах боломжгүй")
-            voucher_codes.add(code)
-            voucher = await db.scalar(select(Voucher).where(Voucher.code == code).with_for_update())
-            if voucher is None:
-                raise HTTPException(status_code=404, detail="Ваучер олдсонгүй")
-            assert_voucher_usable(voucher)
-            if amount != q2(to_decimal(voucher.face_value)):
-                raise HTTPException(
-                    status_code=422,
-                    detail="Ваучерыг хэсэгчлэн ашиглах боломжгүй — нэрлэсэн дүнгээр нь ашиглана",
-                )
-            tender.voucher = voucher
-
-        elif method == str(PaymentMethod.PREPAID):
-            card_no = _clean(_get(raw, "card_no"))
-            if not card_no:
-                raise HTTPException(status_code=422, detail="Картын дугаар оруулаагүй байна")
-            card = card_cache.get(card_no)
-            if card is None:
-                card = await db.scalar(
-                    select(PrepaidCard).where(PrepaidCard.card_no == card_no).with_for_update()
-                )
-                if card is None:
-                    raise HTTPException(status_code=404, detail="Карт олдсонгүй")
-                card_cache[card_no] = card
-            if str(card.status) != str(CardStatus.ACTIVE):
-                raise HTTPException(status_code=422, detail="Карт идэвхгүй байна")
-            used = q2(card_used.get(card_no, ZERO) + amount)
-            if q2(to_decimal(card.balance)) < used:
-                raise HTTPException(status_code=422, detail="Картын үлдэгдэл хүрэлцэхгүй")
-            card_used[card_no] = used
-            tender.card = card
-
         tenders.append(tender)
 
     return tenders
-
-
-def assert_voucher_usable(voucher: Voucher, *, now: datetime | None = None) -> None:
-    """Ваучер ашиглах боломжтой эсэх (422 монгол шалтгаантай)."""
-    now = now or datetime.now(UTC)
-    status = str(voucher.status)
-    if status == str(VoucherStatus.REDEEMED):
-        raise HTTPException(status_code=422, detail="Ваучер аль хэдийн ашиглагдсан байна")
-    if status == str(VoucherStatus.VOID):
-        raise HTTPException(status_code=422, detail="Ваучер хүчингүй болсон байна")
-    if status == str(VoucherStatus.EXPIRED):
-        raise HTTPException(status_code=422, detail="Ваучерын хугацаа дууссан байна")
-    if status != str(VoucherStatus.ACTIVE):
-        raise HTTPException(status_code=422, detail="Ваучер идэвхгүй байна")
-    if voucher.expires_at is not None:
-        expires = voucher.expires_at
-        if expires.tzinfo is None:
-            expires = expires.replace(tzinfo=UTC)
-        if expires < now:
-            raise HTTPException(status_code=422, detail="Ваучерын хугацаа дууссан байна")
 
 
 # =========================================================================== #
@@ -769,24 +702,6 @@ async def create_sale(db: AsyncSession, user: User, payload: Any) -> Sale:
         if tender.contract is not None:
             tender.contract.balance = q2(to_decimal(tender.contract.balance) + tender.amount)
             payment.contract_id = tender.contract.id
-        if tender.voucher is not None:
-            tender.voucher.status = str(VoucherStatus.REDEEMED)
-            tender.voucher.redeemed_sale_id = sale.id
-            tender.voucher.redeemed_at = now
-            payment.voucher_id = tender.voucher.id
-        if tender.card is not None:
-            card = tender.card
-            card.balance = q2(to_decimal(card.balance) - tender.amount)
-            db.add(
-                PrepaidCardTransaction(
-                    card_id=card.id,
-                    tx_type=str(CardTxType.REDEEM),
-                    amount=tender.amount,
-                    balance_after=q2(to_decimal(card.balance)),
-                    sale_id=sale.id,
-                )
-            )
-            payment.prepaid_card_id = card.id
         db.add(payment)
         sale_payments.append(payment)
 
@@ -1056,8 +971,6 @@ async def sale_detail(db: AsyncSession, sale: Sale) -> dict[str, Any]:
                 "method_name": method_label(p.method),
                 "amount": q2(to_decimal(p.amount)),
                 "contract_id": p.contract_id,
-                "voucher_id": p.voucher_id,
-                "prepaid_card_id": p.prepaid_card_id,
                 "received": q2(to_decimal(p.received)) if p.received is not None else None,
                 "change_given": q2(to_decimal(p.change_given)) if p.change_given is not None else None,
                 "ref_no": p.ref_no,

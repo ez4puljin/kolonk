@@ -1,10 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, CircleCheck, Fuel, Package, Printer, Search, Ticket, Wallet } from "lucide-react";
+import { ChevronLeft, CircleCheck, Fuel, Package, Printer, Search } from "lucide-react";
 
-import { api, errorMessage } from "../../api/client";
-import { instrumentKeys } from "../../api/queries/instruments";
+import { errorMessage } from "../../api/client";
 import { useCustomers } from "../../api/queries/partners";
 import { useCreateSaleMutation } from "../../api/queries/sales";
 import type {
@@ -13,12 +11,10 @@ import type {
   MoneyStr,
   PaymentInput,
   PaymentMethod,
-  PrepaidCard,
   SaleCreate,
   SaleCreatedResponse,
   SaleItemInput,
   SaleType,
-  VoucherValidateResult,
 } from "../../api/types";
 import { NumPadModal } from "../../components/pos/NumPadModal";
 import { SplitTenderList, type TenderLine } from "../../components/pos/SplitTenderList";
@@ -55,8 +51,6 @@ import { useUiStore } from "../../stores/ui";
 
 const PAD_AMOUNT = "tender.amount:";
 const PAD_RECEIVED = "tender.received:";
-const PAD_VOUCHER = "tender.voucher:";
-const PAD_CARD = "tender.card:";
 const PAD_REF = "tender.ref:";
 
 let tenderSeq = 0;
@@ -70,14 +64,11 @@ function blankLine(method: PaymentMethod, amount: MoneyStr, manual = false): Ten
     id: nextTenderId(),
     method,
     amount,
-    // Ваучерын дүн нэрлэсэн үнээрээ тогтдог тул авто-баланс түүнийг хөдөлгөхгүй.
-    manual: manual || method === "voucher",
+    manual,
     received: null,
     contractId: null,
     contractLabel: null,
     discountPerL: null,
-    voucherCode: null,
-    cardNo: null,
     refNo: null,
   };
 }
@@ -284,46 +275,9 @@ export function PaymentPage() {
   const saleType: SaleType = hasFuel && hasStore ? "mixed" : hasStore ? "store" : "fuel";
   const flowEmpty = !hasFuel && !hasStore;
 
-  // --- Ваучер / карт шалгах ------------------------------------------------
-  const voucherLine = tenders.find((line) => line.method === "voucher") ?? null;
-  const voucherCode = voucherLine?.voucherCode ?? null;
-  const voucherQuery = useQuery({
-    queryKey: instrumentKeys.voucherValidate(voucherCode ?? ""),
-    queryFn: () =>
-      api.get<VoucherValidateResult>(`/api/vouchers/validate/${encodeURIComponent(voucherCode ?? "")}`),
-    enabled: Boolean(voucherCode && voucherCode.length >= 4),
-    retry: false,
-  });
-  const voucherFace = voucherQuery.data?.voucher?.face_value ?? null;
-
-  const cardLine = tenders.find((line) => line.method === "prepaid") ?? null;
-  const cardNo = cardLine?.cardNo ?? null;
-  const cardQuery = useQuery({
-    queryKey: ["prepaid-cards", "lookup", cardNo ?? ""] as const,
-    queryFn: () => api.get<PrepaidCard>(`/api/prepaid-cards/lookup/${encodeURIComponent(cardNo ?? "")}`),
-    enabled: Boolean(cardNo && cardNo.length >= 3),
-    retry: false,
-  });
-  const cardBalance = cardQuery.data?.balance ?? null;
-
-  // Ваучер зөвхөн нэрлэсэн дүнгээрээ ашиглагдана — дүнг автоматаар тааруулна.
-  useEffect(() => {
-    if (!voucherLine || voucherFace === null) return;
-    if (dCmp(voucherLine.amount, voucherFace) === 0) return;
-    const lineId = voucherLine.id;
-    setRawTenders((prev) =>
-      prev.map((line) =>
-        line.id === lineId ? { ...line, amount: toDisplay(voucherFace), manual: true } : line,
-      ),
-    );
-  }, [voucherLine, voucherFace]);
-
   // --- Үйлдэл ---------------------------------------------------------------
   const addTender = (method: PaymentMethod): void => {
-    if (
-      (method === "contract" || method === "voucher" || method === "prepaid") &&
-      tenders.some((line) => line.method === method)
-    ) {
+    if (method === "contract" && tenders.some((line) => line.method === method)) {
       toastError(`${TENDER_BY_METHOD[method].label} — ${t.tender.tooMuch}`);
       return;
     }
@@ -331,24 +285,6 @@ export function PaymentPage() {
     setRawTenders((prev) => [...prev, line]);
     setError(null);
     if (method === "contract") setPickerLineId(line.id);
-    if (method === "voucher") {
-      openNumPad({
-        target: `${PAD_VOUCHER}${line.id}`,
-        title: t.tender.scanVoucher,
-        value: "",
-        allowDecimal: false,
-        suffix: "",
-      });
-    }
-    if (method === "prepaid") {
-      openNumPad({
-        target: `${PAD_CARD}${line.id}`,
-        title: t.tender.scanCard,
-        value: "",
-        allowDecimal: false,
-        suffix: "",
-      });
-    }
   };
 
   /**
@@ -398,10 +334,6 @@ export function PaymentPage() {
   };
 
   const editAmount = (line: TenderLine): void => {
-    if (line.method === "voucher") {
-      toastError(t.tender.notEnough);
-      return;
-    }
     openNumPad({
       target: `${PAD_AMOUNT}${line.id}`,
       title: `${TENDER_BY_METHOD[line.method].label} — ${t.common.amount}`,
@@ -429,8 +361,6 @@ export function PaymentPage() {
       })
     )
       return;
-    if (apply(PAD_VOUCHER, (id) => patchLine(id, { voucherCode: value === "" ? null : `V${value}` }))) return;
-    if (apply(PAD_CARD, (id) => patchLine(id, { cardNo: value === "" ? null : value }))) return;
     apply(PAD_REF, (id) => patchLine(id, { refNo: value === "" ? null : value }));
   };
 
@@ -451,17 +381,6 @@ export function PaymentPage() {
     for (const line of tenders) {
       if (dCmp(line.amount, "0") <= 0) return t.tender.notEnough;
       if (line.method === "contract" && !line.contractId) return t.tender.selectContract;
-      if (line.method === "voucher") {
-        if (!line.voucherCode) return t.tender.scanVoucher;
-        if (voucherQuery.isError) return errorMessage(voucherQuery.error);
-        if (voucherFace === null) return t.common.loading;
-      }
-      if (line.method === "prepaid") {
-        if (!line.cardNo) return t.tender.scanCard;
-        if (cardQuery.isError) return errorMessage(cardQuery.error);
-        if (cardBalance === null) return t.common.loading;
-        if (dCmp(cardBalance, line.amount) < 0) return t.tender.notEnough;
-      }
       if (line.method === "cash" && line.received !== null && dCmp(line.received, line.amount) < 0) {
         return `${t.tender.notEnough} · ${formatMNT(dSub(line.amount, line.received))}`;
       }
@@ -473,17 +392,7 @@ export function PaymentPage() {
         : `${t.tender.overpaid} · ${formatMNT(dAbs(remaining))}`;
     }
     return null;
-  }, [
-    flowEmpty,
-    tenders,
-    remaining,
-    voucherFace,
-    voucherQuery.isError,
-    voucherQuery.error,
-    cardBalance,
-    cardQuery.isError,
-    cardQuery.error,
-  ]);
+  }, [flowEmpty, tenders, remaining]);
 
   const handleComplete = (): void => {
     if (blocker !== null) return;
@@ -521,8 +430,6 @@ export function PaymentPage() {
       method: line.method,
       amount: line.amount,
       contract_id: line.contractId,
-      voucher_code: line.voucherCode,
-      card_no: line.cardNo,
       received: line.method === "cash" ? line.received : null,
       ref_no: line.refNo,
     }));
@@ -772,84 +679,7 @@ export function PaymentPage() {
                 );
               }
 
-              if (line.method === "voucher") {
-                return (
-                  <div className="flex flex-col gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        openNumPad({
-                          target: `${PAD_VOUCHER}${line.id}`,
-                          title: t.tender.scanVoucher,
-                          value: (line.voucherCode ?? "").replace(/^V/i, ""),
-                          allowDecimal: false,
-                          suffix: "",
-                        })
-                      }
-                      className="flex min-h-14 items-center gap-3 rounded-xl border border-line-strong bg-surface-alt px-4 text-left active:bg-surface-sunken"
-                    >
-                      <Ticket className="h-5 w-5 shrink-0 text-ink-faint" />
-                      <span className="num min-w-0 flex-1 truncate text-base font-bold text-ink">
-                        {line.voucherCode ?? t.tender.voucherCode}
-                      </span>
-                    </button>
-                    {voucherQuery.isFetching ? (
-                      <span className="text-sm text-ink-soft">{t.common.loading}</span>
-                    ) : voucherQuery.isError ? (
-                      <span className="text-sm font-semibold text-danger-dark">
-                        {errorMessage(voucherQuery.error)}
-                      </span>
-                    ) : voucherFace !== null ? (
-                      <span className="num text-sm font-semibold text-success-dark">
-                        {t.partners.faceValue}: {formatMNT(voucherFace)}
-                      </span>
-                    ) : null}
-                  </div>
-                );
-              }
-
-              if (line.method === "prepaid") {
-                return (
-                  <div className="flex flex-col gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        openNumPad({
-                          target: `${PAD_CARD}${line.id}`,
-                          title: t.tender.scanCard,
-                          value: line.cardNo ?? "",
-                          allowDecimal: false,
-                          suffix: "",
-                        })
-                      }
-                      className="flex min-h-14 items-center gap-3 rounded-xl border border-line-strong bg-surface-alt px-4 text-left active:bg-surface-sunken"
-                    >
-                      <Wallet className="h-5 w-5 shrink-0 text-ink-faint" />
-                      <span className="num min-w-0 flex-1 truncate text-base font-bold text-ink">
-                        {line.cardNo ?? t.tender.cardNo}
-                      </span>
-                    </button>
-                    {cardQuery.isFetching ? (
-                      <span className="text-sm text-ink-soft">{t.common.loading}</span>
-                    ) : cardQuery.isError ? (
-                      <span className="text-sm font-semibold text-danger-dark">
-                        {errorMessage(cardQuery.error)}
-                      </span>
-                    ) : cardBalance !== null ? (
-                      <span
-                        className={`num text-sm font-semibold ${
-                          dCmp(cardBalance, line.amount) < 0 ? "text-danger-dark" : "text-success-dark"
-                        }`}
-                      >
-                        {t.common.balance}: {formatMNT(cardBalance)}
-                        {cardQuery.data?.holder_name ? ` · ${cardQuery.data.holder_name}` : ""}
-                      </span>
-                    ) : null}
-                  </div>
-                );
-              }
-
-              // Карт / QR — гүйлгээний дугаар (заавал биш)
+              // Карт / QR / шилжүүлэг — гүйлгээний дугаар (заавал биш)
               return (
                 <button
                   type="button"

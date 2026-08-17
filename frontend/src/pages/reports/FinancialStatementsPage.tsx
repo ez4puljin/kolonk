@@ -67,8 +67,9 @@ const ACCOUNT_TYPE_TONE: Record<string, Tone> = {
 
 const EVENT_TYPE_MN: Record<string, string> = {
   SALE_POSTED: t.sales.sale,
-  VOUCHER_SOLD: t.partners.sellVoucher,
-  PREPAID_TOPUP: t.partners.topup,
+  // Ашиглалтаас хасагдсан ч хуучин бичилтүүд эдгээр кодтой хэвээр.
+  VOUCHER_SOLD: t.accounting.legacyVoucherSold,
+  PREPAID_TOPUP: t.accounting.legacyPrepaidTopup,
   FUEL_RECEIPT_POSTED: t.procurement.fuelReceipt,
   PURCHASE_POSTED: t.procurement.purchase,
   AP_PAYMENT: t.procurement.apPayment,

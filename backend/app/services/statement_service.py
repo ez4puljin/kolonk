@@ -15,10 +15,9 @@ from typing import Any
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.enums import AccountType, CardStatus, VoucherStatus
+from app.enums import AccountType
 from app.models.accounting import Account, JournalEntry, JournalLine
 from app.models.fuel import Fuel, Tank
-from app.models.instrument import PrepaidCard, Voucher
 from app.models.partner import Contract
 from app.models.product import Product
 from app.money import q2
@@ -480,32 +479,7 @@ async def integrity_check(db: AsyncSession) -> list[dict[str, Any]]:
     contract_total = q2(await db.scalar(select(func.coalesce(func.sum(Contract.balance), 0))) or 0)
     checks.append(_check("Гэрээт авлага (1201)", contract_total, await _account_balance(db, ACC.AR_CONTRACT)))
 
-    # 3. Урьдчилсан карт 2302 ↔ prepaid_cards.balance (идэвхтэй)
-    prepaid_total = q2(
-        await db.scalar(
-            select(func.coalesce(func.sum(PrepaidCard.balance), 0)).where(
-                PrepaidCard.status == str(CardStatus.ACTIVE)
-            )
-        )
-        or 0
-    )
-    prepaid_ledger = q2(-(await _account_balance(db, ACC.PREPAID_LIABILITY)))
-    checks.append(_check("Урьдчилсан төлбөрт карт (2302)", prepaid_total, prepaid_ledger))
-
-    # 4. Ваучер 2301 ↔ зарагдсан идэвхтэй ваучерын нэрлэсэн үнэ
-    voucher_total = q2(
-        await db.scalar(
-            select(func.coalesce(func.sum(Voucher.face_value), 0)).where(
-                Voucher.status == str(VoucherStatus.ACTIVE),
-                Voucher.sold_at.is_not(None),
-            )
-        )
-        or 0
-    )
-    voucher_ledger = q2(-(await _account_balance(db, ACC.VOUCHER_LIABILITY)))
-    checks.append(_check("Ваучерын өр төлбөр (2301)", voucher_total, voucher_ledger))
-
-    # 5-6. Нөөцийн үнэлгээ
+    # Нөөцийн үнэлгээ
     tanks = await _tank_rows(db)
     products = await _product_rows(db)
     checks.append(

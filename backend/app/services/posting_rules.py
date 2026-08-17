@@ -34,8 +34,6 @@ PAYMENT_METHOD_MN: dict[str, str] = {
     # Гэрээт борлуулалтыг хэрэглэгчид «зээл» гэж нэрлэдэг — бүх дэлгэц,
     # тайлан, журналын тайлбарт ижил нэршил.
     PaymentMethod.CONTRACT: "Зээл",
-    PaymentMethod.VOUCHER: "Ваучер",
-    PaymentMethod.PREPAID: "Урьдчилсан карт",
 }
 
 
@@ -179,58 +177,6 @@ def build_sale_lines(sale: Any, items: Iterable[Any], payments: Iterable[Any]) -
         lines.append(LineSpec(account_code=ACC.INV_GOODS, credit=goods_cogs, memo="Барааны нөөц хасалт"))
 
     return lines
-
-
-# --------------------------------------------------------------------------- #
-# VOUCHER_SOLD / PREPAID_TOPUP
-# --------------------------------------------------------------------------- #
-def build_voucher_sold_lines(
-    voucher: Any,
-    method: str = PaymentMethod.CASH,
-    *,
-    amount: Decimal | None = None,
-) -> list[LineSpec]:
-    """Ваучер зарсан: дебит tender данс, кредит 2301."""
-    value = _m(amount if amount is not None else getattr(voucher, "face_value", ZERO))
-    if value == 0:
-        return []
-    method = str(method)
-    customer_id = getattr(voucher, "customer_id", None)
-    code = getattr(voucher, "code", None)
-    memo = f"Ваучер зарсан{f' — {code}' if code else ''}"
-    return [
-        LineSpec(account_code=ACC.tender_account(method), debit=value, memo=memo),
-        LineSpec(
-            account_code=ACC.VOUCHER_LIABILITY,
-            credit=value,
-            memo=memo,
-            dims=Dims(customer_id=customer_id),
-        ),
-    ]
-
-
-def build_prepaid_topup_lines(
-    card: Any,
-    amount: Decimal,
-    method: str = PaymentMethod.CASH,
-) -> list[LineSpec]:
-    """Урьдчилсан төлбөрт карт цэнэглэсэн: дебит tender данс, кредит 2302."""
-    value = _m(amount)
-    if value == 0:
-        return []
-    method = str(method)
-    customer_id = getattr(card, "customer_id", None)
-    card_no = getattr(card, "card_no", None)
-    memo = f"Карт цэнэглэлт{f' — {card_no}' if card_no else ''}"
-    return [
-        LineSpec(account_code=ACC.tender_account(method), debit=value, memo=memo),
-        LineSpec(
-            account_code=ACC.PREPAID_LIABILITY,
-            credit=value,
-            memo=memo,
-            dims=Dims(customer_id=customer_id),
-        ),
-    ]
 
 
 # --------------------------------------------------------------------------- #

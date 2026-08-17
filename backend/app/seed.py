@@ -14,17 +14,14 @@ from sqlalchemy import func, select
 
 from app.database import async_session_factory
 from app.enums import (
-    CardStatus,
     ContractStatus,
     CustomerType,
     DocStatus,
     ProductSaleMode,
     PumpStatus,
     RoleCode,
-    VoucherStatus,
 )
 from app.models.fuel import Fuel, Pump, PumpNozzle, Tank
-from app.models.instrument import PrepaidCard, Voucher
 from app.models.partner import Contract, Customer, Supplier
 from app.models.procurement import FuelReceipt
 from app.models.product import Product, ProductCategory
@@ -62,12 +59,12 @@ TANKS = [
     ("3-р сав (Дизель)", "DT", Decimal("20000"), Decimal("2000")),
 ]
 
-# (насосны дугаар, нэр, [(nozzle дугаар, түлшний код)])
+# (Түгээгүүрийн дугаар, нэр, [(nozzle дугаар, түлшний код)])
 PUMPS = [
-    (1, "1-р насос", [(1, "AI92"), (2, "AI95")]),
-    (2, "2-р насос", [(1, "AI92"), (2, "DT")]),
-    (3, "3-р насос", [(1, "AI95"), (2, "DT")]),
-    (4, "4-р насос", [(1, "AI92")]),
+    (1, "1-р түгээгүүр", [(1, "AI92"), (2, "AI95")]),
+    (2, "2-р түгээгүүр", [(1, "AI92"), (2, "DT")]),
+    (3, "3-р түгээгүүр", [(1, "AI95"), (2, "DT")]),
+    (4, "4-р түгээгүүр", [(1, "AI92")]),
 ]
 
 CATEGORIES = [
@@ -221,7 +218,7 @@ async def seed_pumps(db, fuels: dict[str, Fuel], tanks: dict[str, Tank]) -> None
                     )
                 )
     await db.flush()
-    log.info("Насос бэлэн (%d)", len(PUMPS))
+    log.info("Түгээгүүр бэлэн (%d)", len(PUMPS))
 
 
 async def seed_catalog(db) -> None:
@@ -312,35 +309,6 @@ async def seed_partners(db) -> None:
     log.info("Харилцагч бэлэн (%d нийлүүлэгч, %d гэрээт)", len(SUPPLIERS), len(CUSTOMERS))
 
 
-async def seed_instruments(db) -> None:
-    count = await db.scalar(select(func.count()).select_from(Voucher))
-    if not count:
-        for i in range(1, 21):
-            db.add(
-                Voucher(
-                    code=f"V{1000000000 + i}",
-                    face_value=Decimal("50000.00") if i % 2 else Decimal("100000.00"),
-                    status=VoucherStatus.ACTIVE,
-                    expires_at=datetime.now(UTC) + timedelta(days=365),
-                )
-            )
-    # Картыг тэг үлдэгдэлтэй үүсгээд доор жинхэнэ цэнэглэлтээр дүүргэнэ —
-    # ингэснээр 2302 өр төлбөр журналд зөв бүртгэгдэнэ.
-    card_count = await db.scalar(select(func.count()).select_from(PrepaidCard))
-    if not card_count:
-        for i in range(1, 6):
-            db.add(
-                PrepaidCard(
-                    card_no=f"PC{100000 + i}",
-                    holder_name=f"Картын эзэн {i}",
-                    balance=Decimal("0"),
-                    status=CardStatus.ACTIVE,
-                )
-            )
-    await db.flush()
-    log.info("Ваучер, урьдчилсан карт бэлэн")
-
-
 async def seed_opening_fuel_stock(db, tanks: dict[str, Tank]) -> None:
     """Эхний үлдэгдлийг жинхэнэ таталтын баримтаар оруулна — ингэснээр
     avg_cost бодитой болж, НББ-ийн бичилт балансална."""
@@ -414,21 +382,6 @@ async def seed_opening_goods_stock(db) -> None:
     await db.refresh(purchase, ["items"])
     await post_purchase(db, owner, purchase)
     log.info("Барааны эхний нөөц худалдан авалтаар бүртгэгдлээ (%d нэр төрөл)", len(PRODUCTS))
-
-
-async def seed_prepaid_topups(db) -> None:
-    """Урьдчилсан картыг жинхэнэ цэнэглэлтээр дүүргэнэ (2302 өр үүснэ)."""
-    from app.models.instrument import PrepaidCardTransaction
-    from app.services.instrument_service import topup_card
-
-    if await db.scalar(select(func.count()).select_from(PrepaidCardTransaction)):
-        log.info("Картын цэнэглэлт аль хэдийн бүртгэгдсэн")
-        return
-
-    owner = await db.scalar(select(User).join(Role).where(Role.code == RoleCode.OWNER))
-    for card in (await db.scalars(select(PrepaidCard))).all():
-        await topup_card(db, owner, card, Decimal("200000.00"))
-    log.info("Урьдчилсан картууд цэнэглэгдлээ")
 
 
 # (банк, дансны дугаар, эзэмшигч, эхний үлдэгдэл, шимтгэлийн анхдагч)
@@ -587,10 +540,8 @@ async def main() -> None:
         await seed_pumps(db, fuels, tanks)
         await seed_catalog(db)
         await seed_partners(db)
-        await seed_instruments(db)
         await seed_opening_fuel_stock(db, tanks)
         await seed_opening_goods_stock(db)
-        await seed_prepaid_topups(db)
         await seed_bank_accounts(db)
         await seed_expenses(db)
         await seed_employees(db)

@@ -47,8 +47,9 @@ const SOURCE_TYPE_MN: Record<string, string> = {
   ar_payment: t.partners.arPayment,
   shift: t.shift.title,
   refund: t.refunds.refund,
-  voucher: t.partners.voucher,
-  prepaid: t.partners.prepaidCard,
+  // Ашиглалтаас хасагдсан ч хуучин бичилтүүд журналд үлдсэн тул шошго хэрэгтэй.
+  voucher: t.accounting.legacyVoucher,
+  prepaid: t.accounting.legacyPrepaid,
   manual: t.accounting.manualEntry,
   settlement: t.accounting.settlement,
 };

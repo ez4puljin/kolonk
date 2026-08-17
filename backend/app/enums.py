@@ -88,8 +88,6 @@ class PaymentMethod(StrEnum):
     #: Харилцагч дансаар шилжүүлсэн — банкинд шууд орно (1110).
     TRANSFER = "transfer"
     CONTRACT = "contract"
-    VOUCHER = "voucher"
-    PREPAID = "prepaid"
 
 
 class DocStatus(StrEnum):

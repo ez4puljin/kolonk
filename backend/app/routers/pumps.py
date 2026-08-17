@@ -67,7 +67,7 @@ def _schedule_refresh(request: Request, background: BackgroundTasks) -> None:
 
 
 def _nozzle_out(nozzle: PumpNozzle, price_overrides: dict | None = None) -> NozzleOut:
-    # Насосны салбарт өөр үнэ мөрдөж байвал түүнийг харуулна.
+    # Түгээгүүрийн салбарт өөр үнэ мөрдөж байвал түүнийг харуулна.
     override = (price_overrides or {}).get(nozzle.fuel_id)
     return NozzleOut(
         id=nozzle.id,
@@ -154,7 +154,7 @@ def _pump_query():
 async def _load_pump(db: AsyncSession, pump_id: uuid.UUID) -> Pump:
     pump = await db.scalar(_pump_query().where(Pump.id == pump_id))
     if pump is None:
-        raise HTTPException(status_code=404, detail="Насос олдсонгүй")
+        raise HTTPException(status_code=404, detail="Түгээгүүр олдсонгүй")
     return pump
 
 
@@ -165,7 +165,7 @@ async def _reload_pump(db: AsyncSession, pump_id: uuid.UUID) -> Pump:
         _pump_query().where(Pump.id == pump_id).execution_options(populate_existing=True)
     )
     if pump is None:
-        raise HTTPException(status_code=404, detail="Насос олдсонгүй")
+        raise HTTPException(status_code=404, detail="Түгээгүүр олдсонгүй")
     return pump
 
 
@@ -196,7 +196,7 @@ async def list_pumps(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(require_permission("pumps.view", "pumps.manage")),
 ) -> PumpListOut:
-    # Салбартай хэрэглэгч (түгээгч) зөвхөн өөрийн салбарын насосыг харна —
+    # Салбартай хэрэглэгч (түгээгч) зөвхөн өөрийн салбарын түгээгүүрийг харна —
     # хүсэлтэд өөр салбар заасан ч үл хэрэгснэ.
     scope_branch = getattr(_user, "branch_id", None) or branch_id
 
@@ -266,7 +266,7 @@ async def create_pump(
 
     branch_id = await resolve_branch_id(db, user, payload.branch_id)
     # Дугаар зөвхөн ТУХАЙН САЛБАР дотроо давхардахгүй — салбар бүр өөрийн
-    # «1-р насос»-той байна.
+    # «1-р түгээгүүр»-тэй байна.
     clash = await db.scalar(
         select(func.count())
         .select_from(Pump)
@@ -274,7 +274,7 @@ async def create_pump(
     )
     if clash:
         raise HTTPException(
-            status_code=422, detail="Энэ салбарт ийм дугаартай насос бүртгэгдсэн байна"
+            status_code=422, detail="Энэ салбарт ийм дугаартай түгээгүүр бүртгэгдсэн байна"
         )
 
     pump = Pump(
@@ -344,7 +344,7 @@ async def update_pump(
         )
         if clash:
             raise HTTPException(
-                status_code=422, detail="Энэ салбарт ийм дугаартай насос бүртгэгдсэн байна"
+                status_code=422, detail="Энэ салбарт ийм дугаартай түгээгүүр бүртгэгдсэн байна"
             )
 
     if changes.get("name") is not None:
@@ -427,7 +427,7 @@ async def create_nozzle(
 ) -> NozzleOut:
     pump = await _load_pump(db, pump_id)
     if any(n.nozzle_number == payload.nozzle_number for n in pump.nozzles):
-        raise HTTPException(status_code=422, detail="Ийм дугаартай хошуу энэ насост бүртгэгдсэн байна")
+        raise HTTPException(status_code=422, detail="Ийм дугаартай хошуу энэ түгээгүүрт бүртгэгдсэн байна")
 
     fuel, tank = await _validate_nozzle_link(db, payload.fuel_id, payload.tank_id)
 
@@ -488,7 +488,7 @@ async def update_nozzle(
             )
         )
         if clash:
-            raise HTTPException(status_code=422, detail="Ийм дугаартай хошуу энэ насост бүртгэгдсэн байна")
+            raise HTTPException(status_code=422, detail="Ийм дугаартай хошуу энэ түгээгүүрт бүртгэгдсэн байна")
 
     fuel_id = changes.get("fuel_id") or nozzle.fuel_id
     tank_id = changes.get("tank_id") or nozzle.tank_id
@@ -579,7 +579,7 @@ async def authorize_pump(
 
     pump = await _load_pump(db, pump_id)
     if not pump.is_active:
-        raise HTTPException(status_code=422, detail="Насос идэвхгүй байна")
+        raise HTTPException(status_code=422, detail="Түгээгүүр идэвхгүй байна")
 
     nozzle = next((n for n in pump.nozzles if n.id == payload.nozzle_id), None)
     if nozzle is None:
@@ -596,7 +596,7 @@ async def authorize_pump(
 
     manager = _manager(request)
     if manager is None or not manager.has_pump(pump_id):
-        raise HTTPException(status_code=422, detail="Насос холбогдоогүй байна")
+        raise HTTPException(status_code=422, detail="Түгээгүүр холбогдоогүй байна")
 
     try:
         authorization_id = await manager.authorize(
@@ -634,7 +634,7 @@ async def stop_pump(
 
     manager = _manager(request)
     if manager is None or not manager.has_pump(pump_id):
-        raise HTTPException(status_code=422, detail="Насос холбогдоогүй байна")
+        raise HTTPException(status_code=422, detail="Түгээгүүр холбогдоогүй байна")
 
     try:
         await manager.halt(pump_id)
