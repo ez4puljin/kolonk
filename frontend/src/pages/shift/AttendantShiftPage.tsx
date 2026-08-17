@@ -560,10 +560,10 @@ export function AttendantShiftPage() {
   // -------------------------------------------------------------- Ээлж нээх
   if (!shift) {
     return (
-      <div className="flex flex-1 flex-col gap-6">
+      <div className="flex flex-1 flex-col gap-4 sm:gap-6">
         <PageHeader title={t.attendant.title} subtitle={t.attendant.subtitle} />
 
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:gap-5 xl:grid-cols-2">
           <Card title={t.shift.openingCash}>
             <div className="flex flex-col gap-4">
               <NumberField
@@ -607,9 +607,9 @@ export function AttendantShiftPage() {
           </Card>
         </div>
 
-        {/* Утсанд доод цэсний дээр наалдаж, урт жагсаалт гүйлгэсэн ч үргэлж
-            гар дор байна. Десктопт энгийн байрлалдаа. */}
-        <div className="sticky bottom-20 z-10 drop-shadow-lg lg:static lg:bottom-auto lg:drop-shadow-none">
+        {/* Утсанд доод цэсний яг дээр тууш бар болж наалдана — дэвсгэртэй тул
+            доогуур нь гүйж буй талбаруудыг дарж харагдуулахгүй. Десктопт энгийн. */}
+        <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] z-10 -mx-4 border-t border-line bg-surface/95 px-4 py-2.5 backdrop-blur sm:-mx-6 sm:px-6 lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:p-0 lg:backdrop-blur-none">
           <Button
             variant="success"
             size="lg"
@@ -626,7 +626,7 @@ export function AttendantShiftPage() {
 
   // ---------------------------------------------------------- Нээлттэй ээлж
   return (
-    <div className="flex flex-1 flex-col gap-6">
+    <div className="flex flex-1 flex-col gap-4 sm:gap-6">
       <PageHeader
         title={t.attendant.title}
         subtitle={
@@ -639,10 +639,16 @@ export function AttendantShiftPage() {
         actions={
           <>
             <PriceMarkButton shiftId={shift.id} />
-            <Button variant="success" size="lg" icon={<Scale />} onClick={() => {
-              setWizardOpen(true);
-              setStep(0);
-            }}>
+            <Button
+              variant="success"
+              size="md"
+              icon={<Scale />}
+              className="flex-1 sm:flex-none"
+              onClick={() => {
+                setWizardOpen(true);
+                setStep(0);
+              }}
+            >
               {t.attendant.dailyClose}
             </Button>
           </>
@@ -681,12 +687,12 @@ export function AttendantShiftPage() {
           {nozzles.map(({ pump, nozzle }) => (
             <div
               key={nozzle.id}
-              className="num flex items-baseline justify-between gap-3 rounded-xl border border-line bg-white px-4 py-3"
+              className="num flex items-baseline justify-between gap-3 rounded-xl border border-line bg-white px-3.5 py-2.5"
             >
-              <span className="text-sm font-semibold text-ink-soft">
+              <span className="text-[13px] font-semibold text-ink-soft sm:text-sm">
                 {pump.name} · №{nozzle.nozzle_number} {nozzle.fuel_name}
               </span>
-              <span className="text-lg font-bold text-ink">
+              <span className="text-base font-bold text-ink sm:text-lg">
                 {formatNumber(nozzle.totalizer, 1)}
               </span>
             </div>
@@ -1266,7 +1272,13 @@ function PriceMarkButton({ shiftId }: { shiftId: UUID }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <Button variant="warning" size="lg" icon={<Droplets />} onClick={() => setOpen(true)}>
+      <Button
+        variant="warning"
+        size="md"
+        icon={<Droplets />}
+        className="flex-1 sm:flex-none"
+        onClick={() => setOpen(true)}
+      >
         {t.attendant.priceMark}
       </Button>
       <PriceMarkModal shiftId={shiftId} open={open} onClose={() => setOpen(false)} />

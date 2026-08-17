@@ -36,7 +36,7 @@ export function Card({
   return (
     <section className={`flex flex-col overflow-hidden rounded-xl border ${shell} ${className}`}>
       {(title || actions) && (
-        <header className={`flex items-start gap-4 border-b px-5 py-4 ${divider}`}>
+        <header className={`flex items-start gap-4 border-b px-4 py-3 sm:px-5 sm:py-4 ${divider}`}>
           <div className="min-w-0 flex-1">
             {title ? <h3 className="truncate text-base font-bold">{title}</h3> : null}
             {subtitle ? <p className={`mt-0.5 truncate text-sm ${subtitleTone}`}>{subtitle}</p> : null}
@@ -45,9 +45,11 @@ export function Card({
         </header>
       )}
 
-      <div className={`min-w-0 flex-1 ${flush ? "" : "px-5 py-4"} ${bodyClassName}`}>{children}</div>
+      <div className={`min-w-0 flex-1 ${flush ? "" : "px-4 py-3.5 sm:px-5 sm:py-4"} ${bodyClassName}`}>
+        {children}
+      </div>
 
-      {footer ? <footer className={`border-t px-5 py-3 ${divider}`}>{footer}</footer> : null}
+      {footer ? <footer className={`border-t px-4 py-3 sm:px-5 ${divider}`}>{footer}</footer> : null}
     </section>
   );
 }

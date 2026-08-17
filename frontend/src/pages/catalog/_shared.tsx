@@ -193,12 +193,12 @@ export function NumberField({
         type="button"
         disabled={disabled}
         onClick={() => openNumPad({ target: name, title: label, value, allowDecimal, suffix })}
-        className="flex h-14 w-full items-center justify-between gap-3 rounded-xl border border-line-strong bg-white px-4 text-left transition-colors hover:bg-surface-alt active:bg-surface-sunken disabled:pointer-events-none disabled:bg-surface-alt"
+        className="flex h-12 w-full items-center justify-between gap-3 rounded-xl border border-line-strong bg-white px-3.5 text-left transition-colors hover:bg-surface-alt active:bg-surface-sunken disabled:pointer-events-none disabled:bg-surface-alt sm:h-14 sm:px-4"
       >
         <Calculator className="h-5 w-5 shrink-0 text-ink-faint" />
-        <span className="num flex min-w-0 items-baseline gap-1.5 truncate text-xl font-bold text-ink">
+        <span className="num flex min-w-0 items-baseline gap-1.5 truncate text-lg font-bold text-ink sm:text-xl">
           {prettyDecimal(value)}
-          {suffix ? <span className="text-base font-semibold text-ink-soft">{suffix}</span> : null}
+          {suffix ? <span className="text-sm font-semibold text-ink-soft sm:text-base">{suffix}</span> : null}
         </span>
       </button>
       {hint ? <span className="text-xs text-ink-soft">{hint}</span> : null}

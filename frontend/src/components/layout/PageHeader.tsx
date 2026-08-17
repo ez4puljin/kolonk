@@ -24,7 +24,7 @@ export function PageHeader({ title, subtitle, back, actions, children, className
   };
 
   return (
-    <div className={`flex flex-col gap-4 ${className}`}>
+    <div className={`flex flex-col gap-3 sm:gap-4 ${className}`}>
       <div className="flex flex-wrap items-start gap-3">
         {back ? (
           <button
@@ -38,11 +38,16 @@ export function PageHeader({ title, subtitle, back, actions, children, className
         ) : null}
 
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-2xl leading-tight font-bold text-ink">{title}</h1>
-          {subtitle ? <div className="mt-1 text-sm text-ink-soft">{subtitle}</div> : null}
+          <h1 className="truncate text-xl leading-tight font-bold text-ink sm:text-2xl">{title}</h1>
+          {subtitle ? <div className="mt-1 text-[13px] text-ink-soft sm:text-sm">{subtitle}</div> : null}
         </div>
 
-        {actions ? <div className="no-print flex shrink-0 flex-wrap items-center gap-2.5">{actions}</div> : null}
+        {/* Утсанд гарчгийн доор бүтэн өргөнөөр — товчнууд дэлгэцээс халихгүй. */}
+        {actions ? (
+          <div className="no-print flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:gap-2.5">
+            {actions}
+          </div>
+        ) : null}
       </div>
 
       {children ? <div className="no-print">{children}</div> : null}
