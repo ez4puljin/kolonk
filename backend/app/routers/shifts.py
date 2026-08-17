@@ -72,8 +72,12 @@ async def current_shift(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict[str, Any] | None:
-    """Нээлттэй ээлж болон түүний шууд хураангуй (байхгүй бол null)."""
-    shift = await shift_service.get_open_shift(db)
+    """Нээлттэй ээлж болон түүний шууд хураангуй (байхгүй бол null).
+
+    Салбартай хэрэглэгч зөвхөн ӨӨРИЙН салбарын ээлжийг хардаг — хөрш
+    салбарын ээлж дээр санамсаргүй ажиллахаас сэргийлнэ.
+    """
+    shift = await shift_service.open_shift_for_user(db, user)
     if shift is None:
         return None
     return await shift_service.current_shift_summary(db, shift)

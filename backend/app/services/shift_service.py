@@ -304,11 +304,29 @@ def _normalize_readings(totalizer_readings: Sequence[Any]) -> list[tuple[uuid.UU
 # --------------------------------------------------------------------------- #
 # Ээлж нээх / хаах
 # --------------------------------------------------------------------------- #
-async def get_open_shift(db: AsyncSession) -> Shift | None:
-    """Одоо нээлттэй байгаа ээлж (байхгүй бол None)."""
-    return await db.scalar(
-        select(Shift).where(Shift.status == ShiftStatus.OPEN).order_by(Shift.opened_at.desc()).limit(1)
-    )
+async def get_open_shift(db: AsyncSession, branch_id: uuid.UUID | None = None) -> Shift | None:
+    """Нээлттэй ээлж (байхгүй бол None).
+
+    ``branch_id`` өгвөл ЗӨВХӨН тэр салбарын ээлжийг хайна. Салбар бүр
+    өөрийн ээлжтэй байдаг тул түгээгч, борлуулалттай холбоотой бүх хайлт
+    үүнийг заавал дамжуулна — эс тэгвэл нэг салбарын ээлж нөгөөгийнхөд
+    харагдаж, хоёр түгээгч нэг ээлж дээр ажиллах эрсдэлтэй.
+    """
+    stmt = select(Shift).where(Shift.status == ShiftStatus.OPEN)
+    if branch_id is not None:
+        stmt = stmt.where(Shift.branch_id == branch_id)
+    return await db.scalar(stmt.order_by(Shift.opened_at.desc()).limit(1))
+
+
+async def open_shift_for_user(db: AsyncSession, user: User | None) -> Shift | None:
+    """Хэрэглэгчийн салбарын нээлттэй ээлж.
+
+    Салбарт харьяалагдсан хүн (түгээгч, салбарын менежер) зөвхөн өөрийн
+    салбарынхыг хардаг. Бүх салбарын эрхтэй хүн (эзэн, төв менежер) хамгийн
+    сүүлд нээгдсэнийг — хяналтын зорилгоор.
+    """
+    branch_id = getattr(user, "branch_id", None) if user is not None else None
+    return await get_open_shift(db, branch_id)
 
 
 async def get_shift(db: AsyncSession, shift_id: uuid.UUID) -> Shift:
@@ -352,8 +370,23 @@ async def open_shift(
     totalizer_readings: Sequence[Any],
 ) -> Shift:
     """Шинэ ээлж нээнэ. Савны хэмжилт, хошууны тоолуурын заалтыг эхлэлийн цэг болгож бүртгэнэ."""
-    if await get_open_shift(db) is not None:
-        raise HTTPException(status_code=422, detail="Өмнөх ээлж хаагдаагүй байна")
+    # Салбарыг эхлээд тогтооно — шалгалт ЗӨВХӨН тэр салбарт хамаарна.
+    # Өмнө нь бүх компанид нэг ээлж л нээлттэй байхаар шалгадаг байсан тул
+    # нэг салбар ажиллаж байхад нөгөө салбар ээлжээ нээж чаддаггүй байв.
+    branch_id = await _branch_for_shift(db, user)
+
+    existing = await get_open_shift(db, branch_id)
+    if existing is not None:
+        # Нэг салбарт зэрэг хоёр түгээгч ажиллахыг хориглоно — ээлж, касс,
+        # милийн тооцоо хоёуланд нь холилдоно.
+        holder = await db.scalar(select(User).where(User.id == existing.opened_by))
+        who = getattr(holder, "full_name", None) or getattr(holder, "username", None)
+        detail = (
+            f"Энэ салбарт {who} ээлж нээсэн байна. Тэр ээлж хаагдсаны дараа шинээр нээнэ үү"
+            if who
+            else "Энэ салбарын өмнөх ээлж хаагдаагүй байна"
+        )
+        raise HTTPException(status_code=409, detail=detail)
 
     dips = _normalize_dips(tank_dips)
     # Тоолуур унтраалттай үед заалтыг огт бүртгэхгүй (илгээсэн ч үл хэрэгснэ).
@@ -369,7 +402,6 @@ async def open_shift(
         if nozzle_id not in nozzles:
             raise HTTPException(status_code=422, detail="Бүртгэлгүй хошуу заасан байна")
 
-    branch_id = await _branch_for_shift(db, user)
     if use_totalizer:
         await _check_all_readings(db, branch_id, readings)
 

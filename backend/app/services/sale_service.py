@@ -240,15 +240,21 @@ def _clean(value: Any) -> str | None:
 # =========================================================================== #
 # 1. Ээлж
 # =========================================================================== #
-async def get_open_shift(db: AsyncSession) -> Shift | None:
-    """Одоо нээлттэй байгаа ээлж (байхгүй бол ``None``)."""
-    return await db.scalar(
-        select(Shift).where(Shift.status == ShiftStatus.OPEN).order_by(Shift.opened_at.desc()).limit(1)
-    )
+async def get_open_shift(db: AsyncSession, user: User | None = None) -> Shift | None:
+    """Нээлттэй ээлж (байхгүй бол ``None``).
+
+    Салбарт харьяалагдсан хэрэглэгчийн хувьд ЗӨВХӨН өөрийнх нь салбарын
+    ээлжийг хайна — борлуулалт хөрш салбарын ээлж дээр бичигдэхээс сэргийлнэ.
+    """
+    branch_id = getattr(user, "branch_id", None) if user is not None else None
+    stmt = select(Shift).where(Shift.status == ShiftStatus.OPEN)
+    if branch_id is not None:
+        stmt = stmt.where(Shift.branch_id == branch_id)
+    return await db.scalar(stmt.order_by(Shift.opened_at.desc()).limit(1))
 
 
-async def require_open_shift(db: AsyncSession) -> Shift:
-    shift = await get_open_shift(db)
+async def require_open_shift(db: AsyncSession, user: User | None = None) -> Shift:
+    shift = await get_open_shift(db, user)
     if shift is None:
         raise HTTPException(status_code=422, detail="Ээлж нээгээгүй байна")
     return shift
@@ -576,8 +582,8 @@ async def _consume_line(
 # =========================================================================== #
 async def create_sale(db: AsyncSession, user: User, payload: Any) -> Sale:
     """Борлуулалт бүртгэх бүрэн урсгал (CONTRACTS.md §1, §2, §5)."""
-    # --- 1. Нээлттэй ээлж ---
-    shift = await require_open_shift(db)
+    # --- 1. Нээлттэй ээлж (борлуулагчийн салбарынх) ---
+    shift = await require_open_shift(db, user)
 
     items_in = list(_get(payload, "items", []) or [])
     if not items_in:

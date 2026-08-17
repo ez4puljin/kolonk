@@ -201,16 +201,21 @@ export const ROLE_META: Record<string, { label: string; color: string; chip: str
   cashier: { label: "Түгээгч", color: colors.success, chip: CHIP.success },
 };
 
-/** Нэвтрэлтийн дараа дүрээр чиглүүлэх зам. */
+/**
+ * Нэвтрэлтийн дараа дүрээр чиглүүлэх зам.
+ *
+ * Түгээгч ЭЭЛЖИН дээрээ бууна — ээлжээ нээхээс өмнө касс ашиглах
+ * боломжгүй бөгөөд ПОС унтраалттай станцад касс огт нээгддэггүй.
+ */
 export const ROLE_HOME: Record<string, string> = {
-  cashier: "/pos",
+  cashier: "/shift",
   manager: "/dashboard",
   owner: "/owner",
 };
 
 export function homeForRole(roleCode: string | null | undefined): string {
-  if (!roleCode) return "/pos";
-  return ROLE_HOME[roleCode] ?? "/pos";
+  if (!roleCode) return "/shift";
+  return ROLE_HOME[roleCode] ?? "/shift";
 }
 
 /** Урьдчилсан литрийн товчнууд. */

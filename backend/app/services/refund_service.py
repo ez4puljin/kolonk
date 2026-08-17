@@ -218,7 +218,7 @@ async def request_refund(
     refund_method: str | None = None,
 ) -> Refund:
     """Буцаалтын хүсэлт үүсгэнэ (төлөв ``pending``, нөөц/журнал хараахан хөдлөхгүй)."""
-    shift = await sale_service.require_open_shift(db)
+    shift = await sale_service.require_open_shift(db, user)
     sale = await _load_sale(db, sale_id)
 
     status = str(sale.status)

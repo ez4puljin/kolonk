@@ -11,6 +11,7 @@ import {
   FileText,
   Gauge,
   HandCoins,
+  Lock,
   Package,
   Plus,
   Scale,
@@ -52,9 +53,11 @@ import { Card } from "../../components/ui/Card";
 import { Modal } from "../../components/ui/Modal";
 import { Spinner } from "../../components/ui/Spinner";
 import { StatBox } from "../../components/ui/StatBox";
+import { usePermission } from "../../hooks/usePermission";
 import { t } from "../../i18n/mn";
 import { dAdd, dMul, dSub, dSum, dToQty } from "../../lib/decimal";
 import { formatDateTime, formatLiters, formatMNT, formatNumber } from "../../lib/format";
+import { useAuthStore } from "../../stores/auth";
 import { useUiStore } from "../../stores/ui";
 import { FieldLabel, NumberField, PickerField, TextField } from "../catalog/_shared";
 
@@ -325,6 +328,8 @@ export function AttendantShiftPage() {
   const navigate = useNavigate();
   const toastError = useUiStore((state) => state.toastError);
   const toastSuccess = useUiStore((state) => state.toastSuccess);
+  const { can } = usePermission();
+  const currentUserId = useAuthStore((state) => state.user?.id ?? null);
 
   const { data: current, isLoading: shiftLoading } = useCurrentShift();
   const { data: pumpsPage, isLoading: pumpsLoading } = usePumps({ active_only: true });
@@ -340,6 +345,10 @@ export function AttendantShiftPage() {
   const shift = current?.shift ?? null;
   const shiftId = shift?.id ?? null;
   const { data: marks } = usePriceMarks(shiftId);
+
+  // Ээлж өөрийнх үү? Бүх ээлж харах эрхтэй хүн (менежер, эзэн) хязгаарлагдахгүй.
+  const ownShift =
+    shift === null || can("shifts.view_all") || shift.opened_by === currentUserId;
 
   const nozzles = useMemo(
     () =>
@@ -692,6 +701,27 @@ export function AttendantShiftPage() {
               {t.common.close}
             </Button>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ------------------------------------------------ Өөр түгээгчийн ээлж нээлттэй
+  // Нэг салбарт зэрэг хоёр түгээгч ажиллахыг хориглоно: ээлж эзэмшигчийнх
+  // болохоос бусад түгээгчид зөвхөн хэн ажиллаж байгааг харна.
+  if (shift && !ownShift) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-6 py-10 text-center">
+        <span className="flex h-20 w-20 items-center justify-center rounded-full bg-warning-soft text-warning-dark">
+          <Lock className="h-10 w-10" />
+        </span>
+        <div className="space-y-2">
+          <h1 className="text-2xl font-bold text-ink">{t.attendant.otherShift}</h1>
+          <p className="num max-w-md text-ink-soft">
+            {shift.opened_by_name ?? "—"} · {t.shift.number}
+            {shift.number} · {formatDateTime(shift.opened_at)}
+          </p>
+          <p className="max-w-md text-ink-soft">{t.attendant.otherShiftHint}</p>
         </div>
       </div>
     );

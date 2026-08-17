@@ -72,7 +72,7 @@ async def list_sales(
         # Түгээгч зөвхөн өөрийн одоогийн нээлттэй ээлжийн борлуулалтыг хардаг.
         cashier_id = user.id
         if shift_id is None:
-            shift = await sale_service.get_open_shift(db)
+            shift = await sale_service.get_open_shift(db, user)
             if shift is None:
                 return SaleListOut(items=[], total=0)
             shift_id = shift.id
