@@ -103,6 +103,14 @@ export function DailyClosingsPage() {
       hideOnMobile: true,
     },
     {
+      key: "transfer",
+      header: t.dailyClosings.transferTotal,
+      render: (row) => formatMNT(row.transfer_total ?? "0"),
+      align: "right",
+      numeric: true,
+      hideOnMobile: true,
+    },
+    {
       key: "declared",
       header: t.dailyClosings.declaredCash,
       render: (row) => (row.declared_cash === null ? "—" : formatMNT(row.declared_cash)),

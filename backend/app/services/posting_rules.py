@@ -30,6 +30,7 @@ PAYMENT_METHOD_MN: dict[str, str] = {
     PaymentMethod.CASH: "Бэлэн",
     PaymentMethod.CARD: "Карт",
     PaymentMethod.QR: "QR",
+    PaymentMethod.TRANSFER: "Шилжүүлэг",
     PaymentMethod.CONTRACT: "Гэрээ",
     PaymentMethod.VOUCHER: "Ваучер",
     PaymentMethod.PREPAID: "Урьдчилсан карт",

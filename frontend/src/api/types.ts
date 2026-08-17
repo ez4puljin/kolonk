@@ -49,7 +49,14 @@ export type InventoryTxType =
 export type SaleType = "fuel" | "store" | "mixed";
 export type SaleStatus = "draft" | "completed" | "refunded" | "partial_refund";
 export type ItemType = "fuel" | "product";
-export type PaymentMethod = "cash" | "card" | "qr" | "contract" | "voucher" | "prepaid";
+export type PaymentMethod =
+  | "cash"
+  | "card"
+  | "qr"
+  | "transfer"
+  | "contract"
+  | "voucher"
+  | "prepaid";
 export type DocStatus = "draft" | "posted";
 export type ApprovalStatus = "pending" | "approved" | "rejected";
 export type RefundType = "full" | "partial";
@@ -2483,6 +2490,8 @@ export interface DailyCloseRequest {
   declared_cash: MoneyStr;
   settlement_vat: MoneyStr;
   settlement_novat: MoneyStr;
+  /** Дансаар шилжүүлж тушаасан дүн. */
+  transfer_total?: MoneyStr;
   oil_lines: OilLineInput[];
   credit_lines: CreditLineInput[];
   ar_payments: ArPaymentLineInput[];
@@ -2532,6 +2541,8 @@ export interface DailyClosing {
   settlement_vat: MoneyStr;
   settlement_novat: MoneyStr;
   settlement_total: MoneyStr;
+  /** Дансаар шилжүүлж тушаасан дүн. */
+  transfer_total: MoneyStr;
   fuel_total: MoneyStr;
   credit_total: MoneyStr;
   oil_total: MoneyStr;
@@ -2551,6 +2562,7 @@ export interface DailyClosingRow {
   credit_total: MoneyStr;
   oil_total: MoneyStr;
   settlement_total: MoneyStr;
+  transfer_total: MoneyStr;
   declared_cash: MoneyStr | null;
   expected_cash: MoneyStr | null;
   cash_over_short: MoneyStr | null;

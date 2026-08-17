@@ -81,6 +81,8 @@ class PaymentMethod(StrEnum):
     CASH = "cash"
     CARD = "card"
     QR = "qr"
+    #: Харилцагч дансаар шилжүүлсэн — банкинд шууд орно (1110).
+    TRANSFER = "transfer"
     CONTRACT = "contract"
     VOUCHER = "voucher"
     PREPAID = "prepaid"

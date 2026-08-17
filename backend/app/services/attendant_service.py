@@ -444,16 +444,43 @@ async def _create_credit_sales(
     return total, sale_ids
 
 
+def _noncash_payments(
+    total: Decimal, card_amount: Decimal, transfer_amount: Decimal
+) -> tuple[list[PaymentIn], Decimal, Decimal]:
+    """Өдрийн борлуулалтын төлбөрийг 3 сувагт хуваана.
+
+    Эхлээд карт (терминалын тооцоо), дараа нь шилжүүлэг, үлдсэн нь бэлэн.
+    Буцаана: (төлбөрүүд, ашигласан карт, ашигласан шилжүүлэг).
+    """
+    card = min(q2(card_amount), total)
+    transfer = min(q2(transfer_amount), q2(total - card))
+    payments: list[PaymentIn] = []
+    if card > ZERO:
+        payments.append(PaymentIn(method=PaymentMethod.CARD, amount=card, ref_no="SETTLEMENT"))
+    if transfer > ZERO:
+        payments.append(
+            PaymentIn(method=PaymentMethod.TRANSFER, amount=transfer, ref_no="TRANSFER")
+        )
+    cash = q2(total - card - transfer)
+    if cash > ZERO:
+        payments.append(PaymentIn(method=PaymentMethod.CASH, amount=cash, received=cash))
+    return payments, card, transfer
+
+
 async def _create_oil_sale(
     db: AsyncSession,
     user: User,
     oil_lines: list[Any],
     *,
     card_amount: Decimal,
-) -> tuple[Decimal, uuid.UUID | None]:
-    """Тос, барааны өдрийн борлуулалт — нэг Sale (бэлэн + карт үлдэгдэл)."""
+    transfer_amount: Decimal = ZERO,
+) -> tuple[Decimal, Decimal, Decimal, uuid.UUID | None]:
+    """Тос, барааны өдрийн борлуулалт — нэг Sale (карт/шилжүүлэг + бэлэн үлдэгдэл).
+
+    Буцаана: (нийт дүн, ашигласан карт, ашигласан шилжүүлэг, sale_id).
+    """
     if not oil_lines:
-        return ZERO, None
+        return ZERO, ZERO, ZERO, None
 
     items: list[SaleItemIn] = []
     total = ZERO
@@ -471,20 +498,14 @@ async def _create_oil_sale(
         total = q2(total + q2(qty * unit))
 
     if total <= ZERO:
-        return ZERO, None
+        return ZERO, ZERO, ZERO, None
 
-    card = min(q2(card_amount), total)
-    payments = []
-    if card > ZERO:
-        payments.append(PaymentIn(method=PaymentMethod.CARD, amount=card, ref_no="SETTLEMENT"))
-    cash = q2(total - card)
-    if cash > ZERO:
-        payments.append(PaymentIn(method=PaymentMethod.CASH, amount=cash, received=cash))
+    payments, card, transfer = _noncash_payments(total, card_amount, transfer_amount)
 
     sale = await sale_service.create_sale(
         db, user, SaleCreate(sale_type=SaleType.STORE, items=items, payments=payments)
     )
-    return total, sale.id
+    return total, card, transfer, sale.id
 
 
 async def _create_fuel_sale(
@@ -493,14 +514,15 @@ async def _create_fuel_sale(
     slots: _SegmentSlots,
     *,
     card_amount: Decimal,
-) -> tuple[Decimal, Decimal, uuid.UUID | None]:
+    transfer_amount: Decimal = ZERO,
+) -> tuple[Decimal, Decimal, Decimal, uuid.UUID | None]:
     """Нэгдсэн түлшний борлуулалт — сегмент бүрийн ҮЛДЭГДЭЛ нэг мөр.
 
     Зээлээр өгсөн литр аль хэдийн сегментүүдээс хасагдсан тул энд юу үлдсэн
     нь бэлэн/картаар зарагдсан түлш.  Мөр бүр хошууныхоо савнаас хасагдана —
     сав бүрийн нийт зарлага милийн зөрүүтэйгээ яг таарна.
 
-    Буцаана: (нийт дүн, ашигласан карт, sale_id).
+    Буцаана: (нийт дүн, ашигласан карт, ашигласан шилжүүлэг, sale_id).
     """
     items: list[SaleItemIn] = []
     total = ZERO
@@ -524,20 +546,14 @@ async def _create_fuel_sale(
         total = q2(total + amount)
 
     if total <= ZERO:
-        return ZERO, ZERO, None
+        return ZERO, ZERO, ZERO, None
 
-    card = min(q2(card_amount), total)
-    payments = []
-    if card > ZERO:
-        payments.append(PaymentIn(method=PaymentMethod.CARD, amount=card, ref_no="SETTLEMENT"))
-    cash = q2(total - card)
-    if cash > ZERO:
-        payments.append(PaymentIn(method=PaymentMethod.CASH, amount=cash, received=cash))
+    payments, card, transfer = _noncash_payments(total, card_amount, transfer_amount)
 
     sale = await sale_service.create_sale(
         db, user, SaleCreate(sale_type=SaleType.FUEL, items=items, payments=payments)
     )
-    return total, card, sale.id
+    return total, card, transfer, sale.id
 
 
 async def daily_preview(
@@ -571,8 +587,9 @@ async def daily_close(
 
     settlement_vat = q2(_d(payload.settlement_vat))
     settlement_novat = q2(_d(payload.settlement_novat))
-    if settlement_vat < ZERO or settlement_novat < ZERO:
-        raise HTTPException(status_code=422, detail="Settlement дүн сөрөг байж болохгүй")
+    transfer_total = q2(_d(getattr(payload, "transfer_total", ZERO)))
+    if settlement_vat < ZERO or settlement_novat < ZERO or transfer_total < ZERO:
+        raise HTTPException(status_code=422, detail="Тушаалтын дүн сөрөг байж болохгүй")
     settlement_total = q2(settlement_vat + settlement_novat)
 
     # Миль×үнэ-ээр бодогдсон нийт түгээлт — тайланд ЭНЭ дүн харагдана
@@ -588,23 +605,27 @@ async def daily_close(
         db, user, shift, payload.credit_lines, slots
     )
 
-    # --- 2. Нэгдсэн түлшний борлуулалт (settlement эхлээд түлшинд) ---
-    fuel_total, fuel_card, fuel_sale_id = await _create_fuel_sale(
-        db, user, slots, card_amount=settlement_total
+    # --- 2. Нэгдсэн түлшний борлуулалт (карт/шилжүүлэг эхлээд түлшинд) ---
+    fuel_total, fuel_card, fuel_transfer, fuel_sale_id = await _create_fuel_sale(
+        db, user, slots, card_amount=settlement_total, transfer_amount=transfer_total
     )
 
-    # --- 3. Тос, барааны борлуулалт (settlement-ийн үлдэгдэл картаар) ---
+    # --- 3. Тос, барааны борлуулалт (үлдсэн карт/шилжүүлгээр) ---
     card_left = q2(settlement_total - fuel_card)
-    oil_total, oil_sale_id = await _create_oil_sale(
-        db, user, payload.oil_lines, card_amount=card_left
+    transfer_left = q2(transfer_total - fuel_transfer)
+    oil_total, oil_card, oil_transfer, oil_sale_id = await _create_oil_sale(
+        db,
+        user,
+        payload.oil_lines,
+        card_amount=card_left,
+        transfer_amount=transfer_left,
     )
-    if payload.oil_lines:
-        oil_card = min(card_left, oil_total)
-        card_left = q2(card_left - oil_card)
-    if card_left > ZERO:
+    card_left = q2(card_left - oil_card)
+    transfer_left = q2(transfer_left - oil_transfer)
+    if card_left > ZERO or transfer_left > ZERO:
         raise HTTPException(
             status_code=422,
-            detail="Settlement дүн өдрийн борлуулалтаас их байна — дүнгээ шалгана уу",
+            detail="Тушаасан карт/шилжүүлгийн дүн өдрийн борлуулалтаас их байна — дүнгээ шалгана уу",
         )
 
     # --- 4. Авлагын төлбөрүүд (өглөг) ---
@@ -642,6 +663,7 @@ async def daily_close(
         shift_id=shift.id,
         settlement_vat=settlement_vat,
         settlement_novat=settlement_novat,
+        transfer_total=transfer_total,
         fuel_total=mile_total,
         credit_total=credit_total,
         oil_total=oil_total,
@@ -675,6 +697,7 @@ async def daily_close(
             "credit_total": str(credit_total),
             "oil_total": str(oil_total),
             "settlement": str(settlement_total),
+            "transfer": str(transfer_total),
             "ar_total": str(ar_total),
             "expense_total": str(expense_total),
             "credit_sales": len(credit_sale_ids),
@@ -754,6 +777,7 @@ async def closing_out(db: AsyncSession, shift: Shift) -> dict[str, Any] | None:
         "settlement_vat": q2(_d(closing.settlement_vat)),
         "settlement_novat": q2(_d(closing.settlement_novat)),
         "settlement_total": settlement_total,
+        "transfer_total": q2(_d(closing.transfer_total)),
         "fuel_total": q2(_d(closing.fuel_total)),
         "credit_total": q2(_d(closing.credit_total)),
         "oil_total": q2(_d(closing.oil_total)),
@@ -852,6 +876,7 @@ async def daily_closings_list(
                 "credit_total": q2(_d(closing.credit_total)),
                 "oil_total": q2(_d(closing.oil_total)),
                 "settlement_total": settlement_total,
+                "transfer_total": q2(_d(closing.transfer_total)),
                 "declared_cash": q2(_d(shift.declared_cash)) if shift.declared_cash is not None else None,
                 "expected_cash": q2(_d(shift.expected_cash)) if shift.expected_cash is not None else None,
                 "cash_over_short": q2(_d(shift.cash_over_short)) if shift.cash_over_short is not None else None,

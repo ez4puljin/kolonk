@@ -7,7 +7,6 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleCheck,
-  CreditCard,
   Droplets,
   FileText,
   Gauge,
@@ -57,7 +56,7 @@ import { t } from "../../i18n/mn";
 import { dAdd, dMul, dSub, dSum, dToQty } from "../../lib/decimal";
 import { formatDateTime, formatLiters, formatMNT, formatNumber } from "../../lib/format";
 import { useUiStore } from "../../stores/ui";
-import { NumberField, PickerField, TextField } from "../catalog/_shared";
+import { FieldLabel, NumberField, PickerField, TextField } from "../catalog/_shared";
 
 /** Литрийн утгыг байгаагаар нь (3 орон) хадгална. */
 function litersOf(value: string | null | undefined): LitersStr {
@@ -279,18 +278,21 @@ function PriceMarkModal({
 // --------------------------------------------------------------------------
 // Түгээгчийн ээлж — үндсэн хуудас
 // --------------------------------------------------------------------------
-type WizardStep = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+type WizardStep = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
+/** Тушаалтын алхам: бэлэн мөнгө, Settlement (карт), шилжүүлэг — 3 суваг нэг дор. */
 const STEP_META: { label: string; icon: typeof Gauge }[] = [
   { label: t.attendant.stepMiles, icon: Gauge },
-  { label: t.attendant.stepCash, icon: Banknote },
-  { label: t.attendant.stepSettlement, icon: CreditCard },
+  { label: t.attendant.stepHandover, icon: Banknote },
   { label: t.attendant.stepOil, icon: Package },
   { label: t.attendant.stepCredit, icon: FileText },
   { label: t.attendant.stepAr, icon: HandCoins },
   { label: t.attendant.stepExpense, icon: Wallet },
   { label: t.attendant.stepConfirm, icon: Scale },
 ];
+
+/** Тулгалтын алхмын индекс — чип болон footer товч энэ дээр тооцоо дуудна. */
+const CONFIRM_STEP: WizardStep = 6;
 
 interface OilRow extends OilLineInput {
   key: number;
@@ -409,6 +411,7 @@ export function AttendantShiftPage() {
   const [declaredCash, setDeclaredCash] = useState("");
   const [settlementVat, setSettlementVat] = useState("");
   const [settlementNovat, setSettlementNovat] = useState("");
+  const [transferTotal, setTransferTotal] = useState("");
   const [oilRows, setOilRows] = useState<OilRow[]>([]);
   const [creditRows, setCreditRows] = useState<CreditRow[]>([]);
   const [arRows, setArRows] = useState<ArRow[]>([]);
@@ -458,6 +461,13 @@ export function AttendantShiftPage() {
     settlementVat === "" ? "0" : settlementVat,
     settlementNovat === "" ? "0" : settlementNovat,
   );
+  const transferAmount = transferTotal === "" ? "0" : transferTotal;
+  /** Тушаасан нийт — бэлэн + Settlement + шилжүүлэг. */
+  const handoverTotal = dSum([
+    declaredCash === "" ? "0" : declaredCash,
+    settlementTotal,
+    transferAmount,
+  ]);
   const oilTotal = useMemo(
     () =>
       dSum(
@@ -564,7 +574,7 @@ export function AttendantShiftPage() {
   const expectedCash = preview
     ? dSub(
         dSum([preview.opening_cash, preview.fuel_total, oilTotal, arCashTotal]),
-        dSum([settlementTotal, creditFuelTotal, expenseCashTotal]),
+        dSum([settlementTotal, transferAmount, creditFuelTotal, expenseCashTotal]),
       )
     : "0";
   const cashDiff = dSub(declaredCash === "" ? "0" : declaredCash, expectedCash);
@@ -583,7 +593,7 @@ export function AttendantShiftPage() {
       {
         onSuccess: (data) => {
           setPreview(data);
-          setStep(7);
+          setStep(CONFIRM_STEP);
         },
         onError: (cause) => setCloseError(errorMessage(cause)),
       },
@@ -621,6 +631,7 @@ export function AttendantShiftPage() {
           declared_cash: declaredCash === "" ? "0" : declaredCash,
           settlement_vat: settlementVat === "" ? "0" : settlementVat,
           settlement_novat: settlementNovat === "" ? "0" : settlementNovat,
+          transfer_total: transferAmount,
           oil_lines: oilRows
             .filter((row) => row.product_id !== "" && dToQty(row.qty) > 0)
             .map(({ key: _key, ...rest }) => rest),
@@ -843,7 +854,7 @@ export function AttendantShiftPage() {
             >
               {t.common.prev}
             </Button>
-            {step < 6 ? (
+            {step < CONFIRM_STEP - 1 ? (
               <Button
                 variant="primary"
                 size="md"
@@ -852,7 +863,7 @@ export function AttendantShiftPage() {
               >
                 {t.common.next}
               </Button>
-            ) : step === 6 ? (
+            ) : step === CONFIRM_STEP - 1 ? (
               <Button
                 variant="primary"
                 size="md"
@@ -886,7 +897,9 @@ export function AttendantShiftPage() {
                 ref={index === step ? (el) => el?.scrollIntoView({ inline: "center", block: "nearest" }) : undefined}
                 // Тулгалт руу шууд үсрэхэд тооцоог сервэрээс дуудна — эс бөгөөс
                 // preview байхгүй тул хоосон дэлгэц харагдана.
-                onClick={() => (index === 7 ? goToConfirm() : setStep(index as WizardStep))}
+                onClick={() =>
+                  index === CONFIRM_STEP ? goToConfirm() : setStep(index as WizardStep)
+                }
                 className={[
                   "flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs font-bold whitespace-nowrap",
                   index === step
@@ -930,51 +943,70 @@ export function AttendantShiftPage() {
             </div>
           ) : null}
 
-          {/* 1 — Бэлэн мөнгө */}
+          {/* 1 — Тушаалт: бэлэн мөнгө + Settlement (карт) + шилжүүлэг */}
           {step === 1 ? (
-            <NumberField
-              name="close-cash"
-              label={t.shift.declaredCash}
-              value={declaredCash}
-              onChange={setDeclaredCash}
-              suffix={t.units.mnt}
-            />
-          ) : null}
-
-          {/* 2 — Settlement */}
-          {step === 2 ? (
             <div className="flex flex-col gap-4">
-              <p className="text-sm text-ink-soft">{t.attendant.settlementHint}</p>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <NumberField
-                  name="settle-vat"
-                  label={t.attendant.settlementVat}
-                  value={settlementVat}
-                  onChange={setSettlementVat}
-                  suffix={t.units.mnt}
-                />
-                <NumberField
-                  name="settle-novat"
-                  label={t.attendant.settlementNovat}
-                  value={settlementNovat}
-                  onChange={setSettlementNovat}
-                  suffix={t.units.mnt}
-                />
+              <p className="text-sm text-ink-soft">{t.attendant.handoverHint}</p>
+
+              <NumberField
+                name="close-cash"
+                label={`1. ${t.shift.declaredCash}`}
+                value={declaredCash}
+                onChange={setDeclaredCash}
+                suffix={t.units.mnt}
+              />
+
+              <div className="flex flex-col gap-3 rounded-xl border border-line p-3">
+                <FieldLabel>{`2. ${t.attendant.stepSettlement}`}</FieldLabel>
+                <p className="-mt-1 text-xs text-ink-soft">{t.attendant.settlementHint}</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <NumberField
+                    name="settle-vat"
+                    label={t.attendant.settlementVat}
+                    value={settlementVat}
+                    onChange={setSettlementVat}
+                    suffix={t.units.mnt}
+                  />
+                  <NumberField
+                    name="settle-novat"
+                    label={t.attendant.settlementNovat}
+                    value={settlementNovat}
+                    onChange={setSettlementNovat}
+                    suffix={t.units.mnt}
+                  />
+                </div>
+                <div className="num flex items-baseline justify-between gap-3 border-t border-line pt-2">
+                  <span className="text-sm text-ink-soft">{t.attendant.settlementTotal}</span>
+                  <span className="text-base font-bold text-ink">{formatMNT(settlementTotal)}</span>
+                </div>
+                <div className="flex">
+                  <PhotoButton shiftId={shiftId} kind="settlement" />
+                </div>
               </div>
-              <div className="num flex items-baseline justify-between rounded-xl border border-line bg-surface-alt px-4 py-3">
-                <span className="text-sm font-semibold text-ink-soft">
-                  {t.attendant.settlementTotal}
-                </span>
-                <span className="text-xl font-bold text-ink">{formatMNT(settlementTotal)}</span>
-              </div>
-              <div className="flex">
-                <PhotoButton shiftId={shiftId} kind="settlement" />
-              </div>
+
+              <NumberField
+                name="transfer-total"
+                label={`3. ${t.attendant.transferTotal}`}
+                value={transferTotal}
+                onChange={setTransferTotal}
+                suffix={t.units.mnt}
+                hint={t.attendant.transferHint}
+              />
+
+              <TotalBox
+                label={t.attendant.handoverTotal}
+                value={handoverTotal}
+                hint={`${t.tender.cash}: ${formatMNT(
+                  declaredCash === "" ? "0" : declaredCash,
+                )} · ${t.attendant.stepSettlement}: ${formatMNT(
+                  settlementTotal,
+                )} · ${t.tender.transfer}: ${formatMNT(transferAmount)}`}
+              />
             </div>
           ) : null}
 
-          {/* 3 — Тос, бараа */}
-          {step === 3 ? (
+          {/* 2 — Тос, бараа */}
+          {step === 2 ? (
             <div className="flex flex-col gap-3">
               <p className="text-sm text-ink-soft">{t.attendant.oilHint}</p>
               {oilRows.map((row, index) => (
@@ -1025,8 +1057,8 @@ export function AttendantShiftPage() {
             </div>
           ) : null}
 
-          {/* 4 — Зээл */}
-          {step === 4 ? (
+          {/* 3 — Зээл */}
+          {step === 3 ? (
             <div className="flex flex-col gap-4">
               <p className="text-sm text-ink-soft">{t.attendant.creditHint}</p>
               {creditRows.map((row, index) => {
@@ -1140,8 +1172,8 @@ export function AttendantShiftPage() {
             </div>
           ) : null}
 
-          {/* 5 — Өглөг төлөлт */}
-          {step === 5 ? (
+          {/* 4 — Өглөг төлөлт */}
+          {step === 4 ? (
             <div className="flex flex-col gap-3">
               <p className="text-sm text-ink-soft">{t.attendant.arHint}</p>
               {arRows.map((row, index) => {
@@ -1208,8 +1240,8 @@ export function AttendantShiftPage() {
             </div>
           ) : null}
 
-          {/* 6 — Зарлага */}
-          {step === 6 ? (
+          {/* 5 — Зарлага */}
+          {step === 5 ? (
             <div className="flex flex-col gap-3">
               <p className="text-sm text-ink-soft">{t.attendant.expenseHint}</p>
               {expenseRows.map((row, index) => {
@@ -1291,14 +1323,14 @@ export function AttendantShiftPage() {
             </div>
           ) : null}
 
-          {/* 7 — Тулгалт (тооцоо ирэх хүртэл ачаалж байна) */}
-          {step === 7 && !preview ? (
+          {/* 6 — Тулгалт (тооцоо ирэх хүртэл ачаалж байна) */}
+          {step === CONFIRM_STEP && !preview ? (
             <div className="flex justify-center py-12 text-ink-soft">
               <Spinner size="lg" label={t.common.loading} />
             </div>
           ) : null}
 
-          {step === 7 && preview ? (
+          {step === CONFIRM_STEP && preview ? (
             <div className="flex flex-col gap-4">
               <div className="grid gap-3 sm:grid-cols-3">
                 <StatBox
@@ -1312,8 +1344,8 @@ export function AttendantShiftPage() {
                   tone="neutral"
                 />
                 <StatBox
-                  label={t.attendant.settlementTotal}
-                  value={formatMNT(settlementTotal)}
+                  label={t.attendant.handoverTotal}
+                  value={formatMNT(handoverTotal)}
                   tone="action"
                 />
               </div>
@@ -1382,6 +1414,7 @@ export function AttendantShiftPage() {
                 <Row label={t.shift.openingCash} value={preview.opening_cash} />
                 <Row label={`+ ${t.attendant.fuelByMile}`} value={preview.fuel_total} />
                 <Row label={`− ${t.attendant.settlementTotal}`} value={settlementTotal} negative />
+                <Row label={`− ${t.attendant.transferTotal}`} value={transferAmount} negative />
                 <Row
                   label={`− ${t.attendant.creditSales}`}
                   value={creditFuelTotal}

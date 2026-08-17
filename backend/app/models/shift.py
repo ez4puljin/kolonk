@@ -99,6 +99,10 @@ class ShiftClosing(UUIDPKMixin, TimestampMixin, Base):
     #: Терминалын тооцоо — НӨАТ-тэй / НӨАТ-гүй борлуулалтын дүн.
     settlement_vat: Mapped[Decimal] = mapped_column(Money, nullable=False, default=Decimal("0"))
     settlement_novat: Mapped[Decimal] = mapped_column(Money, nullable=False, default=Decimal("0"))
+    #: Харилцагчид дансаар шилжүүлсэн дүн — банкинд шууд орсон.
+    transfer_total: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
     #: Миль×үнэ-ээр бодогдсон түлшний нийт түгээлт.
     fuel_total: Mapped[Decimal] = mapped_column(Money, nullable=False, default=Decimal("0"))
     #: Зээлээр (гэрээт) өгсөн нийт дүн.

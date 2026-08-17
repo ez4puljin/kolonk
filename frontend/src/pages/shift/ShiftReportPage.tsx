@@ -291,6 +291,7 @@ export function ShiftReportPage() {
             <CashRow label={t.attendant.settlementVat} value={daily.settlement_vat} />
             <CashRow label={t.attendant.settlementNovat} value={daily.settlement_novat} />
             <CashRow label={t.attendant.settlementTotal} value={daily.settlement_total} strong />
+            <CashRow label={t.attendant.transferTotal} value={daily.transfer_total ?? "0"} />
             <CashRow label={t.attendant.creditSales} value={daily.credit_total} />
             <CashRow label={t.attendant.oilSales} value={daily.oil_total} />
             {daily.nozzles.length > 0 ? (

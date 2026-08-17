@@ -272,6 +272,8 @@ class DailyCloseIn(BaseModel):
     declared_cash: Decimal = Field(ge=0)
     settlement_vat: Decimal = Field(default=ZERO, ge=0)
     settlement_novat: Decimal = Field(default=ZERO, ge=0)
+    #: Дансаар шилжүүлсэн орлого — картын тооцооны адил бэлэн мөнгийг бууруулна.
+    transfer_total: Decimal = Field(default=ZERO, ge=0)
     oil_lines: list[OilLineIn] = Field(default_factory=list)
     credit_lines: list[CreditLineIn] = Field(default_factory=list)
     ar_payments: list[ArPaymentLineIn] = Field(default_factory=list)

@@ -1,4 +1,5 @@
 import {
+  ArrowLeftRight,
   Banknote,
   CreditCard,
   FileText,
@@ -76,6 +77,14 @@ export const TENDER_METHODS: readonly TenderMeta[] = [
     label: t.tender.qr,
     icon: QrCode,
     color: "#7C3AED",
+    givesChange: false,
+    requires: "ref",
+  },
+  {
+    value: "transfer",
+    label: t.tender.transfer,
+    icon: ArrowLeftRight,
+    color: "#0284C7",
     givesChange: false,
     requires: "ref",
   },

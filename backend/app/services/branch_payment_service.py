@@ -23,6 +23,7 @@ DEFAULT_ORDER: tuple[str, ...] = (
     str(PaymentMethod.CASH),
     str(PaymentMethod.CARD),
     str(PaymentMethod.QR),
+    str(PaymentMethod.TRANSFER),
     str(PaymentMethod.CONTRACT),
     str(PaymentMethod.VOUCHER),
     str(PaymentMethod.PREPAID),

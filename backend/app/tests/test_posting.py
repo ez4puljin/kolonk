@@ -260,6 +260,39 @@ def test_sale_lines_balanced_and_split_exact() -> None:
     assert account_sum(lines, ACC.INV_GOODS, "credit") == D("3300.00")
 
 
+def test_sale_lines_split_three_handover_channels() -> None:
+    """Түгээгч бэлэн + карт (settlement) + шилжүүлгээр тушаана.
+
+    Шилжүүлэг эквайрингийн тооцоо дамждаггүй тул 1102 биш, банк (1110)
+    дансанд шууд дебит хийгдэнэ.
+    """
+    items = [fuel_item(FUEL_A, TANK_A, "100000.00", "78000.00")]
+    payments = [
+        payment(PaymentMethod.CASH, "40000.00"),
+        payment(PaymentMethod.CARD, "35000.00"),
+        payment(PaymentMethod.TRANSFER, "25000.00"),
+    ]
+    sale = make_sale(items, payments)
+
+    lines = rules.build_sale_lines(sale, items, payments)
+    assert_balanced(lines)
+
+    assert account_sum(lines, ACC.CASH, "debit") == D("40000.00")
+    assert account_sum(lines, ACC.CARD_CLEARING, "debit") == D("35000.00")
+    assert account_sum(lines, ACC.BANK, "debit") == D("25000.00")
+    # Шилжүүлэг картын клирингээр дамжихгүй — 3 суваг тус тусдаа.
+    assert q2(
+        account_sum(lines, ACC.CASH, "debit")
+        + account_sum(lines, ACC.CARD_CLEARING, "debit")
+        + account_sum(lines, ACC.BANK, "debit")
+    ) == sale.total
+
+
+def test_transfer_tender_account_is_bank() -> None:
+    assert ACC.tender_account(PaymentMethod.TRANSFER) == ACC.BANK
+    assert ACC.tender_account(PaymentMethod.CARD) == ACC.CARD_CLEARING
+
+
 def test_sale_revenue_and_cogs_carry_fuel_dimensions() -> None:
     items = [
         fuel_item(FUEL_A, TANK_A, "58800.00", "45000.00"),

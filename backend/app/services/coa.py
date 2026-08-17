@@ -112,6 +112,8 @@ class ACC:
         PaymentMethod.CASH: CASH,
         PaymentMethod.CARD: CARD_CLEARING,
         PaymentMethod.QR: QR_CLEARING,
+        # Шилжүүлэг эквайрингийн тооцоо дамждаггүй — банкинд шууд орно.
+        PaymentMethod.TRANSFER: BANK,
         PaymentMethod.CONTRACT: AR_CONTRACT,
         PaymentMethod.VOUCHER: VOUCHER_LIABILITY,
         PaymentMethod.PREPAID: PREPAID_LIABILITY,

@@ -42,6 +42,7 @@ EBARIMT_PAYMENT_CODES: dict[str, str] = {
     PaymentMethod.CASH: "CASH",
     PaymentMethod.CARD: "PAYMENT_CARD",
     PaymentMethod.QR: "QR",
+    PaymentMethod.TRANSFER: "BANK_TRANSFER",
     PaymentMethod.CONTRACT: "BANK_TRANSFER",
     PaymentMethod.VOUCHER: "CASH",
     PaymentMethod.PREPAID: "CASH",
