@@ -71,12 +71,18 @@ function litersOf(value: string | null | undefined): LitersStr {
 function PhotoButton({
   shiftId,
   kind,
+  refId = null,
   queue,
+  compact = false,
 }: {
   shiftId: UUID | null;
   kind: string;
+  /** Тодорхой бичлэгт (жишээ нь нэг хошууны мильд) хамааруулах id. */
+  refId?: UUID | null;
   /** Ээлж хараахан нээгдээгүй үед файлуудыг энд дарааллуулна. */
   queue?: React.MutableRefObject<File[]>;
+  /** Зөвхөн камерын дүрстэй жижиг товч (мөр бүрийн хажууд). */
+  compact?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const upload = useUploadShiftPhotoMutation();
@@ -86,7 +92,9 @@ function PhotoButton({
   const [queued, setQueued] = useState(0);
 
   const count =
-    (attachments ?? []).filter((a) => a.kind === kind).length + (shiftId ? 0 : queued);
+    (attachments ?? []).filter(
+      (a) => a.kind === kind && (refId === null || a.ref_id === refId),
+    ).length + (shiftId ? 0 : queued);
 
   return (
     <>
@@ -108,7 +116,7 @@ function PhotoButton({
           }
           for (const file of files) {
             upload.mutate(
-              { shiftId, kind, file },
+              { shiftId, kind, file, refId },
               {
                 onSuccess: () => toastSuccess(`1 ${t.attendant.photoUploaded}`),
                 onError: (cause) => toastError(errorMessage(cause)),
@@ -117,19 +125,41 @@ function PhotoButton({
           }
         }}
       />
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        className="flex h-12 items-center gap-2 rounded-xl border-2 border-dashed border-action px-4 text-[15px] font-bold text-action-dark transition-colors hover:bg-action-soft/40 active:bg-action-soft"
-      >
-        <Camera className="h-5 w-5" />
-        {t.attendant.addPhoto}
-        {count > 0 ? (
-          <span className="num rounded-full bg-action px-2 py-0.5 text-xs font-bold text-white">
-            {count}
-          </span>
-        ) : null}
-      </button>
+      {compact ? (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          aria-label={t.attendant.addPhoto}
+          className={[
+            "relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border-2 border-dashed",
+            "transition-colors active:bg-action-soft",
+            count > 0
+              ? "border-success bg-success-soft/40 text-success-dark"
+              : "border-action text-action-dark hover:bg-action-soft/40",
+          ].join(" ")}
+        >
+          <Camera className="h-5 w-5" />
+          {count > 0 ? (
+            <span className="num absolute -top-1.5 -right-1.5 rounded-full bg-success px-1.5 text-[11px] leading-4 font-bold text-white">
+              {count}
+            </span>
+          ) : null}
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          className="flex h-12 items-center gap-2 rounded-xl border-2 border-dashed border-action px-4 text-[15px] font-bold text-action-dark transition-colors hover:bg-action-soft/40 active:bg-action-soft"
+        >
+          <Camera className="h-5 w-5" />
+          {t.attendant.addPhoto}
+          {count > 0 ? (
+            <span className="num rounded-full bg-action px-2 py-0.5 text-xs font-bold text-white">
+              {count}
+            </span>
+          ) : null}
+        </button>
+      )}
     </>
   );
 }
@@ -681,20 +711,17 @@ export function AttendantShiftPage() {
         </Card>
       ) : null}
 
-      {/* Нээлтийн мэдээлэл */}
+      {/* Нээлтийн мэдээлэл — утсанд 2 багана: бүх хошуу нэг харагдацад багтана */}
       <Card title={t.attendant.openMile} subtitle={t.attendant.posDisabledNote}>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
           {nozzles.map(({ pump, nozzle }) => (
-            <div
-              key={nozzle.id}
-              className="num flex items-baseline justify-between gap-3 rounded-xl border border-line bg-white px-3.5 py-2.5"
-            >
-              <span className="text-[13px] font-semibold text-ink-soft sm:text-sm">
+            <div key={nozzle.id} className="num min-w-0 rounded-xl border border-line bg-white px-3 py-2">
+              <div className="truncate text-[11px] font-semibold text-ink-soft sm:text-xs">
                 {pump.name} · №{nozzle.nozzle_number} {nozzle.fuel_name}
-              </span>
-              <span className="text-base font-bold text-ink sm:text-lg">
+              </div>
+              <div className="truncate text-base font-bold text-ink sm:text-lg">
                 {formatNumber(nozzle.totalizer, 1)}
-              </span>
+              </div>
             </div>
           ))}
         </div>
@@ -772,7 +799,7 @@ export function AttendantShiftPage() {
             ))}
           </div>
 
-          {/* 0 — Эцсийн миль */}
+          {/* 0 — Эцсийн миль: хошуу бүр мильтэйгээ хамт зурагтай */}
           {step === 0 ? (
             <div className="flex flex-col divide-y divide-line">
               {nozzles.map(({ pump, nozzle }) => (
@@ -783,21 +810,22 @@ export function AttendantShiftPage() {
                   <span className="min-w-0 flex-1 text-[15px] font-semibold text-ink">
                     {pump.name} · №{nozzle.nozzle_number} {nozzle.fuel_name}
                   </span>
-                  <NumberField
-                    name={`close-mile-${nozzle.id}`}
-                    label=""
-                    value={closeReadings[nozzle.id] ?? ""}
-                    onChange={(value) =>
-                      setCloseReadings((prev) => ({ ...prev, [nozzle.id]: value }))
-                    }
-                    maxDecimals={3}
-                    className="w-full sm:w-52"
-                  />
+                  <div className="flex items-center gap-2">
+                    <NumberField
+                      name={`close-mile-${nozzle.id}`}
+                      label=""
+                      value={closeReadings[nozzle.id] ?? ""}
+                      onChange={(value) =>
+                        setCloseReadings((prev) => ({ ...prev, [nozzle.id]: value }))
+                      }
+                      maxDecimals={3}
+                      className="min-w-0 flex-1 sm:w-52 sm:flex-none"
+                    />
+                    <PhotoButton shiftId={shiftId} kind="close" refId={nozzle.id} compact />
+                  </div>
                 </div>
               ))}
-              <div className="flex pt-3">
-                <PhotoButton shiftId={shiftId} kind="close" />
-              </div>
+              <p className="pt-3 text-xs text-ink-soft">{t.attendant.photoRequired}</p>
             </div>
           ) : null}
 

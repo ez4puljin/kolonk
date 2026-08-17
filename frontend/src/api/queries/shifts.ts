@@ -106,13 +106,26 @@ export function downloadShiftReport(id: UUID, number: number | null): Promise<vo
 // Түгээгчийн өдрийн ээлж
 // --------------------------------------------------------------------------
 
-/** Ээлжид зураг хавсаргах (миль, кассын тоолол, settlement). */
+/** Ээлжид зураг хавсаргах (миль, кассын тоолол, settlement).
+ *  refId — тодорхой бичлэгт (жишээ нь нэг хошууны мильд) хамааруулах бол. */
 export function useUploadShiftPhotoMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ shiftId, kind, file }: { shiftId: UUID; kind: string; file: File }) =>
+    mutationFn: ({
+      shiftId,
+      kind,
+      file,
+      refId,
+    }: {
+      shiftId: UUID;
+      kind: string;
+      file: File;
+      refId?: UUID | null;
+    }) =>
       api.upload<ShiftAttachment>(
-        `/api/shifts/${shiftId}/attachments?kind=${encodeURIComponent(kind)}`,
+        `/api/shifts/${shiftId}/attachments?kind=${encodeURIComponent(kind)}${
+          refId ? `&ref_id=${encodeURIComponent(refId)}` : ""
+        }`,
         file,
       ),
     onSuccess: (_data, vars) => {
