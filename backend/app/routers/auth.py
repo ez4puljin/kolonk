@@ -84,9 +84,31 @@ async def _open_shift(db: AsyncSession) -> Shift | None:
 
 @router.get("/auth/users", response_model=list[UserTile])
 async def login_tiles(db: AsyncSession = Depends(get_db)) -> list[UserTile]:
-    """Нэвтрэх дэлгэцэд харагдах идэвхтэй хэрэглэгчид (нэвтрэх шаардлагагүй)."""
-    users = await db.scalars(select(User).where(User.is_active.is_(True)).order_by(User.full_name))
-    return [_tile(u) for u in users]
+    """Нэвтрэх дэлгэцэд харагдах идэвхтэй хэрэглэгчид (нэвтрэх шаардлагагүй).
+
+    Салбар нь хайрцаг дээр гарна: нэг станцад олон салбарын түгээгч
+    бүртгэлтэй үед зөвхөн нэрээр нь ялгахад төвөгтэй.
+    """
+    users = (
+        await db.scalars(select(User).where(User.is_active.is_(True)).order_by(User.full_name))
+    ).all()
+
+    # Салбаруудыг нэг дор уншина — хэрэглэгч тутамд асуулга явуулахгүй.
+    branch_ids = {u.branch_id for u in users if u.branch_id is not None}
+    branches = (
+        {b.id: b for b in (await db.scalars(select(Branch).where(Branch.id.in_(branch_ids)))).all()}
+        if branch_ids
+        else {}
+    )
+    return [
+        _tile(
+            u,
+            None
+            if str(u.role.code) in {str(r) for r in ALL_BRANCH_ROLES}
+            else branches.get(u.branch_id),
+        )
+        for u in users
+    ]
 
 
 @router.post("/auth/login", response_model=LoginResponse)

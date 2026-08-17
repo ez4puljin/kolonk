@@ -86,6 +86,6 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
 
 ROLE_NAMES_MN: dict[str, str] = {
     RoleCode.CASHIER: "Түгээгч",
-    RoleCode.MANAGER: "Менежер",
-    RoleCode.OWNER: "Эзэн",
+    RoleCode.MANAGER: "Нягтлан",
+    RoleCode.OWNER: "Admin",
 }

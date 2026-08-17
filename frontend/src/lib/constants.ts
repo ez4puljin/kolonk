@@ -196,8 +196,8 @@ export function statusMeta(
 
 /** Дүрийн өнгө — нэвтрэх дэлгэцийн плитка. */
 export const ROLE_META: Record<string, { label: string; color: string; chip: string }> = {
-  owner: { label: "Эзэн", color: colors.warning, chip: CHIP.warning },
-  manager: { label: "Менежер", color: colors.action, chip: CHIP.action },
+  owner: { label: "Admin", color: colors.warning, chip: CHIP.warning },
+  manager: { label: "Нягтлан", color: colors.action, chip: CHIP.action },
   cashier: { label: "Түгээгч", color: colors.success, chip: CHIP.success },
 };
 

@@ -171,8 +171,8 @@ export function LoginPage() {
             />
           </section>
         ) : (
-          <section className="flex max-h-full w-full max-w-4xl flex-col">
-            <div className="mb-4 shrink-0 text-center sm:mb-7">
+          <section className="flex max-h-full w-full max-w-6xl flex-col">
+            <div className="mb-3 shrink-0 text-center sm:mb-6">
               <h1 className="text-2xl font-bold text-white sm:text-3xl">{t.auth.title}</h1>
               <p className="mt-1.5 text-sm text-slate-400 sm:text-base">{t.auth.subtitle}</p>
             </div>
@@ -197,24 +197,38 @@ export function LoginPage() {
                 {t.auth.noUsers}
               </div>
             ) : (
-              // Хэрэглэгч олон үед зөвхөн энэ хэсэг дотроо гүйнэ.
-              <div className="scroll-touch flex min-h-0 flex-col gap-4 overflow-y-auto sm:gap-7">
+              /*
+               * Дүрийн бүлгүүд ӨРГӨН дэлгэцэд ЗЭРЭГЦЭЭ багана болно.
+               *
+               * Өмнө нь бүлэг бүр бүтэн мөр эзэлж, 1920px дээр ердөө 2 багана
+               * ашиглаад босоо тэнхлэгээ дуусгадаг байв — Chrome-ийн хаягийн
+               * мөр багассан өндрийг тооцвол хамгийн доод бүлэг халиж, scroll
+               * заавал шаардагддаг байлаа. Зэрэгцүүлснээр 4 хэрэглэгч нэг
+               * эгнээнд багтаж, олон хэрэглэгчтэй үед ч босоо өсөлт удаан.
+               */
+              <div className="scroll-touch grid min-h-0 gap-3 overflow-y-auto sm:gap-5 lg:grid-cols-3 lg:gap-6">
                 {grouped.map((group) => (
-                  <div key={group.code}>
-                    <div className="mb-3 flex items-center gap-3">
+                  <div key={group.code} className="min-w-0">
+                    <div className="mb-2 flex items-center gap-2.5 sm:mb-3 sm:gap-3">
                       <span
-                        className="h-2.5 w-2.5 rounded-full"
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
                         style={{ backgroundColor: roleMeta(group.code).color }}
                       />
-                      <span className="text-sm font-bold tracking-widest text-slate-400 uppercase">
+                      <span className="truncate text-sm font-bold tracking-widest text-slate-400 uppercase">
                         {group.label}
                       </span>
                       <span className="h-px flex-1 bg-brand-700" />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-4">
+                    {/* Утсанд: бүтэн өргөнтэй жагсаалтын мөр — нэг дэлгэцэд
+                        илүү олон хүн багтаж, товших талбай өргөн байна.
+                        Дэлгэцээс дээш: хайрцаг хэлбэрийн плитка. */}
+                    <div className="flex flex-col gap-2 sm:grid sm:grid-cols-2 sm:gap-3">
                       {group.users.map((user) => {
                         const meta = roleMeta(user.role_code);
+                        // Хоёрдогч мөр: салбартай бол салбараа (нэг ангилалд
+                        // олон салбарын түгээгч байхад ялгагдана), эс бөгөөс дүр.
+                        const caption = user.branch?.name ?? user.role_name_mn;
                         return (
                           <button
                             key={user.id}
@@ -223,25 +237,26 @@ export function LoginPage() {
                               setSelected(user);
                               setError(null);
                             }}
-                            className="group relative flex min-h-28 flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border border-brand-700 bg-brand-800/70 px-3 py-3.5 transition-all duration-150 hover:-translate-y-0.5 hover:border-brand-600 hover:bg-brand-800 active:translate-y-0 active:bg-brand-700 sm:min-h-36 sm:gap-3 sm:py-5"
+                            className="group relative flex min-h-14 items-center gap-3 overflow-hidden rounded-2xl border border-brand-700 bg-brand-800/70 py-2.5 pr-3 pl-4 text-left transition-all duration-150 hover:border-brand-600 hover:bg-brand-800 active:bg-brand-700 sm:min-h-28 sm:flex-col sm:justify-center sm:gap-2.5 sm:px-3 sm:py-4 sm:text-center sm:hover:-translate-y-0.5 sm:active:translate-y-0"
                           >
+                            {/* Дүрийн өнгө: утсанд зүүн ирмэг, дэлгэцэд дээд зурвас */}
                             <span
-                              className="absolute inset-x-0 top-0 h-1.5"
+                              className="absolute inset-y-0 left-0 w-1.5 sm:inset-x-0 sm:inset-y-auto sm:top-0 sm:h-1.5 sm:w-auto"
                               style={{ backgroundColor: meta.color }}
                               aria-hidden="true"
                             />
                             <span
-                              className="flex h-13 w-13 items-center justify-center rounded-2xl text-lg font-black text-white shadow-md sm:h-16 sm:w-16 sm:text-xl"
+                              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-base font-black text-white shadow-md sm:h-14 sm:w-14 sm:rounded-2xl sm:text-lg"
                               style={{ backgroundColor: meta.color }}
                             >
                               {initials(user.full_name)}
                             </span>
-                            <span className="w-full min-w-0">
-                              <span className="block truncate text-sm font-bold text-white sm:text-base">
+                            <span className="min-w-0 flex-1 sm:w-full sm:flex-none">
+                              <span className="block truncate text-[15px] font-bold text-white sm:text-base">
                                 {user.full_name}
                               </span>
                               <span className="block truncate text-xs text-slate-400">
-                                {user.role_name_mn}
+                                {caption}
                               </span>
                             </span>
                           </button>
