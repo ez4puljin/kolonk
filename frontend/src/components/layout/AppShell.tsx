@@ -72,7 +72,7 @@ const NAV: readonly NavSection[] = [
     items: [
       { to: "/pos", label: t.nav.pos, icon: Fuel, permissions: ["sales.create"] },
       { to: "/shift", label: t.nav.shift, icon: Gauge, permissions: ["shifts.open", "shifts.close", "shifts.view_all"] },
-      { to: "/daily-closings", label: t.nav.dailyClosings, icon: CalendarCheck, permissions: ["shifts.close", "shifts.view_all"] },
+      { to: "/daily-closings", label: t.nav.dailyClosings, icon: CalendarCheck, permissions: ["shifts.view_all", "shifts.approve"] },
       { to: "/dashboard", label: t.nav.dashboard, icon: LayoutDashboard, permissions: ["sales.view"] },
       { to: "/owner", label: t.nav.owner, icon: Crown, permissions: ["dashboard.owner"] },
       { to: "/sales", label: t.nav.sales, icon: Receipt, permissions: ["sales.view"] },

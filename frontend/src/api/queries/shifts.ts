@@ -4,8 +4,10 @@ import { api } from "../client";
 import type {
   CurrentShift,
   DailyCloseRequest,
+  DailyClosingFilters,
   DailyClosingRow,
   DailyPreview,
+  MoneyStr,
   Paged,
   PriceMark,
   PriceMarkInput,
@@ -177,12 +179,59 @@ export function useDailyPreviewMutation() {
   });
 }
 
-/** Өдөр бүрийн түгээгчийн тооцооны жагсаалт. */
-export function useDailyClosings(params?: { date_from?: string; date_to?: string }) {
+/** Ээлжийн тайлан — салбар, ажилтан, огноо, батламжийн төлвөөр шүүнэ. */
+export function useDailyClosings(params?: DailyClosingFilters) {
   return useQuery({
     queryKey: ["shifts", "daily-closings", params ?? {}],
     queryFn: () =>
       api.get<DailyClosingRow[]>("/api/shifts/daily-closings", { params: { ...params } }),
+  });
+}
+
+/** Нягтлангийн засвар — тоолсон бэлэн мөнгө, кассын зөрүү дахин бичигдэнэ. */
+export function useCorrectClosingMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      shiftId,
+      declaredCash,
+      note,
+    }: {
+      shiftId: UUID;
+      declaredCash: MoneyStr;
+      note?: string;
+    }) =>
+      api.post<{ shift_id: UUID; declared_cash: MoneyStr; cash_over_short: MoneyStr }>(
+        `/api/shifts/${shiftId}/closing/correct`,
+        { declared_cash: declaredCash, note: note || null },
+      ),
+    onSuccess: (_data, vars) => {
+      void queryClient.invalidateQueries({ queryKey: ["shifts", "daily-closings"] });
+      void queryClient.invalidateQueries({ queryKey: shiftKeys.report(vars.shiftId) });
+    },
+  });
+}
+
+/** Хаалт батлах / батламж буцаах. */
+export function useClosingApprovalMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      shiftId,
+      approved,
+      note,
+    }: {
+      shiftId: UUID;
+      approved: boolean;
+      note?: string;
+    }) =>
+      api.post<{ shift_id: UUID; approved: boolean }>(
+        `/api/shifts/${shiftId}/closing/approval`,
+        { approved, note: note || null },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["shifts", "daily-closings"] });
+    },
   });
 }
 

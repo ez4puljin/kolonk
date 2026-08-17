@@ -282,6 +282,24 @@ class DailyCloseIn(BaseModel):
     note: str | None = None
 
 
+class ClosingCorrectIn(BaseModel):
+    """Нягтлангийн засвар — тоолсон бэлэн мөнгө."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    declared_cash: Decimal = Field(ge=0)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class ClosingApprovalIn(BaseModel):
+    """Хаалт батлах / батламж буцаах."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    approved: bool = True
+    note: str | None = Field(default=None, max_length=500)
+
+
 class DailyPreviewIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

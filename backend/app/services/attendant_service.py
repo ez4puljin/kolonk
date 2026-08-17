@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -35,6 +35,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import CashAccount, ItemType, PaymentMethod, ReadingType, SaleType, ShiftStatus
+from app.models.branch import Branch
 from app.models.fuel import Fuel, Pump, PumpNozzle, Tank, TotalizerReading
 from app.models.partner import Contract, Customer
 from app.models.product import Product
@@ -835,35 +836,66 @@ async def daily_closings_list(
     *,
     date_from: date | None = None,
     date_to: date | None = None,
-    branch_id: uuid.UUID | None = None,
+    branch_ids: list[uuid.UUID] | None = None,
+    attendant_ids: list[uuid.UUID] | None = None,
+    status: str | None = None,
+    only_variance: bool = False,
 ) -> list[dict[str, Any]]:
-    """Өдөр бүрийн түгээгчийн тооцооны жагсаалт (сүүлийнх нь эхэндээ).
+    """Ээлжийн тайлан — хаагдсан түгээгчийн ээлжүүд (сүүлийнх нь эхэндээ).
 
-    Мөр бүр нэг хаагдсан ээлж: миль×үнэ орлого, зээл, тос/бараа,
-    settlement, кассын зөрүү — өдрүүдийг зэрэгцүүлж харахад зориулав.
+    Мөр бүр нэг хаалт: миль×үнэ орлого, зээл, тос/бараа, тушаалтын 3 суваг,
+    кассын зөрүү, батламжийн төлөв. Нягтлан салбар, ажилтан, огноо, төлвөөр
+    шүүж, зөрүүтэйг нь шүүн хардаг.
+
+    ``status``: ``approved`` (батлагдсан) / ``pending`` (хүлээгдэж буй).
+    ``only_variance``: зөвхөн кассын зөрүүтэй мөрүүд.
     """
     stmt = (
         select(ShiftClosing, Shift)
         .join(Shift, Shift.id == ShiftClosing.shift_id)
         .order_by(Shift.opened_at.desc())
     )
-    if branch_id is not None:
-        stmt = stmt.where(Shift.branch_id == branch_id)
+    if branch_ids:
+        stmt = stmt.where(Shift.branch_id.in_(branch_ids))
+    if attendant_ids:
+        stmt = stmt.where(Shift.opened_by.in_(attendant_ids))
     if date_from is not None:
         stmt = stmt.where(Shift.opened_at >= day_start(date_from))
     if date_to is not None:
         stmt = stmt.where(Shift.opened_at <= day_end(date_to))
+    if status == "approved":
+        stmt = stmt.where(ShiftClosing.approved_at.is_not(None))
+    elif status == "pending":
+        stmt = stmt.where(ShiftClosing.approved_at.is_(None))
     rows = (await db.execute(stmt)).all()
     if not rows:
         return []
 
     user_ids = {shift.opened_by for _, shift in rows}
+    user_ids |= {c.approved_by for c, _ in rows if c.approved_by is not None}
     users = {
         u.id: u for u in (await db.scalars(select(User).where(User.id.in_(user_ids)))).all()
     }
+    branch_ids_seen = {shift.branch_id for _, shift in rows if shift.branch_id is not None}
+    branches = (
+        {
+            b.id: b
+            for b in (
+                await db.scalars(select(Branch).where(Branch.id.in_(branch_ids_seen)))
+            ).all()
+        }
+        if branch_ids_seen
+        else {}
+    )
+
     out: list[dict[str, Any]] = []
     for closing, shift in rows:
+        over_short = _d(shift.cash_over_short) if shift.cash_over_short is not None else None
+        if only_variance and (over_short is None or over_short == ZERO):
+            continue
         attendant = users.get(shift.opened_by)
+        approver = users.get(closing.approved_by) if closing.approved_by else None
+        branch = branches.get(shift.branch_id) if shift.branch_id else None
         settlement_total = q2(_d(closing.settlement_vat) + _d(closing.settlement_novat))
         out.append(
             {
@@ -871,6 +903,9 @@ async def daily_closings_list(
                 "shift_number": shift.number,
                 "date": shift.opened_at.astimezone(STATION_TZ).date(),
                 "attendant": attendant.full_name if attendant else "",
+                "attendant_id": shift.opened_by,
+                "branch_id": shift.branch_id,
+                "branch_name": branch.name if branch else "",
                 "opening_cash": q2(_d(shift.opening_cash)),
                 "fuel_total": q2(_d(closing.fuel_total)),
                 "credit_total": q2(_d(closing.credit_total)),
@@ -879,7 +914,117 @@ async def daily_closings_list(
                 "transfer_total": q2(_d(closing.transfer_total)),
                 "declared_cash": q2(_d(shift.declared_cash)) if shift.declared_cash is not None else None,
                 "expected_cash": q2(_d(shift.expected_cash)) if shift.expected_cash is not None else None,
-                "cash_over_short": q2(_d(shift.cash_over_short)) if shift.cash_over_short is not None else None,
+                "cash_over_short": q2(over_short) if over_short is not None else None,
+                "approved": closing.approved_at is not None,
+                "approved_at": closing.approved_at,
+                "approved_by_name": approver.full_name if approver else "",
+                "approval_note": closing.approval_note,
+                "note": closing.note,
             }
         )
     return out
+
+
+# --------------------------------------------------------------------------- #
+# Нягтлангийн хяналт — засах, батлах
+# --------------------------------------------------------------------------- #
+async def _closing_for(db: AsyncSession, shift_id: uuid.UUID) -> tuple[ShiftClosing, Shift]:
+    shift = await shift_service.get_shift(db, shift_id)
+    closing = await db.scalar(select(ShiftClosing).where(ShiftClosing.shift_id == shift_id))
+    if closing is None:
+        raise HTTPException(status_code=404, detail="Өдрийн хаалт олдсонгүй")
+    return closing, shift
+
+
+async def correct_declared_cash(
+    db: AsyncSession,
+    user: User,
+    *,
+    shift_id: uuid.UUID,
+    declared_cash: Decimal,
+    note: str | None = None,
+) -> dict[str, Any]:
+    """Тоолсон бэлэн мөнгийг засаж, кассын зөрүүг дахин бичнэ.
+
+    Байвал зохих бэлэн мөнгө нь бодит борлуулалтаас гардаг тул хэвээр —
+    зөвхөн тоолсон дүн засагдаж, зөрүүний журналын бичилт дахин үүснэ.
+    Батлагдсан хаалтыг засахаас өмнө батламжийг буцаана.
+    """
+    closing, shift = await _closing_for(db, shift_id)
+    if closing.approved_at is not None:
+        raise HTTPException(
+            status_code=422, detail="Батлагдсан хаалт — эхлээд батламжийг буцаана уу"
+        )
+
+    declared = q2(_d(declared_cash))
+    if declared < ZERO:
+        raise HTTPException(status_code=422, detail="Тоолсон дүн сөрөг байж болохгүй")
+
+    before = {
+        "declared_cash": str(_d(shift.declared_cash)),
+        "cash_over_short": str(_d(shift.cash_over_short)),
+    }
+    expected = q2(_d(shift.expected_cash))
+    over_short = q2(declared - expected)
+
+    # Хуучин зөрүүний бичилтийг цуцалж, шинээр бичнэ (аль аль нь SHIFT эх сурвалж).
+    await shift_service.repost_cash_difference(db, user, shift=shift, over_short=over_short)
+
+    shift.declared_cash = declared
+    shift.cash_over_short = over_short
+    if note:
+        closing.note = (note or "").strip()[:500] or closing.note
+    await db.flush()
+
+    await audit(
+        db,
+        user_id=user.id,
+        action="shift.closing_corrected",
+        entity_type="shift",
+        entity_id=shift.id,
+        before=before,
+        after={"declared_cash": str(declared), "cash_over_short": str(over_short), "note": note},
+    )
+    return {
+        "shift_id": shift.id,
+        "declared_cash": declared,
+        "expected_cash": expected,
+        "cash_over_short": over_short,
+    }
+
+
+async def set_closing_approval(
+    db: AsyncSession,
+    user: User,
+    *,
+    shift_id: uuid.UUID,
+    approved: bool,
+    note: str | None = None,
+) -> dict[str, Any]:
+    """Хаалтыг батлах / батламжийг буцаах."""
+    closing, shift = await _closing_for(db, shift_id)
+    if approved and closing.approved_at is not None:
+        raise HTTPException(status_code=422, detail="Энэ хаалт аль хэдийн батлагдсан байна")
+    if not approved and closing.approved_at is None:
+        raise HTTPException(status_code=422, detail="Энэ хаалт батлагдаагүй байна")
+
+    closing.approved_by = user.id if approved else None
+    closing.approved_at = datetime.now(UTC) if approved else None
+    closing.approval_note = (note or "").strip()[:500] or None
+    await db.flush()
+
+    await audit(
+        db,
+        user_id=user.id,
+        action="shift.closing_approved" if approved else "shift.closing_unapproved",
+        entity_type="shift",
+        entity_id=shift.id,
+        after={"approved": approved, "note": note},
+    )
+    return {
+        "shift_id": shift.id,
+        "approved": approved,
+        "approved_at": closing.approved_at,
+        "approved_by_name": user.full_name if approved else "",
+        "approval_note": closing.approval_note,
+    }

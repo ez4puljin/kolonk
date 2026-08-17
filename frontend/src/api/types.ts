@@ -2566,4 +2566,23 @@ export interface DailyClosingRow {
   declared_cash: MoneyStr | null;
   expected_cash: MoneyStr | null;
   cash_over_short: MoneyStr | null;
+  attendant_id: UUID | null;
+  branch_id: UUID | null;
+  branch_name: string;
+  /** Нягтлан хянаж баталсан эсэх — батлагдсаныг засах боломжгүй. */
+  approved: boolean;
+  approved_at: IsoDateTime | null;
+  approved_by_name: string;
+  approval_note: string | null;
+  note: string | null;
+}
+
+/** Ээлжийн тайлангийн шүүлт. */
+export interface DailyClosingFilters {
+  date_from?: string;
+  date_to?: string;
+  branch_id?: UUID[];
+  attendant_id?: UUID[];
+  status?: "approved" | "pending";
+  only_variance?: boolean;
 }

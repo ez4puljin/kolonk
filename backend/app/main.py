@@ -49,7 +49,18 @@ ROUTER_MODULES = [
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app.database import async_session_factory
     from app.hardware.pump_manager import PumpManager
+    from app.services.rbac_service import sync_permissions
+
+    # Кодод шинэ эрх нэмэгдсэн бол суусан систем дээр өөрөө үйлчилнэ
+    # (seed зөвхөн хоосон санд ажилладаг тул шинэчлэлтэд хүрэлцэхгүй).
+    try:
+        async with async_session_factory() as session:
+            await sync_permissions(session)
+            await session.commit()
+    except Exception:  # noqa: BLE001
+        log.exception("Эрхийн синк амжилтгүй боллоо")
 
     manager = PumpManager()
     app.state.pump_manager = manager

@@ -115,6 +115,10 @@ class ShiftClosing(UUIDPKMixin, TimestampMixin, Base):
     oil_sale_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("sales.id"))
     note: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id"))
+    #: Нягтлан хянаж баталсан мөч — батлагдсан хаалтыг засах боломжгүй.
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id"))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approval_note: Mapped[str | None] = mapped_column(Text)
 
 
 class ShiftTankLevel(UUIDPKMixin, TimestampMixin, Base):

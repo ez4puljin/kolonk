@@ -11,6 +11,7 @@ PERMISSIONS: dict[str, str] = {
     "shifts.open": "Ээлж нээх",
     "shifts.close": "Ээлж хаах",
     "shifts.view_all": "Бүх ээлж харах",
+    "shifts.approve": "Ээлжийн хаалт засаж батлах",
     "tanks.view": "Сав харах",
     "tanks.manage": "Сав удирдах",
     "pumps.view": "Насос харах",
@@ -57,6 +58,8 @@ CASHIER_PERMS = [
 MANAGER_PERMS = CASHIER_PERMS + [
     "sales.view_all",
     "shifts.view_all",
+    # Нягтлан/менежер түгээгчийн хаалтыг хянаж, зөрүүг засаад батална.
+    "shifts.approve",
     "tanks.manage",
     "pumps.manage",
     "products.manage",

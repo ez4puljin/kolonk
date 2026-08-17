@@ -699,6 +699,32 @@ async def _post_cash_difference(
     ]
 
 
+async def repost_cash_difference(
+    db: AsyncSession,
+    user: User,
+    *,
+    shift: Shift,
+    over_short: Decimal,
+) -> list[dict[str, Any]]:
+    """Кассын зөрүүний бичилтийг дахин бодож бичнэ (нягтлан засварлахад).
+
+    Хуучин илүүдэл/дутагдлын хоёр бичилтийг хоёуланг нь цуцалж (аль нь ч
+    байж болно), шинэ зөрүүгээр дахин бичнэ. Ингэснээр ерөнхий дэвтэр
+    засварласан дүнтэй үргэлж таарна.
+    """
+    for event_type in (EventType.SHIFT_CASH_SHORT, EventType.SHIFT_CASH_OVER):
+        await posting.reverse(
+            db,
+            event_type=str(event_type),
+            source_type=str(SourceType.SHIFT),
+            source_id=shift.id,
+        )
+    entry_date = (shift.closed_at or datetime.now(UTC)).date()
+    return await _post_cash_difference(
+        db, user, shift=shift, entry_date=entry_date, over_short=over_short
+    )
+
+
 async def _post_fuel_variance(
     db: AsyncSession,
     user: User,

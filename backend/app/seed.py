@@ -32,6 +32,7 @@ from app.models.user import Permission, Role, RolePermission, User
 from app.money import q2, q6
 from app.permissions import PERMISSIONS, ROLE_NAMES_MN, ROLE_PERMISSIONS
 from app.security import hash_pin
+from app.services.rbac_service import sync_permissions
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 log = logging.getLogger("seed")
@@ -148,32 +149,9 @@ CUSTOMERS = [
 
 
 async def seed_permissions_and_roles(db) -> dict[str, Role]:
-    existing_perms = {p.code: p for p in (await db.scalars(select(Permission))).all()}
-    for code, name in PERMISSIONS.items():
-        if code not in existing_perms:
-            perm = Permission(code=code, name_mn=name)
-            db.add(perm)
-            existing_perms[code] = perm
-    await db.flush()
-
-    roles: dict[str, Role] = {r.code: r for r in (await db.scalars(select(Role))).all()}
-    for code, perm_codes in ROLE_PERMISSIONS.items():
-        role = roles.get(code)
-        if role is None:
-            role = Role(code=code, name_mn=ROLE_NAMES_MN[code])
-            db.add(role)
-            await db.flush()
-            roles[code] = role
-        elif role.name_mn != ROLE_NAMES_MN[code]:
-            # Нэршил өөрчлөгдсөн бол (Кассчин → Түгээгч) байгаа мөрийг шинэчилнэ.
-            role.name_mn = ROLE_NAMES_MN[code]
-        current = {rp.permission_id for rp in (await db.scalars(select(RolePermission).where(RolePermission.role_id == role.id))).all()}
-        for pc in perm_codes:
-            perm = existing_perms[pc]
-            if perm.id not in current:
-                db.add(RolePermission(role_id=role.id, permission_id=perm.id))
-    await db.flush()
-    log.info("Эрх, дүрүүд бэлэн (%d эрх, %d дүр)", len(existing_perms), len(roles))
+    """Эрх, дүрийн синк — аппликейшн асах бүрд ажилладаг логиктой нэг мөр."""
+    roles = await sync_permissions(db)
+    log.info("Эрх, дүрүүд бэлэн (%d эрх, %d дүр)", len(PERMISSIONS), len(roles))
     return roles
 
 

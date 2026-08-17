@@ -28,6 +28,8 @@ from app.enums import ShiftStatus
 from app.models.user import User
 from app.models.shift import ShiftAttachment
 from app.schemas.shift import (
+    ClosingApprovalIn,
+    ClosingCorrectIn,
     CurrentShiftOut,
     DailyCloseIn,
     DailyPreviewIn,
@@ -325,14 +327,56 @@ async def list_shifts(
 async def daily_closings(
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
+    branch_id: list[uuid.UUID] | None = Query(default=None),
+    attendant_id: list[uuid.UUID] | None = Query(default=None),
+    status: str | None = Query(default=None),
+    only_variance: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_permission("shifts.view_all", "shifts.close")),
 ) -> list[dict[str, Any]]:
-    """Өдөр бүрийн түгээгчийн тооцооны жагсаалт (миль×үнэ, зээл, зөрүү)."""
+    """Ээлжийн тайлан — салбар, ажилтан, огноо, батламжийн төлвөөр шүүнэ."""
     if date_from is not None and date_to is not None and date_from > date_to:
         raise HTTPException(status_code=422, detail="Эхлэх огноо дуусах огнооноос хойш байж болохгүй")
+    if status is not None and status not in {"approved", "pending"}:
+        raise HTTPException(status_code=422, detail="Батламжийн төлөв буруу байна")
     return await attendant_service.daily_closings_list(
-        db, date_from=date_from, date_to=date_to
+        db,
+        date_from=date_from,
+        date_to=date_to,
+        branch_ids=branch_id or None,
+        attendant_ids=attendant_id or None,
+        status=status,
+        only_variance=only_variance,
+    )
+
+
+@router.post("/shifts/{shift_id}/closing/correct")
+async def correct_closing(
+    shift_id: uuid.UUID,
+    payload: ClosingCorrectIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.approve")),
+) -> dict[str, Any]:
+    """Тоолсон бэлэн мөнгийг засаж, кассын зөрүүг дахин бичнэ (нягтлан)."""
+    return await attendant_service.correct_declared_cash(
+        db,
+        user,
+        shift_id=shift_id,
+        declared_cash=payload.declared_cash,
+        note=payload.note,
+    )
+
+
+@router.post("/shifts/{shift_id}/closing/approval")
+async def set_closing_approval(
+    shift_id: uuid.UUID,
+    payload: ClosingApprovalIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.approve")),
+) -> dict[str, Any]:
+    """Хаалтыг батлах (`approved=true`) эсвэл батламжийг буцаах."""
+    return await attendant_service.set_closing_approval(
+        db, user, shift_id=shift_id, approved=payload.approved, note=payload.note
     )
 
 
