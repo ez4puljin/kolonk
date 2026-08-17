@@ -18,7 +18,6 @@ from app.models.bank import (
 )
 from app.models.expense import Expense
 from app.models.fuel import Fuel, Pump, PumpNozzle, Tank, TankMovement, TotalizerReading
-from app.models.instrument import PrepaidCard, PrepaidCardTransaction, Voucher
 from app.models.partner import Contract, Customer, Supplier
 from app.models.advance import EmployeeAdvance
 from app.models.branch import Branch
@@ -72,8 +71,6 @@ __all__ = [
     "PayrollLine",
     "PayrollPeriod",
     "Permission",
-    "PrepaidCard",
-    "PrepaidCardTransaction",
     "PriceChange",
     "Product",
     "ProductBranchStock",
@@ -100,5 +97,4 @@ __all__ = [
     "TankMovement",
     "TotalizerReading",
     "User",
-    "Voucher",
 ]

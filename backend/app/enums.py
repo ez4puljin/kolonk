@@ -126,25 +126,6 @@ class ContractStatus(StrEnum):
     CLOSED = "closed"
 
 
-class VoucherStatus(StrEnum):
-    ACTIVE = "active"
-    REDEEMED = "redeemed"
-    VOID = "void"
-    EXPIRED = "expired"
-
-
-class CardStatus(StrEnum):
-    ACTIVE = "active"
-    BLOCKED = "blocked"
-    CLOSED = "closed"
-
-
-class CardTxType(StrEnum):
-    TOPUP = "topup"
-    REDEEM = "redeem"
-    REFUND = "refund"
-
-
 class CustomerType(StrEnum):
     B2B = "b2b"
     INDIVIDUAL = "individual"
@@ -169,8 +150,6 @@ class SourceType(StrEnum):
     AR_PAYMENT = "ar_payment"
     SHIFT = "shift"
     REFUND = "refund"
-    VOUCHER = "voucher"
-    PREPAID = "prepaid"
     MANUAL = "manual"
     SETTLEMENT = "settlement"
     EXPENSE = "expense"
@@ -179,8 +158,6 @@ class SourceType(StrEnum):
 
 class EventType(StrEnum):
     SALE_POSTED = "SALE_POSTED"
-    VOUCHER_SOLD = "VOUCHER_SOLD"
-    PREPAID_TOPUP = "PREPAID_TOPUP"
     FUEL_RECEIPT_POSTED = "FUEL_RECEIPT_POSTED"
     PURCHASE_POSTED = "PURCHASE_POSTED"
     AP_PAYMENT = "AP_PAYMENT"

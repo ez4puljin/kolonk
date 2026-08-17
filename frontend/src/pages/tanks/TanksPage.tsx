@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Database, Droplets, SlidersHorizontal, TriangleAlert } from "lucide-react";
 
 import { errorMessage } from "../../api/client";
+import { useBranches } from "../../api/queries/branches";
 import { useAdjustTankMutation, useTanks } from "../../api/queries/tanks";
 import type { Tank } from "../../api/types";
 import { PageHeader } from "../../components/layout/PageHeader";
@@ -34,7 +35,16 @@ export function TanksPage() {
   const navigate = useNavigate();
   const canManage = useCan("tanks.manage");
 
-  const tanksQuery = useTanks({ active_only: false });
+  // Салбар сонгосон бол зөвхөн тэр салбарын сав; сонгоогүй бол бүгд нь
+  // салбараараа бүлэглэгдэж харагдана.
+  const [branchId, setBranchId] = useState("");
+  const branchesQuery = useBranches();
+  const branches = useMemo(
+    () => (branchesQuery.data ?? []).filter((branch) => branch.is_active),
+    [branchesQuery.data],
+  );
+
+  const tanksQuery = useTanks({ active_only: false, branch_id: branchId || undefined });
   const adjustMutation = useAdjustTankMutation();
 
   const [adjustTank, setAdjustTank] = useState<Tank | null>(null);
@@ -53,6 +63,28 @@ export function TanksPage() {
     const low = tanks.filter((tank) => tank.is_low).length;
     return { capacity, current, value, low };
   }, [tanks]);
+
+  /** Салбараар бүлэглэсэн сав — сонгосон салбар байвал ганц бүлэг. */
+  const groups = useMemo(() => {
+    if (branches.length <= 1) return [{ id: "", name: "", tanks }];
+    const byBranch = new Map<string, { id: string; name: string; tanks: Tank[] }>();
+    for (const tank of tanks) {
+      const key = tank.branch_id ?? "";
+      const existing = byBranch.get(key);
+      if (existing) existing.tanks.push(tank);
+      else
+        byBranch.set(key, {
+          id: key,
+          name: tank.branch_name ?? t.branches.noBranch,
+          tanks: [tank],
+        });
+    }
+    // Салбарын дараалал — тохиргооны жагсаалттай ижил.
+    const order = new Map(branches.map((branch, index) => [branch.id, index]));
+    return [...byBranch.values()].sort(
+      (a, b) => (order.get(a.id) ?? 999) - (order.get(b.id) ?? 999),
+    );
+  }, [tanks, branches]);
 
   const openAdjust = (tank: Tank): void => {
     setAdjustTank(tank);
@@ -108,6 +140,17 @@ export function TanksPage() {
         />
       </div>
 
+      {branches.length > 1 ? (
+        <ChipGroup<string>
+          value={branchId}
+          onChange={setBranchId}
+          options={[
+            { value: "", label: t.branches.allBranches },
+            ...branches.map((branch) => ({ value: branch.id, label: branch.name })),
+          ]}
+        />
+      ) : null}
+
       {tanksQuery.isLoading ? (
         <div className="flex items-center justify-center py-20 text-ink-soft">
           <Spinner size="lg" label={t.common.loading} />
@@ -115,8 +158,21 @@ export function TanksPage() {
       ) : tanks.length === 0 ? (
         <EmptyState icon={<Database className="h-7 w-7" />} title={t.common.empty} hint={t.common.emptyHint} />
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-          {tanks.map((tank) => {
+        <div className="flex flex-col gap-6">
+          {groups.map((group) => (
+            <section key={group.id || "single"} className="flex flex-col gap-3">
+              {branches.length > 1 ? (
+                <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line pb-2">
+                  <h2 className="text-lg font-bold text-ink">{group.name}</h2>
+                  <span className="num text-sm text-ink-soft">
+                    {group.tanks.length} {t.tanks.title.toLowerCase()} ·{" "}
+                    {formatLiters(dSum(group.tanks.map((item) => item.current_l)), 0)} /{" "}
+                    {formatLiters(dSum(group.tanks.map((item) => item.capacity_l)), 0)}
+                  </span>
+                </header>
+              ) : null}
+              <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+                {group.tanks.map((tank) => {
             const pct = dToNumber(tank.fill_pct);
             const available = dSub(tank.capacity_l, tank.current_l);
             const minPct =
@@ -213,7 +269,10 @@ export function TanksPage() {
                 </div>
               </section>
             );
-          })}
+                })}
+              </div>
+            </section>
+          ))}
         </div>
       )}
 

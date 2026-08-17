@@ -47,9 +47,6 @@ const SOURCE_TYPE_MN: Record<string, string> = {
   ar_payment: t.partners.arPayment,
   shift: t.shift.title,
   refund: t.refunds.refund,
-  // Ашиглалтаас хасагдсан ч хуучин бичилтүүд журналд үлдсэн тул шошго хэрэгтэй.
-  voucher: t.accounting.legacyVoucher,
-  prepaid: t.accounting.legacyPrepaid,
   manual: t.accounting.manualEntry,
   settlement: t.accounting.settlement,
 };
@@ -62,8 +59,6 @@ const SOURCE_TONE: Record<string, Tone> = {
   ar_payment: "warning",
   shift: "neutral",
   refund: "danger",
-  voucher: "neutral",
-  prepaid: "neutral",
   manual: "brand",
   settlement: "action",
 };

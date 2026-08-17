@@ -378,12 +378,16 @@ def test_sale_builder_is_pure() -> None:
     assert sale.vat_amount == make_sale(items, payments).vat_amount
 
 
-def test_voucher_and_prepaid_builders_are_gone() -> None:
+def test_voucher_and_prepaid_are_fully_removed() -> None:
     """Ваучер, урьдчилсан карт системээс бүрмөсөн хасагдсан."""
     assert not hasattr(rules, "build_voucher_sold_lines")
     assert not hasattr(rules, "build_prepaid_topup_lines")
     assert not hasattr(PaymentMethod, "VOUCHER")
     assert not hasattr(PaymentMethod, "PREPAID")
+    assert not hasattr(ACC, "VOUCHER_LIABILITY")
+    assert not hasattr(ACC, "PREPAID_LIABILITY")
+    # Дансны төлөвлөгөөнд ч үлдээгүй.
+    assert {"2301", "2302"}.isdisjoint({row["code"] for row in COA_SEED})
 
 
 # --------------------------------------------------------------------------- #

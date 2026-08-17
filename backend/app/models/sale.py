@@ -80,8 +80,6 @@ class Payment(UUIDPKMixin, TimestampMixin, Base):
     method: Mapped[str] = mapped_column(String(16), nullable=False, default=PaymentMethod.CASH, index=True)
     amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
     contract_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("contracts.id"))
-    voucher_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("vouchers.id"))
-    prepaid_card_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("prepaid_cards.id"))
     received: Mapped[Decimal | None] = mapped_column(Money)
     change_given: Mapped[Decimal | None] = mapped_column(Money)
     ref_no: Mapped[str | None] = mapped_column(String(64))

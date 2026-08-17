@@ -33,8 +33,6 @@ class ACC:
     # --- Өр төлбөр ---
     AP_SUPPLIER = "2101"
     VAT_OUTPUT = "2201"
-    VOUCHER_LIABILITY = "2301"
-    PREPAID_LIABILITY = "2302"
     # --- Цалингийн өглөгүүд ---
     AP_SALARY = "2401"
     AP_PIT = "2402"
@@ -164,14 +162,6 @@ COA_SEED: list[dict[str, Any]] = [
     _acc(ACC.HDR_LIABILITY, "Өр төлбөр", AccountType.LIABILITY, 2000, is_postable=False),
     _acc(ACC.AP_SUPPLIER, "Нийлүүлэгчийн өглөг", AccountType.LIABILITY, 2101, parent_code=ACC.HDR_LIABILITY),
     _acc(ACC.VAT_OUTPUT, "Гарах НӨАТ", AccountType.LIABILITY, 2201, parent_code=ACC.HDR_LIABILITY),
-    _acc(ACC.VOUCHER_LIABILITY, "Ваучерын өр төлбөр", AccountType.LIABILITY, 2301, parent_code=ACC.HDR_LIABILITY),
-    _acc(
-        ACC.PREPAID_LIABILITY,
-        "Урьдчилсан төлбөрт картын өр",
-        AccountType.LIABILITY,
-        2302,
-        parent_code=ACC.HDR_LIABILITY,
-    ),
     _acc(ACC.AP_SALARY, "Цалингийн өглөг", AccountType.LIABILITY, 2401, parent_code=ACC.HDR_LIABILITY),
     _acc(ACC.AP_PIT, "ХХОАТ-ын өглөг", AccountType.LIABILITY, 2402, parent_code=ACC.HDR_LIABILITY),
     _acc(ACC.AP_SOCIAL_INS, "НДШ-ийн өглөг", AccountType.LIABILITY, 2403, parent_code=ACC.HDR_LIABILITY),
