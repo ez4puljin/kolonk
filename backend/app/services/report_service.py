@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -27,13 +27,14 @@ from app.enums import (
     InvoiceStatus,
     ItemType,
     PaymentMethod,
+    ReadingType,
     SaleStatus,
     ShiftStatus,
     TankMovementType,
 )
 from app.models.accounting import ApInvoice, ArInvoice
 from app.models.approval import PriceChange, Refund
-from app.models.fuel import Fuel, Pump, PumpNozzle, Tank, TankMovement
+from app.models.fuel import Fuel, Pump, PumpNozzle, Tank, TankMovement, TotalizerReading
 from app.models.partner import Customer
 from app.models.product import Product
 from app.models.sale import Payment, Sale, SaleItem
@@ -945,6 +946,261 @@ async def _tank_levels(
             }
         )
     return tanks
+
+
+# --------------------------------------------------------------------------- #
+# Хошууны миль — түгээгчийн горимд борлуулалт зөвхөн хаалтаар бүртгэгддэг тул
+# бодит зарлагыг тоолуурын заалтаас (миль) шууд бодно.
+# --------------------------------------------------------------------------- #
+async def _shift_mile_liters(
+    db: AsyncSession, shifts: list[Any]
+) -> dict[uuid.UUID, dict[uuid.UUID, Decimal]]:
+    """``{shift_id: {fuel_id: литр}}`` — ээлж бүрийн хошууны милийн зөрүү.
+
+    Нээлттэй ээлжид хаалтын заалт байхгүй тул хошууны ОДООГИЙН тоолуурыг
+    авна — ингэснээр ээлж хаагдаагүй байхад ч явц харагдана.
+    """
+    if not shifts:
+        return {}
+    shift_ids = [s.id for s in shifts]
+
+    rows = (
+        await db.execute(
+            select(
+                TotalizerReading.shift_id,
+                TotalizerReading.nozzle_id,
+                TotalizerReading.reading_type,
+                TotalizerReading.reading,
+            ).where(TotalizerReading.shift_id.in_(shift_ids))
+        )
+    ).all()
+
+    nozzles = {
+        n.id: n
+        for n in (await db.scalars(select(PumpNozzle).where(PumpNozzle.id.in_({r.nozzle_id for r in rows}))))
+        .all()
+    } if rows else {}
+
+    # (shift, nozzle) → {нээлт, хаалт}
+    pairs: dict[tuple[uuid.UUID, uuid.UUID], dict[str, Decimal]] = {}
+    for row in rows:
+        key = (row.shift_id, row.nozzle_id)
+        bucket = pairs.setdefault(key, {})
+        bucket[str(row.reading_type)] = _l(row.reading)
+
+    out: dict[uuid.UUID, dict[uuid.UUID, Decimal]] = {}
+    for (shift_id, nozzle_id), bucket in pairs.items():
+        nozzle = nozzles.get(nozzle_id)
+        if nozzle is None:
+            continue
+        opened = bucket.get(str(ReadingType.SHIFT_OPEN))
+        if opened is None:
+            continue
+        closed = bucket.get(str(ReadingType.SHIFT_CLOSE))
+        if closed is None:
+            # Нээлттэй ээлж — хошууны одоогийн тоолуураар явцыг харна.
+            closed = _l(nozzle.totalizer)
+        liters = q3(closed - opened)
+        if liters <= ZERO_L:
+            continue
+        by_fuel = out.setdefault(shift_id, {})
+        by_fuel[nozzle.fuel_id] = q3(by_fuel.get(nozzle.fuel_id, ZERO_L) + liters)
+    return out
+
+
+async def fuel_mile_trend(
+    db: AsyncSession, *, days: int = 7, branch_id: uuid.UUID | None = None
+) -> dict[str, Any]:
+    """Салбар бүрийн сүүлийн ``days`` хоногийн түлшний зарлага — милээр.
+
+    Өдөр бүр ЭЭЛЖИЙН нээсэн огноогоор тооцогдоно (шөнө дундуур хаагдсан
+    ээлж өөрийн өдөртөө үлдэнэ). Дүн нь литр × тухайн салбарын мөрдөж буй
+    үнэ — ойролцоо (өдрийн дундуур үнэ өөрчлөгдвөл хаалтын тооцоо эцэслэнэ).
+    """
+    from app.models.branch import Branch
+    from app.services.pricing_service import fuel_price_map
+
+    today = today_local()
+    first_day = today - timedelta(days=days - 1)
+    start = _range_bounds(first_day, today)[0]
+
+    shift_stmt = select(Shift).where(Shift.opened_at >= start)
+    if branch_id is not None:
+        shift_stmt = shift_stmt.where(Shift.branch_id == branch_id)
+    shifts = (await db.scalars(shift_stmt.order_by(Shift.opened_at))).all()
+
+    liters_by_shift = await _shift_mile_liters(db, list(shifts))
+
+    fuels = (await db.scalars(select(Fuel).order_by(Fuel.sort_order, Fuel.code))).all()
+    branches = (
+        await db.scalars(
+            select(Branch).where(Branch.is_active.is_(True)).order_by(Branch.sort_order, Branch.name)
+        )
+    ).all()
+    if branch_id is not None:
+        branches = [b for b in branches if b.id == branch_id]
+
+    day_keys = [(first_day + timedelta(days=i)).isoformat() for i in range(days)]
+    price_cache: dict[uuid.UUID | None, dict[uuid.UUID, Decimal]] = {}
+
+    async def prices_for(bid: uuid.UUID | None) -> dict[uuid.UUID, Decimal]:
+        if bid not in price_cache:
+            price_cache[bid] = await fuel_price_map(db, bid) if bid is not None else {}
+        return price_cache[bid]
+
+    out_branches: list[dict[str, Any]] = []
+    for branch in branches:
+        overrides = await prices_for(branch.id)
+        # өдөр → түлш → литр
+        grid: dict[str, dict[uuid.UUID, Decimal]] = {day: {} for day in day_keys}
+        for shift in shifts:
+            if shift.branch_id != branch.id:
+                continue
+            day = shift.opened_at.astimezone(TZ).date().isoformat()
+            if day not in grid:
+                continue
+            for fuel_id, liters in (liters_by_shift.get(shift.id) or {}).items():
+                grid[day][fuel_id] = q3(grid[day].get(fuel_id, ZERO_L) + liters)
+
+        rows: list[dict[str, Any]] = []
+        totals_by_fuel: dict[uuid.UUID, Decimal] = {}
+        total_liters = ZERO_L
+        total_amount = ZERO
+        for day in day_keys:
+            day_liters = ZERO_L
+            day_amount = ZERO
+            by_fuel: list[dict[str, Any]] = []
+            for fuel in fuels:
+                liters = grid[day].get(fuel.id, ZERO_L)
+                if liters <= ZERO_L:
+                    continue
+                price = overrides.get(fuel.id) or _dec(fuel.price_per_liter)
+                amount = q2(liters * price)
+                by_fuel.append({"fuel_id": fuel.id, "liters": liters, "amount": amount})
+                day_liters = q3(day_liters + liters)
+                day_amount = q2(day_amount + amount)
+                totals_by_fuel[fuel.id] = q3(totals_by_fuel.get(fuel.id, ZERO_L) + liters)
+            rows.append(
+                {"date": day, "liters": day_liters, "amount": day_amount, "by_fuel": by_fuel}
+            )
+            total_liters = q3(total_liters + day_liters)
+            total_amount = q2(total_amount + day_amount)
+
+        out_branches.append(
+            {
+                "branch_id": branch.id,
+                "branch_name": branch.name,
+                "rows": rows,
+                "total_liters": total_liters,
+                "total_amount": total_amount,
+                "by_fuel": [
+                    {"fuel_id": fid, "liters": liters}
+                    for fid, liters in sorted(
+                        totals_by_fuel.items(), key=lambda kv: kv[1], reverse=True
+                    )
+                ],
+            }
+        )
+
+    return {
+        "date_from": first_day,
+        "date_to": today,
+        "days": day_keys,
+        "fuels": [
+            {
+                "id": f.id,
+                "code": f.code,
+                "name_mn": f.name_mn,
+                "color_hex": f.color_hex,
+            }
+            for f in fuels
+        ],
+        "branches": out_branches,
+    }
+
+
+async def branch_shift_overview(db: AsyncSession) -> list[dict[str, Any]]:
+    """Салбар бүрийн НЭЭЛТТЭЙ түгээгчийн ээлж — самбарт харуулах хураангуй."""
+    from app.models.branch import Branch
+    from app.services.pricing_service import fuel_price_map
+
+    branches = (
+        await db.scalars(
+            select(Branch).where(Branch.is_active.is_(True)).order_by(Branch.sort_order, Branch.name)
+        )
+    ).all()
+    open_shifts = (
+        await db.scalars(
+            select(Shift).where(Shift.status == ShiftStatus.OPEN).order_by(Shift.opened_at.desc())
+        )
+    ).all()
+    by_branch = {s.branch_id: s for s in reversed(open_shifts)}
+
+    liters_by_shift = await _shift_mile_liters(db, list(open_shifts))
+    fuels = {f.id: f for f in (await db.scalars(select(Fuel))).all()}
+    users = {
+        u.id: u.full_name
+        for u in (
+            await db.scalars(select(User).where(User.id.in_({s.opened_by for s in open_shifts})))
+        ).all()
+    } if open_shifts else {}
+
+    out: list[dict[str, Any]] = []
+    for branch in branches:
+        shift = by_branch.get(branch.id)
+        if shift is None:
+            out.append(
+                {
+                    "branch_id": branch.id,
+                    "branch_name": branch.name,
+                    "shift": None,
+                    "fuels": [],
+                    "liters": ZERO_L,
+                    "amount": ZERO,
+                }
+            )
+            continue
+
+        overrides = await fuel_price_map(db, branch.id)
+        rows: list[dict[str, Any]] = []
+        total_liters = ZERO_L
+        total_amount = ZERO
+        for fuel_id, liters in (liters_by_shift.get(shift.id) or {}).items():
+            fuel = fuels.get(fuel_id)
+            if fuel is None:
+                continue
+            price = overrides.get(fuel_id) or _dec(fuel.price_per_liter)
+            amount = q2(liters * price)
+            rows.append(
+                {
+                    "fuel_id": fuel_id,
+                    "fuel_name": fuel.name_mn,
+                    "color_hex": fuel.color_hex,
+                    "liters": liters,
+                    "amount": amount,
+                }
+            )
+            total_liters = q3(total_liters + liters)
+            total_amount = q2(total_amount + amount)
+        rows.sort(key=lambda r: r["liters"], reverse=True)
+
+        out.append(
+            {
+                "branch_id": branch.id,
+                "branch_name": branch.name,
+                "shift": {
+                    "id": shift.id,
+                    "number": shift.number,
+                    "opened_at": shift.opened_at,
+                    "attendant": users.get(shift.opened_by, ""),
+                    "opening_cash": q2(_dec(shift.opening_cash)),
+                },
+                "fuels": rows,
+                "liters": total_liters,
+                "amount": total_amount,
+            }
+        )
+    return out
 
 
 async def _pump_states(

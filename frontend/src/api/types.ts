@@ -2055,6 +2055,55 @@ export interface DashboardAlert {
   count?: number;
 }
 
+/** Ээлж/өдрийн милээс тооцсон нэг түлшний зарлага. */
+export interface MileFuelRow {
+  fuel_id: UUID;
+  liters: LitersStr;
+  amount: MoneyStr;
+}
+
+/** `GET /api/dashboards/branch-shifts` — салбар бүрийн нээлттэй ээлж. */
+export interface BranchShiftOverview {
+  branch_id: UUID;
+  branch_name: string;
+  shift: {
+    id: UUID;
+    number: number;
+    opened_at: IsoDateTime;
+    attendant: string;
+    opening_cash: MoneyStr;
+  } | null;
+  /** Нээлтээс хойших хошууны милийн ахилт — түлшээр. */
+  fuels: (MileFuelRow & { fuel_name: string; color_hex: string })[];
+  liters: LitersStr;
+  amount: MoneyStr;
+}
+
+export interface FuelTrendDay {
+  date: string;
+  liters: LitersStr;
+  amount: MoneyStr;
+  by_fuel: MileFuelRow[];
+}
+
+export interface FuelTrendBranch {
+  branch_id: UUID;
+  branch_name: string;
+  rows: FuelTrendDay[];
+  total_liters: LitersStr;
+  total_amount: MoneyStr;
+  by_fuel: MileFuelRow[];
+}
+
+/** `GET /api/dashboards/fuel-trend` — сүүлийн хоногуудын зарлага милээр. */
+export interface FuelTrend {
+  date_from: string;
+  date_to: string;
+  days: string[];
+  fuels: Pick<FuelBrief, "id" | "code" | "name_mn" | "color_hex">[];
+  branches: FuelTrendBranch[];
+}
+
 /** `GET /api/dashboards/cashier` — backend-ийн бодит хэлбэр. */
 export interface CashierDashboard {
   date: string;
