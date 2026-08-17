@@ -51,6 +51,7 @@ TENDER_ORDER: tuple[str, ...] = (
     PaymentMethod.CASH,
     PaymentMethod.CARD,
     PaymentMethod.QR,
+    PaymentMethod.TRANSFER,
     PaymentMethod.CONTRACT,
     PaymentMethod.VOUCHER,
     PaymentMethod.PREPAID,
@@ -60,7 +61,8 @@ TENDER_NAMES_MN: dict[str, str] = {
     PaymentMethod.CASH: "Бэлэн",
     PaymentMethod.CARD: "Карт",
     PaymentMethod.QR: "QR",
-    PaymentMethod.CONTRACT: "Гэрээ",
+    PaymentMethod.TRANSFER: "Шилжүүлэг",
+    PaymentMethod.CONTRACT: "Зээл",
     PaymentMethod.VOUCHER: "Ваучер",
     PaymentMethod.PREPAID: "Урьдчилсан карт",
 }

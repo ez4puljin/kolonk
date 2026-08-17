@@ -31,7 +31,9 @@ PAYMENT_METHOD_MN: dict[str, str] = {
     PaymentMethod.CARD: "Карт",
     PaymentMethod.QR: "QR",
     PaymentMethod.TRANSFER: "Шилжүүлэг",
-    PaymentMethod.CONTRACT: "Гэрээ",
+    # Гэрээт борлуулалтыг хэрэглэгчид «зээл» гэж нэрлэдэг — бүх дэлгэц,
+    # тайлан, журналын тайлбарт ижил нэршил.
+    PaymentMethod.CONTRACT: "Зээл",
     PaymentMethod.VOUCHER: "Ваучер",
     PaymentMethod.PREPAID: "Урьдчилсан карт",
 }

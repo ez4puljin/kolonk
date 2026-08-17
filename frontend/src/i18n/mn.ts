@@ -328,7 +328,7 @@ export const t = {
     card: "Карт",
     qr: "QR",
     transfer: "Шилжүүлэг",
-    contract: "Гэрээт",
+    contract: "Зээл",
     voucher: "Ваучер",
     prepaid: "Урьдчилсан карт",
     split: "Хуваан төлөх",

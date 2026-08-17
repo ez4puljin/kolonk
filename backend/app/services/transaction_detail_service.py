@@ -35,7 +35,8 @@ TENDER_NAMES = {
     "cash": "Бэлэн",
     "card": "Карт",
     "qr": "QR",
-    "contract": "Гэрээт",
+    "transfer": "Шилжүүлэг",
+    "contract": "Зээл",
     "voucher": "Ваучер",
     "prepaid": "Урьдчилсан карт",
 }

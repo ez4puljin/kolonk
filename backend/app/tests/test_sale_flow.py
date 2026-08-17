@@ -235,7 +235,9 @@ class TestClassification:
 
     def test_payment_labels_are_mongolian(self) -> None:
         assert method_label(PaymentMethod.CASH) == "Бэлэн"
-        assert method_label(PaymentMethod.CONTRACT) == "Гэрээ"
+        # Гэрээт борлуулалт бүх дэлгэц, тайланд «Зээл» гэж нэрлэгдэнэ.
+        assert method_label(PaymentMethod.CONTRACT) == "Зээл"
+        assert method_label(PaymentMethod.TRANSFER) == "Шилжүүлэг"
         assert method_label(PaymentMethod.PREPAID) == "Урьдчилсан карт"
 
 
