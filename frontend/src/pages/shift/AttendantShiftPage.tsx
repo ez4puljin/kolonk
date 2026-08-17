@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Banknote,
@@ -54,7 +54,7 @@ import { Modal } from "../../components/ui/Modal";
 import { Spinner } from "../../components/ui/Spinner";
 import { StatBox } from "../../components/ui/StatBox";
 import { t } from "../../i18n/mn";
-import { dAdd, dMul, dSum, dToQty } from "../../lib/decimal";
+import { dAdd, dMul, dSub, dSum, dToQty } from "../../lib/decimal";
 import { formatDateTime, formatLiters, formatMNT, formatNumber } from "../../lib/format";
 import { useUiStore } from "../../stores/ui";
 import { NumberField, PickerField, TextField } from "../catalog/_shared";
@@ -470,6 +470,105 @@ export function AttendantShiftPage() {
     [oilRows, products],
   );
 
+  /** fuel_id → одоогийн үнэ (хошуунаас). Зээлийн литрийг үнэлэхэд. */
+  const fuelPriceById = useMemo(() => {
+    const map = new Map<string, MoneyStr>();
+    for (const { nozzle } of nozzles) {
+      if (!map.has(nozzle.fuel_id)) map.set(nozzle.fuel_id, nozzle.price_per_liter);
+    }
+    return map;
+  }, [nozzles]);
+
+  /** contract_id → литр тутмын хөнгөлөлт (серверийн тооцоотой таарахын тулд). */
+  const contractDiscountById = useMemo(() => {
+    const map = new Map<string, MoneyStr>();
+    for (const customer of customersPage?.items ?? []) {
+      for (const contract of customer.contracts) {
+        map.set(contract.id, contract.price_discount_per_l);
+      }
+    }
+    return map;
+  }, [customersPage]);
+
+  /** nozzle_id → «1-р насос · №1 АИ-92» (тулгалтын задаргаанд насос ялгахад). */
+  const nozzleLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const { pump, nozzle } of nozzles) {
+      map.set(nozzle.id, `${pump.name} · №${nozzle.nozzle_number} ${nozzle.fuel_name}`);
+    }
+    return map;
+  }, [nozzles]);
+
+  /**
+   * Зээлийн мөр бүрийн дүн: түлш (дүнгээр бол шууд, литрээр бол литр×үнэ) +
+   * бараа (тоо×үнэ). Түлшний үнээс гэрээний хөнгөлөлтийг хасна — сервер мөн адил.
+   */
+  const creditRowTotals = useMemo(
+    () =>
+      creditRows.map((row) => {
+        const qty = dToQty(row.value);
+        let fuel = "0";
+        if (row.fuel_id !== "" && qty > 0) {
+          if (row.mode === "amount") {
+            fuel = row.value || "0";
+          } else {
+            const unit = dSub(
+              fuelPriceById.get(row.fuel_id) ?? "0",
+              contractDiscountById.get(row.contract_id) ?? "0",
+            );
+            fuel = dMul(unit, qty);
+          }
+        }
+        const product = products.find((p) => p.id === row.product_id);
+        const productQty = dToQty(row.product_qty);
+        const goods = product && productQty > 0 ? dMul(product.price, productQty) : "0";
+        return { fuel, goods, total: dAdd(fuel, goods) };
+      }),
+    [creditRows, products, fuelPriceById, contractDiscountById],
+  );
+
+  /** Кассад зөвхөн ТҮЛШНИЙ хэсэг нөлөөлнө — бараа миль×үнэд ороогүй тул хасахгүй. */
+  const creditFuelTotal = useMemo(
+    () => dSum(creditRowTotals.map((row) => row.fuel)),
+    [creditRowTotals],
+  );
+  const creditTotal = useMemo(
+    () => dSum(creditRowTotals.map((row) => row.total)),
+    [creditRowTotals],
+  );
+
+  const arTotal = useMemo(() => dSum(arRows.map((row) => row.amount || "0")), [arRows]);
+  const arCashTotal = useMemo(
+    () => dSum(arRows.filter((row) => row.method === "cash").map((row) => row.amount || "0")),
+    [arRows],
+  );
+  const expenseTotal = useMemo(
+    () => dSum(expenseRows.map((row) => row.amount || "0")),
+    [expenseRows],
+  );
+  const expenseCashTotal = useMemo(
+    () =>
+      dSum(
+        expenseRows
+          .filter((row) => row.payment_method === "cash")
+          .map((row) => row.amount || "0"),
+      ),
+    [expenseRows],
+  );
+
+  /**
+   * Байвал зохих бэлэн мөнгө (ойролцоо) — серверийн томьёотой ижил бүтэц:
+   * эхний бэлэн + миль×үнэ − settlement − зээлийн түлш + тос/бараа
+   * + өглөгийн бэлэн төлбөр − кассаас гарсан зарлага.
+   */
+  const expectedCash = preview
+    ? dSub(
+        dSum([preview.opening_cash, preview.fuel_total, oilTotal, arCashTotal]),
+        dSum([settlementTotal, creditFuelTotal, expenseCashTotal]),
+      )
+    : "0";
+  const cashDiff = dSub(declaredCash === "" ? "0" : declaredCash, expectedCash);
+
   const readingsPayload = (): TotalizerReadingInput[] =>
     nozzles.map(({ nozzle }) => ({
       nozzle_id: nozzle.id,
@@ -785,7 +884,9 @@ export function AttendantShiftPage() {
                 key={meta.label}
                 type="button"
                 ref={index === step ? (el) => el?.scrollIntoView({ inline: "center", block: "nearest" }) : undefined}
-                onClick={() => setStep(index as WizardStep)}
+                // Тулгалт руу шууд үсрэхэд тооцоог сервэрээс дуудна — эс бөгөөс
+                // preview байхгүй тул хоосон дэлгэц харагдана.
+                onClick={() => (index === 7 ? goToConfirm() : setStep(index as WizardStep))}
                 className={[
                   "flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs font-bold whitespace-nowrap",
                   index === step
@@ -920,10 +1021,7 @@ export function AttendantShiftPage() {
               >
                 {t.attendant.addLine}
               </Button>
-              <div className="num flex items-baseline justify-between rounded-xl border border-line bg-surface-alt px-4 py-3">
-                <span className="text-sm font-semibold text-ink-soft">{t.attendant.oilSales}</span>
-                <span className="text-xl font-bold text-ink">{formatMNT(oilTotal)}</span>
-              </div>
+              <TotalBox label={t.attendant.oilSales} value={oilTotal} />
             </div>
           ) : null}
 
@@ -1000,6 +1098,14 @@ export function AttendantShiftPage() {
                         className="min-w-[8rem] flex-1"
                       />
                     </div>
+
+                    {/* Мөрийн дүн — түлш + бараа, хөнгөлөлт тооцсон */}
+                    <div className="num flex items-baseline justify-between gap-3 border-t border-line pt-2">
+                      <span className="text-sm text-ink-soft">{t.attendant.creditSales} ≈</span>
+                      <span className="text-base font-bold text-ink">
+                        {formatMNT(creditRowTotals[index]?.total ?? "0")}
+                      </span>
+                    </div>
                   </div>
                 );
               })}
@@ -1024,6 +1130,13 @@ export function AttendantShiftPage() {
               >
                 {t.attendant.addLine}
               </Button>
+              <TotalBox
+                label={t.attendant.creditSales}
+                value={creditTotal}
+                hint={`${t.sales.fuel}: ${formatMNT(creditFuelTotal)} · ${t.products.title}: ${formatMNT(
+                  dSub(creditTotal, creditFuelTotal),
+                )}`}
+              />
             </div>
           ) : null}
 
@@ -1085,6 +1198,13 @@ export function AttendantShiftPage() {
               >
                 {t.attendant.addLine}
               </Button>
+              <TotalBox
+                label={t.attendant.stepAr}
+                value={arTotal}
+                hint={`${t.attendant.methodCash}: ${formatMNT(arCashTotal)} · ${
+                  t.attendant.methodCard
+                }/${t.attendant.methodTransfer}: ${formatMNT(dSub(arTotal, arCashTotal))}`}
+              />
             </div>
           ) : null}
 
@@ -1161,10 +1281,23 @@ export function AttendantShiftPage() {
               >
                 {t.attendant.addLine}
               </Button>
+              <TotalBox
+                label={t.attendant.stepExpense}
+                value={expenseTotal}
+                hint={`${t.expenses.methodCash}: ${formatMNT(expenseCashTotal)} · ${
+                  t.expenses.methodBank
+                }: ${formatMNT(dSub(expenseTotal, expenseCashTotal))}`}
+              />
             </div>
           ) : null}
 
-          {/* 7 — Тулгалт */}
+          {/* 7 — Тулгалт (тооцоо ирэх хүртэл ачаалж байна) */}
+          {step === 7 && !preview ? (
+            <div className="flex justify-center py-12 text-ink-soft">
+              <Spinner size="lg" label={t.common.loading} />
+            </div>
+          ) : null}
+
           {step === 7 && preview ? (
             <div className="flex flex-col gap-4">
               <div className="grid gap-3 sm:grid-cols-3">
@@ -1185,7 +1318,34 @@ export function AttendantShiftPage() {
                 />
               </div>
 
-              <div className="overflow-x-auto rounded-xl border border-line">
+              {/* Хошуу бүрийн задаргаа — утсанд карт, дэлгэцэнд хүснэгт */}
+              <div className="flex flex-col gap-2 sm:hidden">
+                {preview.nozzles.map((row) => (
+                  <div key={row.nozzle_id} className="rounded-xl border border-line px-3 py-2.5">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="min-w-0 truncate text-[13px] font-semibold text-ink">
+                        {nozzleLabelById.get(row.nozzle_id) ?? `№${row.nozzle_number}`}
+                      </span>
+                      <span className="num shrink-0 text-base font-bold text-ink">
+                        {formatMNT(row.amount)}
+                      </span>
+                    </div>
+                    <div className="num mt-1 flex flex-wrap items-baseline gap-x-3 text-xs text-ink-soft">
+                      <span>
+                        {formatNumber(row.open_reading, 1)} → {formatNumber(row.close_reading, 1)}
+                      </span>
+                      <span className="font-bold text-ink">{formatLiters(row.liters, 1)}</span>
+                      {row.segments.length > 1 ? (
+                        <span className="text-warning-dark">
+                          {row.segments.length} {t.attendant.segments}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="hidden overflow-x-auto rounded-xl border border-line sm:block">
                 <table className="num w-full text-sm">
                   <thead className="bg-surface-alt text-left text-xs font-bold text-ink-soft uppercase">
                     <tr>
@@ -1200,7 +1360,7 @@ export function AttendantShiftPage() {
                     {preview.nozzles.map((row) => (
                       <tr key={row.nozzle_id} className="border-t border-line">
                         <td className="px-3 py-2">
-                          №{row.nozzle_number}
+                          {nozzleLabelById.get(row.nozzle_id) ?? `№${row.nozzle_number}`}
                           {row.segments.length > 1 ? (
                             <span className="ml-2 text-xs text-warning-dark">
                               {row.segments.length} {t.attendant.segments}
@@ -1219,38 +1379,49 @@ export function AttendantShiftPage() {
 
               {/* Хүлээгдэх бэлэн мөнгөний баримжаа */}
               <div className="flex flex-col gap-1.5 rounded-xl border border-line bg-surface-alt px-4 py-3 text-[15px]">
-                <Row label={t.attendant.fuelByMile} value={preview.fuel_total} />
+                <Row label={t.shift.openingCash} value={preview.opening_cash} />
+                <Row label={`+ ${t.attendant.fuelByMile}`} value={preview.fuel_total} />
                 <Row label={`− ${t.attendant.settlementTotal}`} value={settlementTotal} negative />
                 <Row
                   label={`− ${t.attendant.creditSales}`}
-                  value={dSum(
-                    creditRows
-                      .filter((row) => row.mode === "amount")
-                      .map((row) => row.value || "0"),
-                  )}
+                  value={creditFuelTotal}
                   negative
                   approx
                 />
                 <Row label={`+ ${t.attendant.oilSales}`} value={oilTotal} />
                 <Row
                   label={`+ ${t.attendant.stepAr} (${t.attendant.methodCash})`}
-                  value={dSum(
-                    arRows.filter((row) => row.method === "cash").map((row) => row.amount || "0"),
-                  )}
+                  value={arCashTotal}
                 />
                 <Row
                   label={`− ${t.attendant.stepExpense} (${t.expenses.methodCash})`}
-                  value={dSum(
-                    expenseRows
-                      .filter((row) => row.payment_method === "cash")
-                      .map((row) => row.amount || "0"),
-                  )}
+                  value={expenseCashTotal}
                   negative
                 />
-                <div className="mt-1 flex items-baseline justify-between border-t border-line-strong pt-2">
-                  <span className="font-bold text-ink">{t.shift.declaredCash}</span>
-                  <span className="num text-xl font-black text-ink">
+
+                <div className="num mt-1 flex items-baseline justify-between gap-3 border-t border-line-strong pt-2">
+                  <span className="font-semibold text-ink">{t.shift.expectedCash} ≈</span>
+                  <span className="text-lg font-bold text-ink">{formatMNT(expectedCash)}</span>
+                </div>
+                <div className="num flex items-baseline justify-between gap-3">
+                  <span className="font-semibold text-ink">{t.shift.declaredCash}</span>
+                  <span className="text-lg font-bold text-ink">
                     {formatMNT(declaredCash === "" ? "0" : declaredCash)}
+                  </span>
+                </div>
+                <div className="num flex items-baseline justify-between gap-3 border-t border-line-strong pt-2">
+                  <span className="font-bold text-ink">{t.shift.overShort} ≈</span>
+                  <span
+                    className={[
+                      "text-xl font-black",
+                      Number(cashDiff) < 0
+                        ? "text-danger-dark"
+                        : Number(cashDiff) > 0
+                          ? "text-warning-dark"
+                          : "text-success-dark",
+                    ].join(" ")}
+                  >
+                    {formatMNT(cashDiff)}
                   </span>
                 </div>
               </div>
@@ -1267,6 +1438,27 @@ export function AttendantShiftPage() {
           ) : null}
         </div>
       </Modal>
+    </div>
+  );
+}
+
+/** Алхамын нийлбэр — түгээгч бүртгэсэн дүнгээ тэр дороо хардаг. */
+function TotalBox({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: MoneyStr;
+  hint?: ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-line bg-surface-alt px-4 py-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-sm font-semibold text-ink-soft">{label}</span>
+        <span className="num text-xl font-bold text-ink">{formatMNT(value)}</span>
+      </div>
+      {hint ? <div className="num mt-1 text-xs text-ink-soft">{hint}</div> : null}
     </div>
   );
 }
