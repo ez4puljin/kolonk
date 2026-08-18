@@ -94,8 +94,6 @@ const DashboardPage = lazyPage("DashboardPage");
 const OwnerDashboardPage = lazyPage("OwnerDashboardPage");
 const TanksPage = lazyPage("TanksPage");
 const TankDetailPage = lazyPage("TankDetailPage");
-const FuelReceiptsPage = lazyPage("FuelReceiptsPage");
-const FuelReceiptNewPage = lazyPage("FuelReceiptNewPage");
 const PurchasesPage = lazyPage("PurchasesPage");
 const ExpensesPage = lazyPage("ExpensesPage");
 const BankAccountsPage = lazyPage("BankAccountsPage");
@@ -105,6 +103,7 @@ const ReportCenterPage = lazyPage("ReportCenterPage");
 const PayrollPage = lazyPage("PayrollPage");
 const EmployeesPage = lazyPage("EmployeesPage");
 const PurchaseNewPage = lazyPage("PurchaseNewPage");
+const ReceiveNewPage = lazyPage("ReceiveNewPage");
 const SuppliersPage = lazyPage("SuppliersPage");
 const ProductsPage = lazyPage("ProductsPage");
 const InventoryPage = lazyPage("InventoryPage");
@@ -332,22 +331,10 @@ export function AppRoutes() {
           />
 
           {/* Худалдан авалт */}
-          <Route
-            path="/receipts/fuel"
-            element={
-              <RequirePermission code="receipts.create">
-                <FuelReceiptsPage />
-              </RequirePermission>
-            }
-          />
-          <Route
-            path="/receipts/fuel/new"
-            element={
-              <RequirePermission code="receipts.create">
-                <FuelReceiptNewPage />
-              </RequirePermission>
-            }
-          />
+          {/* Шатахуун таталт нь Худалдан авалттай нэгдсэн — хуучин
+              хадгалсан линкүүд шинэ цэс рүү чиглэнэ. */}
+          <Route path="/receipts/fuel" element={<Navigate to="/purchases" replace />} />
+          <Route path="/receipts/fuel/new" element={<Navigate to="/purchases/new" replace />} />
           <Route
             path="/payroll"
             element={
@@ -412,8 +399,18 @@ export function AppRoutes() {
               </RequirePermission>
             }
           />
+          {/* Нэгдсэн орлого — шатахуун + бараа нэг маягтаар. */}
           <Route
             path="/purchases/new"
+            element={
+              <RequirePermission code="purchases.manage">
+                <ReceiveNewPage />
+              </RequirePermission>
+            }
+          />
+          {/* Зөвхөн барааны хуучин маягт — шууд линкээр орж болно. */}
+          <Route
+            path="/purchases/new/goods"
             element={
               <RequirePermission code="purchases.manage">
                 <PurchaseNewPage />

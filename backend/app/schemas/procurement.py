@@ -253,3 +253,41 @@ class PurchaseOut(BaseModel):
 class PurchaseListOut(BaseModel):
     items: list[PurchaseOut]
     total: int
+
+
+# --------------------------------------------------------------------------- #
+# Нэгдсэн орлого — шатахуун + бараа нэг баримтаар
+# --------------------------------------------------------------------------- #
+class ReceiveFuelLine(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tank_id: uuid.UUID
+    fuel_id: uuid.UUID | None = None
+    liters: Decimal = Field(gt=0)
+    unit_cost: Decimal = Field(ge=0, description="НӨАТ-гүй нэгж өртөг")
+    freight_cost: Decimal = Field(default=ZERO, ge=0)
+    density: Decimal | None = Field(default=None, ge=0)
+    temperature_c: Decimal | None = None
+
+
+class ReceiveIn(BaseModel):
+    """Нэг нийлүүлэгчээс нэг өдөр авсан шатахуун ба барааг цуг бүртгэнэ."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    supplier_id: uuid.UUID
+    receipt_date: date | None = None
+    invoice_no: str | None = Field(default=None, max_length=64)
+    note: str | None = Field(default=None, max_length=500)
+    #: Бараа аль салбарын нөөцөд орох вэ.
+    branch_id: uuid.UUID | None = None
+    fuels: list[ReceiveFuelLine] = Field(default_factory=list)
+    items: list[PurchaseItemIn] = Field(default_factory=list)
+
+
+class ReceiveOut(BaseModel):
+    fuel_receipt_ids: list[uuid.UUID] = Field(default_factory=list)
+    purchase_id: uuid.UUID | None = None
+    fuel_total: Decimal = ZERO
+    goods_total: Decimal = ZERO
+    total_gross: Decimal = ZERO

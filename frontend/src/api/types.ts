@@ -2571,3 +2571,28 @@ export interface OpeningBalanceResult {
   value_change: MoneyStr;
   journal_entry_id: UUID | null;
 }
+
+/** `POST /api/procurement/receive` — шатахуун + бараа цуг орлогод авах. */
+export interface ReceiveRequest {
+  supplier_id: UUID;
+  receipt_date?: string | null;
+  invoice_no?: string | null;
+  note?: string | null;
+  branch_id?: UUID | null;
+  fuels: {
+    tank_id: UUID;
+    fuel_id?: UUID | null;
+    liters: LitersStr;
+    unit_cost: MoneyStr;
+    freight_cost?: MoneyStr;
+  }[];
+  items: { product_id: UUID; qty: LitersStr; unit_cost: MoneyStr }[];
+}
+
+export interface ReceiveResult {
+  fuel_receipt_ids: UUID[];
+  purchase_id: UUID | null;
+  fuel_total: MoneyStr;
+  goods_total: MoneyStr;
+  total_gross: MoneyStr;
+}

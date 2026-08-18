@@ -7,6 +7,8 @@ import type {
   Paged,
   Purchase,
   PurchaseCreate,
+  ReceiveRequest,
+  ReceiveResult,
   Supplier,
   SupplierCreate,
   SupplierUpdate,
@@ -155,6 +157,28 @@ export function usePostPurchaseMutation() {
       void queryClient.invalidateQueries({ queryKey: ["products"] });
       void queryClient.invalidateQueries({ queryKey: ["accounting"] });
       void queryClient.invalidateQueries({ queryKey: ["ap-invoices"] });
+    },
+  });
+}
+
+/**
+ * Нэгдсэн орлого — шатахуун ба барааг НЭГ гүйлгээнд бүртгэнэ.
+ *
+ * Баримтууд тусдаа үүснэ (савны хөдөлгөөн ба нөөцийн хөдөлгөөн өөр), гэвч
+ * аль нэг нь унавал бүгд буцна — хагас бүртгэгдсэн орлого үлдэхгүй.
+ */
+export function useReceiveMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: ReceiveRequest) =>
+      api.post<ReceiveResult>("/api/procurement/receive", payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: procurementKeys.fuelReceipts });
+      void queryClient.invalidateQueries({ queryKey: procurementKeys.purchases });
+      void queryClient.invalidateQueries({ queryKey: ["tanks"] });
+      void queryClient.invalidateQueries({ queryKey: ["products"] });
+      void queryClient.invalidateQueries({ queryKey: ["inventory"] });
+      void queryClient.invalidateQueries({ queryKey: ["accounting"] });
     },
   });
 }

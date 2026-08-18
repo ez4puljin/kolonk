@@ -84,8 +84,8 @@ const NAV: readonly NavSection[] = [
       { to: "/products", label: t.nav.products, icon: Package, permissions: ["products.view"] },
       { to: "/inventory", label: t.nav.inventory, icon: Boxes, permissions: ["inventory.manage"] },
       { to: "/price-changes", label: t.nav.priceChanges, icon: TrendingUp, permissions: ["prices.request", "prices.approve"] },
-      { to: "/receipts/fuel", label: t.nav.fuelReceipts, icon: Truck, permissions: ["receipts.create"] },
-      { to: "/purchases", label: t.nav.purchases, icon: ShoppingCart, permissions: ["purchases.manage"] },
+      // Шатахуун таталт энд нэгдсэн — «Орлого авах» дотор хоёуланг нь бүртгэнэ.
+      { to: "/purchases", label: t.nav.purchases, icon: ShoppingCart, permissions: ["purchases.manage", "receipts.create"] },
     ],
   },
   {

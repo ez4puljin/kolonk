@@ -604,6 +604,17 @@ export const t = {
   },
 
   procurement: {
+    receiveTitle: "Орлого авах",
+    receiveHint: "Шатахуун болон бараа материалыг нэг баримтаар цуг бүртгэнэ",
+    receiveAction: "Орлогод авах",
+    received: "Орлого бүртгэгдлээ",
+    docInfo: "Баримтын мэдээлэл",
+    fuelSection: "Шатахуун",
+    fuelSectionHint: "Сав тус бүрд нэг мөр — таталт бүр өөрийн баримттай үүснэ",
+    goodsSection: "Бараа материал",
+    goodsSectionHint: "Бүх мөр нэг худалдан авалтын баримтад орно",
+    noFuelLines: "Шатахууны мөр нэмээгүй байна",
+    noGoodsLines: "Барааны мөр нэмээгүй байна",
     title: "Худалдан авалт",
     fuelReceipts: "Шатахуун таталт",
     fuelReceipt: "Шатахуун таталтын баримт",

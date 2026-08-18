@@ -3,8 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { CheckCircle2, Plus, ShoppingCart } from "lucide-react";
 
 import { errorMessage } from "../../api/client";
-import { usePostPurchaseMutation, usePurchases, useSuppliers } from "../../api/queries/procurement";
-import type { Purchase } from "../../api/types";
+import {
+  useFuelReceipts,
+  usePostPurchaseMutation,
+  usePurchases,
+  useSuppliers,
+} from "../../api/queries/procurement";
+import type { FuelReceipt, Purchase } from "../../api/types";
 import { PageHeader } from "../../components/layout/PageHeader";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
@@ -18,7 +23,14 @@ import { StatusBadge } from "../../components/ui/StatusBadge";
 import { t } from "../../i18n/mn";
 import { DOC_STATUS_META, PAGE_SIZE, statusMeta } from "../../lib/constants";
 import { dSum } from "../../lib/decimal";
-import { daysAgoInput, formatDate, formatMNT, formatQty, todayInput } from "../../lib/format";
+import {
+  daysAgoInput,
+  formatDate,
+  formatLiters,
+  formatMNT,
+  formatQty,
+  todayInput,
+} from "../../lib/format";
 import { useUiStore } from "../../stores/ui";
 import { ChipGroup, KeyValue, Pager, PickerField } from "../catalog/_shared";
 
@@ -48,6 +60,15 @@ export function PurchasesPage() {
     limit: PAGE_SIZE,
     offset,
   });
+  // Шатахуун таталт энэ цэстэй нэгдсэн тул нэг хуудсанд хоёулаа харагдана.
+  const fuelQuery = useFuelReceipts({
+    date_from: range.from,
+    date_to: range.to,
+    supplier_id: supplierId || undefined,
+    limit: PAGE_SIZE,
+  });
+  const fuelRows = fuelQuery.data?.items ?? [];
+
   const postMutation = usePostPurchaseMutation();
 
   const rows = useMemo(() => purchasesQuery.data?.items ?? [], [purchasesQuery.data]);
@@ -87,6 +108,39 @@ export function PurchasesPage() {
       },
     });
   };
+
+  const fuelColumns: Column<FuelReceipt>[] = [
+    {
+      key: "number",
+      header: "№",
+      primary: true,
+      numeric: true,
+      width: "6rem",
+      render: (row) => <span className="font-bold">{row.number}</span>,
+    },
+    {
+      key: "receipt_date",
+      header: t.common.date,
+      numeric: true,
+      render: (row) => formatDate(row.receipt_date),
+    },
+    { key: "supplier", header: t.procurement.supplier, render: (row) => row.supplier_name ?? "—" },
+    { key: "tank", header: t.tanks.tank, render: (row) => row.tank_name ?? "—" },
+    {
+      key: "liters",
+      header: t.pos.liters,
+      align: "right",
+      numeric: true,
+      render: (row) => formatLiters(row.liters),
+    },
+    {
+      key: "total_gross",
+      header: t.common.gross,
+      align: "right",
+      numeric: true,
+      render: (row) => <span className="font-bold">{formatMNT(row.total_gross)}</span>,
+    },
+  ];
 
   const columns: Column<Purchase>[] = [
     {
@@ -173,11 +227,11 @@ export function PurchasesPage() {
   return (
     <div className="flex flex-1 flex-col gap-6">
       <PageHeader
-        title={t.procurement.purchases}
-        subtitle={t.procurement.purchase}
+        title={t.procurement.title}
+        subtitle={t.procurement.receiveHint}
         actions={
           <Button variant="primary" size="lg" icon={<Plus />} onClick={() => navigate("/purchases/new")}>
-            {t.procurement.newPurchase}
+            {t.procurement.receiveTitle}
           </Button>
         }
       />
@@ -240,12 +294,24 @@ export function PurchasesPage() {
               hint={t.common.emptyHint}
               action={
                 <Button variant="primary" size="md" onClick={() => navigate("/purchases/new")}>
-                  {t.procurement.newPurchase}
+                  {t.procurement.receiveTitle}
                 </Button>
               }
             />
           }
           footer={<Pager offset={offset} limit={PAGE_SIZE} total={total} onChange={setOffset} />}
+        />
+      </Card>
+
+      {/* Шатахууны таталтууд — «Орлого авах» дээр цуг бүртгэгддэг ч
+          баримт нь тусдаа үүсдэг тул тусад нь жагсаана. */}
+      <Card title={t.procurement.fuelReceipts} flush>
+        <DataTable
+          columns={fuelColumns}
+          rows={fuelRows}
+          rowKey={(row) => row.id}
+          loading={fuelQuery.isLoading}
+          empty={<EmptyState compact title={t.common.empty} hint={t.common.emptyHint} />}
         />
       </Card>
 
