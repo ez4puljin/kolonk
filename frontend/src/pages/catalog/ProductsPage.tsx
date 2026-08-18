@@ -364,6 +364,8 @@ export function ProductsPage() {
     <div className="flex flex-1 flex-col gap-6">
       <PageHeader
         title={t.products.title}
+        icon={<Package className="h-6 w-6" />}
+        iconTone="violet"
         subtitle={t.products.priceChangeOnly}
         actions={
           canManage ? (

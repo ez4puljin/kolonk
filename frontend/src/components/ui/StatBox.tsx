@@ -9,6 +9,7 @@ export interface StatBoxProps {
   hint?: ReactNode;
   /** Өөрчлөлт — "+12.4%" гэх мэт. */
   delta?: ReactNode;
+  /** @deprecated Дүүргэсэн хайрцагт бүх текст цагаан тул нөлөөгүй. */
   deltaTone?: Tone;
   icon?: ReactNode;
   tone?: Tone;
@@ -17,31 +18,25 @@ export interface StatBoxProps {
   className?: string;
 }
 
-const TEXT_TONE: Record<Tone, string> = {
-  success: "text-success-dark",
-  action: "text-action-dark",
-  warning: "text-warning-dark",
-  danger: "text-danger-dark",
-  neutral: "text-ink",
-  brand: "text-ink-invert",
-};
-
-const ACCENT: Record<Tone, string> = {
-  success: "bg-success",
-  action: "bg-action",
-  warning: "bg-warning",
-  danger: "bg-danger",
-  neutral: "bg-line-strong",
-  brand: "bg-brand-600",
-};
-
-const SHELL: Record<Tone, string> = {
-  success: "bg-white border-line",
-  action: "bg-white border-line",
-  warning: "bg-white border-line",
-  danger: "bg-white border-line",
-  neutral: "bg-white border-line",
-  brand: "bg-panel border-brand-700",
+/*
+ * Статистик хайрцаг ДҮҮРГЭСЭН градиенттэй.
+ *
+ * Өмнө нь цагаан дэвсгэр дээр зүүн ирмэгт нимгэн өнгөт зураастай байсан
+ * тул хуудас бүхэлдээ саарал харагддаг байв. Тоо нь системийн хамгийн
+ * чухал мэдээлэл учир өнгөөр нь тодотгоно — нэг харснаар аль нь орлого,
+ * аль нь анхааруулга болох нь ялгарна.
+ */
+const GRADIENT: Record<Tone, string> = {
+  // Цайвар үзүүрийг зориуд гүнзгий авав: emerald-400, amber-400 дээр цагаан
+  // текст 2:1-ээс бага харьцаатай болж, шошго уншигдахгүй болдог. Түгээгч
+  // эдгээр тоог өдөр бүр уншдаг тул өнгөнөөс уншигдац чухал.
+  success: "bg-gradient-to-br from-emerald-500 to-emerald-700 text-white border-transparent",
+  action: "bg-gradient-to-br from-blue-500 to-blue-700 text-white border-transparent",
+  warning: "bg-gradient-to-br from-amber-500 to-orange-600 text-white border-transparent",
+  danger: "bg-gradient-to-br from-red-500 to-red-700 text-white border-transparent",
+  violet: "bg-gradient-to-br from-violet-500 to-violet-700 text-white border-transparent",
+  neutral: "bg-gradient-to-br from-slate-500 to-slate-700 text-white border-transparent",
+  brand: "bg-gradient-to-br from-brand-800 to-brand-950 text-white border-transparent",
 };
 
 const VALUE_SIZE: Record<NonNullable<StatBoxProps["size"]>, string> = {
@@ -56,7 +51,6 @@ export function StatBox({
   unit,
   hint,
   delta,
-  deltaTone = "neutral",
   icon,
   tone = "neutral",
   size = "md",
@@ -64,39 +58,39 @@ export function StatBox({
   className = "",
 }: StatBoxProps) {
   const interactive = typeof onClick === "function";
-  const labelTone = tone === "brand" ? "text-ink-faint" : "text-ink-soft";
 
   const content = (
     <>
-      <span className={`absolute inset-y-0 left-0 w-1.5 ${ACCENT[tone]}`} aria-hidden="true" />
       <div className="flex items-start justify-between gap-3">
-        <span className={`text-sm font-medium ${labelTone}`}>{label}</span>
-        {icon ? <span className={`shrink-0 ${TEXT_TONE[tone]}`}>{icon}</span> : null}
+        <span className="text-sm font-semibold text-white">{label}</span>
+        {icon ? <span className="shrink-0 text-white/80">{icon}</span> : null}
       </div>
 
       <div className="mt-2 flex items-baseline gap-2">
-        <span className={`num font-bold tracking-tight ${VALUE_SIZE[size]} ${TEXT_TONE[tone]}`}>
-          {value}
-        </span>
-        {unit ? <span className={`text-lg font-semibold ${labelTone}`}>{unit}</span> : null}
+        <span className={`num font-bold tracking-tight ${VALUE_SIZE[size]}`}>{value}</span>
+        {unit ? <span className="text-lg font-semibold text-white">{unit}</span> : null}
       </div>
 
       {(delta || hint) && (
-        <div className="mt-2 flex items-center gap-2 text-sm">
-          {delta ? <span className={`font-semibold ${TEXT_TONE[deltaTone]}`}>{delta}</span> : null}
-          {hint ? <span className={labelTone}>{hint}</span> : null}
+        <div className="mt-2 flex items-center gap-2 text-sm text-white/90">
+          {delta ? <span className="font-semibold">{delta}</span> : null}
+          {hint ? <span>{hint}</span> : null}
         </div>
       )}
     </>
   );
 
-  // Утсанд хэвтээ зайг хураана: 152px өргөнтэй хайрцагт 44px зай нь
-  // 9 оронтой төгрөгийн дүнг таслахад хүргэж байв.
-  const shell = `relative overflow-hidden rounded-xl border pl-4 pr-3 py-4 sm:pl-6 sm:pr-5 ${SHELL[tone]} ${className}`;
+  const shell =
+    "relative overflow-hidden rounded-2xl border px-4 py-4 shadow-sm sm:px-6 sm:py-5 " +
+    `${GRADIENT[tone]} ${className}`;
 
   if (interactive) {
     return (
-      <button type="button" onClick={onClick} className={`${shell} touch-target text-left transition-colors hover:bg-surface-alt`}>
+      <button
+        type="button"
+        onClick={onClick}
+        className={`${shell} touch-target w-full text-left transition-transform hover:-translate-y-0.5 active:translate-y-0`}
+      >
         {content}
       </button>
     );

@@ -38,7 +38,7 @@ export const colors = {
   neutral: "#64748B",
 } as const;
 
-export type Tone = "success" | "action" | "warning" | "danger" | "neutral" | "brand";
+export type Tone = "success" | "action" | "warning" | "danger" | "violet" | "neutral" | "brand";
 
 export interface TenderMeta {
   value: PaymentMethod;

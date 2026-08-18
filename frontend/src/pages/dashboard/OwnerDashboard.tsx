@@ -7,20 +7,7 @@
 
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  AlertTriangle,
-  ArrowRight,
-  BadgeDollarSign,
-  ChevronRight,
-  Coins,
-  Droplets,
-  Fuel,
-  Gauge,
-  Package,
-  Scale,
-  TrendingUp,
-  Wallet,
-} from "lucide-react";
+import { AlertTriangle, ArrowRight, BadgeDollarSign, ChevronRight, Coins, Crown, Droplets, Fuel, Gauge, Package, Scale, TrendingUp, Wallet } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "../../api/client";
@@ -261,7 +248,9 @@ export function OwnerDashboard() {
   if (!data) {
     return (
       <div className="flex flex-1 flex-col gap-6">
-        <PageHeader title={t.dashboard.ownerTitle} />
+        <PageHeader title={t.dashboard.ownerTitle}
+        icon={<Crown className="h-6 w-6" />}
+        iconTone="warning" />
         <EmptyState title={t.errors.loadFailed} hint={t.common.retry} />
       </div>
     );
@@ -314,7 +303,7 @@ export function OwnerDashboard() {
           label={t.dashboard.todayLiters}
           value={formatLiters(data.today.liters)}
           size="lg"
-          tone="neutral"
+          tone="violet"
           icon={<Droplets className="h-6 w-6" />}
           delta={formatLiters(data.month.liters)}
           hint={t.common.month}

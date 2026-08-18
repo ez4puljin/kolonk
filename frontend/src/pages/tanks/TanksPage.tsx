@@ -120,6 +120,8 @@ export function TanksPage() {
     <div className="flex flex-1 flex-col gap-6">
       <PageHeader
         title={t.tanks.title}
+        icon={<Database className="h-6 w-6" />}
+        iconTone="success"
         subtitle={t.tanks.movements}
         actions={
           <Button variant="secondary" size="md" onClick={() => tanksQuery.refetch()}>

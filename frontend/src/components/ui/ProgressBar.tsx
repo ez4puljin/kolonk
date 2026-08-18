@@ -16,6 +16,7 @@ export interface ProgressBarProps {
 }
 
 const FILL: Record<Tone, string> = {
+  violet: "bg-violet-500",
   success: "bg-success",
   action: "bg-action",
   warning: "bg-warning",

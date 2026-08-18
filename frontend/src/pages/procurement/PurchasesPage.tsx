@@ -228,6 +228,8 @@ export function PurchasesPage() {
     <div className="flex flex-1 flex-col gap-6">
       <PageHeader
         title={t.procurement.title}
+        icon={<ShoppingCart className="h-6 w-6" />}
+        iconTone="violet"
         subtitle={t.procurement.receiveHint}
         actions={
           <Button variant="primary" size="lg" icon={<Plus />} onClick={() => navigate("/purchases/new")}>

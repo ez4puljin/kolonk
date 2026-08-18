@@ -145,7 +145,9 @@ export function SalesPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-6">
-      <PageHeader title={t.sales.title} subtitle={t.shift.salesSummary} />
+      <PageHeader title={t.sales.title}
+        icon={<Receipt className="h-6 w-6" />}
+        iconTone="action" subtitle={t.shift.salesSummary} />
 
       <div className="grid gap-4 sm:grid-cols-3">
         <StatBox label={t.reports.transactions} value={pageTotals.count} tone="neutral" />

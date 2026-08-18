@@ -46,6 +46,10 @@
   --color-danger: #ef4444;
   --color-danger-dark: #dc2626;
   --color-danger-soft: #fee2e2;
+  /* 4 дэх өнгө — статистик хайрцгийн эгнээ дөрвүүлээ өөр өнгөтэй болно. */
+  --color-violet: #8b5cf6;
+  --color-violet-dark: #7c3aed;
+  --color-violet-soft: #ede9fe;
   --color-neutral-soft: #e2e8f0;
 
   --radius-xl: 0.875rem;

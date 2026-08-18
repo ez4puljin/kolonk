@@ -14,6 +14,7 @@ export interface StatusBadgeProps {
 }
 
 const CHIP: Record<Tone, string> = {
+  violet: "bg-violet-100 text-violet-700 border-violet-300",
   success: "bg-success-soft text-success-dark border-success/30",
   action: "bg-action-soft text-action-dark border-action/30",
   warning: "bg-warning-soft text-warning-dark border-warning/30",
@@ -23,6 +24,7 @@ const CHIP: Record<Tone, string> = {
 };
 
 const DOT: Record<Tone, string> = {
+  violet: "bg-violet-500",
   success: "bg-success",
   action: "bg-action",
   warning: "bg-warning",

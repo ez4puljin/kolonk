@@ -10,12 +10,33 @@ export interface PageHeaderProps {
   /** Буцах товч харуулах (эсвэл тодорхой зам руу). */
   back?: boolean | string;
   actions?: ReactNode;
+  /** Гарчгийн зүүн талд гарах өнгөт дүрс. */
+  icon?: ReactNode;
+  /** Дүрсний тэмдгийн градиент (Tailwind анги). */
+  iconTone?: "action" | "success" | "warning" | "danger" | "violet";
   /** Гарчгийн доор байрлах шүүлтүүр/табууд. */
   children?: ReactNode;
   className?: string;
 }
 
-export function PageHeader({ title, subtitle, back, actions, children, className = "" }: PageHeaderProps) {
+const ICON_TONE = {
+  action: "from-blue-500 to-blue-700",
+  success: "from-emerald-400 to-emerald-600",
+  warning: "from-amber-400 to-amber-600",
+  danger: "from-red-400 to-red-600",
+  violet: "from-violet-400 to-violet-600",
+} as const;
+
+export function PageHeader({
+  title,
+  subtitle,
+  back,
+  actions,
+  icon,
+  iconTone = "action",
+  children,
+  className = "",
+}: PageHeaderProps) {
   const navigate = useNavigate();
 
   const goBack = (): void => {
@@ -35,6 +56,15 @@ export function PageHeader({ title, subtitle, back, actions, children, className
           >
             <ChevronLeft className="h-6 w-6" />
           </button>
+        ) : null}
+
+        {/* Өнгөт дүрс — хуудас бүр өөрийн таних тэмдэгтэй болно. */}
+        {icon ? (
+          <span
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm sm:h-12 sm:w-12 ${ICON_TONE[iconTone]}`}
+          >
+            {icon}
+          </span>
         ) : null}
 
         <div className="min-w-0 flex-1">

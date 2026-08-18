@@ -279,6 +279,8 @@ export function UsersPage() {
     <div className="flex flex-1 flex-col gap-6">
       <PageHeader
         title={t.admin.users}
+        icon={<UserCog className="h-6 w-6" />}
+        iconTone="danger"
         actions={
           <Button variant="primary" size="lg" icon={<Plus />} onClick={() => openForm(null)}>
             {t.admin.newUser}

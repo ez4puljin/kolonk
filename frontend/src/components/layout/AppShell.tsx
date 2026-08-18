@@ -60,12 +60,15 @@ interface NavEntry {
 interface NavSection {
   key: string;
   title: string;
+  /** Бүлгийн өнгө — доторх цэсний дүрсний тэмдэг үүгээр будагдана. */
+  accent: string;
   items: readonly NavEntry[];
 }
 
 const NAV: readonly NavSection[] = [
   {
     key: "operations",
+    accent: "bg-blue-500",
     title: t.nav.sections.operations,
     items: [
       { to: "/pos", label: t.nav.pos, icon: Fuel, permissions: ["sales.create"] },
@@ -78,6 +81,7 @@ const NAV: readonly NavSection[] = [
   },
   {
     key: "goods",
+    accent: "bg-emerald-500",
     title: t.nav.sections.goods,
     items: [
       { to: "/tanks", label: t.nav.tanks, icon: Database, permissions: ["tanks.view"] },
@@ -90,6 +94,7 @@ const NAV: readonly NavSection[] = [
   },
   {
     key: "partners",
+    accent: "bg-violet-500",
     title: t.nav.sections.partners,
     items: [
       {
@@ -108,6 +113,7 @@ const NAV: readonly NavSection[] = [
   },
   {
     key: "finance",
+    accent: "bg-amber-500",
     title: t.nav.sections.finance,
     items: [
       { to: "/expenses", label: t.nav.expenses, icon: Wallet, permissions: ["expenses.manage"] },
@@ -126,6 +132,7 @@ const NAV: readonly NavSection[] = [
   },
   {
     key: "admin",
+    accent: "bg-rose-500",
     title: t.nav.sections.admin,
     items: [
       { to: "/branches", label: t.nav.branches, icon: Building2, permissions: ["settings.manage"] },
@@ -261,6 +268,7 @@ export function AppShell() {
                 to={item.to}
                 label={item.label}
                 icon={item.icon}
+                accent={section.accent}
                 end={item.end}
                 collapsed={collapsed}
                 onNavigate={onNavigate}

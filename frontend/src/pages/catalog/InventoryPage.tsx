@@ -170,6 +170,8 @@ export function InventoryPage() {
     <div className="flex flex-1 flex-col gap-6">
       <PageHeader
         title={t.inventory.title}
+        icon={<Boxes className="h-6 w-6" />}
+        iconTone="success"
         subtitle={t.inventory.valuation}
         actions={
           <>
@@ -206,7 +208,7 @@ export function InventoryPage() {
       />
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <StatBox label={t.inventory.onHand} value={formatQty(totals.qty)} tone="neutral" />
+        <StatBox label={t.inventory.onHand} value={formatQty(totals.qty)} tone="action" />
         <StatBox label={t.inventory.value} value={formatMNT(totals.value)} tone="success" size="lg" />
         <StatBox label={t.pos.lowStock} value={totals.low} tone={totals.low > 0 ? "danger" : "neutral"} />
       </div>

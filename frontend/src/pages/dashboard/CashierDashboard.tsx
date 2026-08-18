@@ -179,6 +179,8 @@ export function CashierDashboard() {
     <div className="flex flex-1 flex-col gap-5">
       <PageHeader
         title={t.dashboard.title}
+        icon={<Gauge className="h-6 w-6" />}
+        iconTone="action"
         actions={
           /* ПОС унтраалттай үед кассын товч огт гарахгүй. */
           posEnabled ? (
