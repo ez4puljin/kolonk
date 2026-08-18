@@ -13,14 +13,17 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
+from datetime import date
 from decimal import Decimal
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import select
 
-from app.enums import InventoryTxType
+from app.enums import EventType, InventoryTxType, SourceType
 from app.models.product import InventoryTransaction, Product, ProductBranchStock
 from app.money import q2, q3, q6
 
@@ -214,6 +217,7 @@ async def receive_product(
     ref_type: str,
     ref_id: uuid.UUID | None = None,
     branch_id: uuid.UUID | None = None,
+    tx_type: str = InventoryTxType.PURCHASE,
 ) -> None:
     """Худалдан авалт.  Хөдлөх дундаж өртөг:
 
@@ -250,7 +254,7 @@ async def receive_product(
     _record(
         db,
         product,
-        tx_type=InventoryTxType.PURCHASE,
+        tx_type=tx_type,
         qty=qty,
         unit_cost=unit_cost,
         balance_after=balance_after,
@@ -488,3 +492,122 @@ async def adjust_product(
         note=note,
         branch_id=branch_id,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Эхний үлдэгдэл — системд шилжих үеийн нөөцийг салбар бүрээр тогтооно
+# --------------------------------------------------------------------------- #
+async def set_opening_balances(
+    db: AsyncSession,
+    user: Any,
+    *,
+    branch_id: uuid.UUID | None,
+    as_of: date,
+    items: Sequence[Any],
+    note: str | None = None,
+) -> dict[str, Any]:
+    """Салбарын нөөцийг оруулсан тоо хэмжээ дээр ТОГТООНО (нэмэхгүй).
+
+    Систем рүү шилжихэд агуулахад аль хэдийн байгаа барааг бүртгэх зориулалттай.
+    Худалдан авалт биш тул нийлүүлэгчид өглөг үүсгэхгүй: нөөцийн өсөлтийг
+    эздийн оруулсан хөрөнгө (3101) дансаар тэнцүүлнэ. Ингэснээр ашиг
+    гуйвахгүй, ерөнхий дэвтэр тэнцүү хэвээр үлдэнэ.
+
+    Дахин оруулбал зөрүүг нь л хөдөлгөнө (тоо хэмжээ давхардахгүй).
+    """
+    from app.services.coa import ACC
+    from app.services.posting import LineSpec, posting
+
+    if not items:
+        raise HTTPException(status_code=422, detail="Эхний үлдэгдэл оруулаагүй байна")
+
+    product_ids = {getattr(i, "product_id", None) for i in items}
+    product_ids.discard(None)
+    products = {
+        p.id: p for p in (await db.scalars(select(Product).where(Product.id.in_(product_ids)))).all()
+    }
+    if len(products) != len(product_ids):
+        raise HTTPException(status_code=404, detail="Бараа олдсонгүй")
+
+    value_change = ZERO
+    changed = 0
+    for item in items:
+        product = products[item.product_id]
+        target = q3(_d(getattr(item, "qty", ZERO)))
+        if target < ZERO:
+            raise HTTPException(status_code=422, detail="Эхний үлдэгдэл сөрөг байж болохгүй")
+        unit_cost = q6(_d(getattr(item, "unit_cost", ZERO)))
+        if unit_cost < ZERO:
+            raise HTTPException(status_code=422, detail="Нэгж өртөг сөрөг байж болохгүй")
+
+        if branch_id is not None:
+            current = q3(_d((await _branch_stock(db, product.id, branch_id)).qty))
+        else:
+            current = q3(_d(product.stock_qty))
+        delta = q3(target - current)
+        if delta == ZERO:
+            continue
+
+        if delta > ZERO:
+            await receive_product(
+                db, product, delta, unit_cost,
+                ref_type=str(SourceType.OPENING_BALANCE),
+                branch_id=branch_id,
+                tx_type=InventoryTxType.OPENING,
+            )
+            value_change = q2(value_change + q2(delta * unit_cost))
+        else:
+            # Илүү бүртгэгдсэнийг буцаана — одоогийн өртгөөр үнэлнэ.
+            cost_now = await branch_unit_cost(db, product, branch_id)
+            product.stock_qty = q3(_d(product.stock_qty) + delta)
+            await _move_branch_stock(db, product, branch_id, delta)
+            _record(
+                db, product,
+                tx_type=InventoryTxType.OPENING,
+                qty=delta,
+                unit_cost=cost_now,
+                balance_after=q3(_d(product.stock_qty)),
+                ref_type=str(SourceType.OPENING_BALANCE),
+                branch_id=branch_id,
+                note=note,
+            )
+            value_change = q2(value_change + q2(delta * cost_now))
+        changed += 1
+
+    entry_id: uuid.UUID | None = None
+    if value_change != ZERO:
+        memo = f"Эхний үлдэгдэл — {as_of.isoformat()}"
+        lines = [
+            LineSpec(
+                account_code=ACC.INV_GOODS,
+                debit=value_change if value_change > ZERO else ZERO,
+                credit=-value_change if value_change < ZERO else ZERO,
+                memo=memo,
+            ),
+            LineSpec(
+                account_code=ACC.OWNER_CAPITAL,
+                credit=value_change if value_change > ZERO else ZERO,
+                debit=-value_change if value_change < ZERO else ZERO,
+                memo=memo,
+            ),
+        ]
+        entry = await posting.post(
+            db,
+            event_type=str(EventType.OPENING_BALANCE_POSTED),
+            source_type=str(SourceType.OPENING_BALANCE),
+            # Огноо + салбараар давтагдашгүй ID — дахин оруулахад шинэ бичилт болно.
+            source_id=uuid.uuid4(),
+            entry_date=as_of,
+            description=memo,
+            lines=lines,
+            posted_by=getattr(user, "id", None),
+        )
+        entry_id = getattr(entry, "id", None)
+
+    return {
+        "branch_id": branch_id,
+        "as_of": as_of,
+        "products_changed": changed,
+        "value_change": value_change,
+        "journal_entry_id": entry_id,
+    }

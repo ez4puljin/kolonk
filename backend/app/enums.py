@@ -52,6 +52,8 @@ class InventoryTxType(StrEnum):
     TRANSFER_OUT = "transfer_out"
     #: Салбар хоорондын шилжүүлэг — авсан салбарын орлого.
     TRANSFER_IN = "transfer_in"
+    #: Системд шилжих үеийн эхний үлдэгдэл (борлуулалт, худалдан авалт биш).
+    OPENING = "opening"
 
 
 class ProductSaleMode(StrEnum):
@@ -154,6 +156,7 @@ class SourceType(StrEnum):
     SETTLEMENT = "settlement"
     EXPENSE = "expense"
     PAYROLL = "payroll"
+    OPENING_BALANCE = "opening_balance"
 
 
 class EventType(StrEnum):
@@ -174,6 +177,7 @@ class EventType(StrEnum):
     PAYROLL_POSTED = "PAYROLL_POSTED"
     PAYROLL_PAID = "PAYROLL_PAID"
     ADVANCE_PAID = "ADVANCE_PAID"
+    OPENING_BALANCE_POSTED = "OPENING_BALANCE_POSTED"
 
 
 class PresetType(StrEnum):

@@ -346,3 +346,32 @@ class PriceChangeOut(BaseModel):
 class PriceChangeListOut(BaseModel):
     items: list[PriceChangeOut]
     total: int
+
+
+# --------------------------------------------------------------------------- #
+# Эхний үлдэгдэл
+# --------------------------------------------------------------------------- #
+class OpeningBalanceItemIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    product_id: uuid.UUID
+    #: Салбарт байх ЭЦСИЙН тоо хэмжээ (нэмэгдэл биш).
+    qty: Decimal = Field(ge=0)
+    unit_cost: Decimal = Field(default=Decimal("0"), ge=0)
+
+
+class OpeningBalanceIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    branch_id: uuid.UUID | None = None
+    as_of: date
+    note: str | None = Field(default=None, max_length=255)
+    items: list[OpeningBalanceItemIn] = Field(min_length=1)
+
+
+class OpeningBalanceOut(BaseModel):
+    branch_id: uuid.UUID | None = None
+    as_of: date
+    products_changed: int = 0
+    value_change: Decimal = Decimal("0")
+    journal_entry_id: uuid.UUID | None = None

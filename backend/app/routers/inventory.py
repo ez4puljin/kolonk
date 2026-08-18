@@ -45,9 +45,11 @@ from app.schemas.product import (
     InventoryTotals,
     InventoryTxListOut,
     InventoryTxOut,
+    OpeningBalanceIn,
+    OpeningBalanceOut,
     ProductOut,
 )
-from app.services import inventory_service
+from app.services import branch_service, inventory_service
 from app.services.audit_service import audit
 
 router = APIRouter(prefix="/api", tags=["inventory"])
@@ -532,3 +534,41 @@ async def create_conversion(
         out_transaction=_tx_out(tx_out, source),
         in_transaction=_tx_out(tx_in, target),
     )
+
+
+@router.post("/inventory/opening-balances", response_model=OpeningBalanceOut, status_code=201)
+async def create_opening_balances(
+    payload: OpeningBalanceIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("inventory.manage")),
+) -> OpeningBalanceOut:
+    """Системд шилжих үеийн нөөцийг салбар бүрээр нэг дор бүртгэнэ.
+
+    Оруулсан тоо хэмжээ нь ЭЦСИЙН үлдэгдэл (нэмэгдэл биш) тул дахин
+    оруулахад давхардахгүй. Худалдан авалт биш учир нийлүүлэгчид өглөг
+    үүсэхгүй — нөөцийн өсөлт эздийн оруулсан хөрөнгөөр (3101) тэнцэнэ.
+    """
+    branch_id = await branch_service.resolve_branch_id(db, user, payload.branch_id)
+    result = await inventory_service.set_opening_balances(
+        db,
+        user,
+        branch_id=branch_id,
+        as_of=payload.as_of,
+        items=payload.items,
+        note=payload.note,
+    )
+    await audit(
+        db,
+        user_id=user.id,
+        action="inventory.opening_balance",
+        entity_type="branch",
+        entity_id=branch_id,
+        after={
+            "as_of": payload.as_of.isoformat(),
+            "products": result["products_changed"],
+            "value_change": str(result["value_change"]),
+        },
+        ip=_client_ip(request),
+    )
+    return OpeningBalanceOut(**result)

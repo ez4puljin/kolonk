@@ -544,6 +544,8 @@ export const t = {
   },
 
   products: {
+    basePrice: "үндсэн үнэ",
+    openingStock: "Эхний үлдэгдэл",
     title: "Бараа",
     product: "Бараа",
     sku: "Код",
@@ -568,6 +570,7 @@ export const t = {
   inventory: {
     title: "Нөөц",
     onHand: "Гарт байгаа",
+    openingHint: "Системд шилжих үеийн үлдэгдэл. Оруулсан тоо нь эцсийн үлдэгдэл тул дахин хадгалахад давхардахгүй.",
     value: "Үнэлгээ",
     transactions: "Гүйлгээ",
     txType: "Төрөл",

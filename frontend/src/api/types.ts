@@ -2554,3 +2554,20 @@ export interface DailyClosingFilters {
   status?: "approved" | "pending";
   only_variance?: boolean;
 }
+
+/** `POST /api/inventory/opening-balances` — эхний үлдэгдэл оруулах хүсэлт. */
+export interface OpeningBalanceRequest {
+  branch_id?: UUID | null;
+  /** Эхний үлдэгдэл ямар огнооны байдлаар бүртгэгдэх вэ. */
+  as_of: string;
+  note?: string | null;
+  items: { product_id: UUID; qty: LitersStr; unit_cost: MoneyStr }[];
+}
+
+export interface OpeningBalanceResult {
+  branch_id: UUID | null;
+  as_of: string;
+  products_changed: number;
+  value_change: MoneyStr;
+  journal_entry_id: UUID | null;
+}

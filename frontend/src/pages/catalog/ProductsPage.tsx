@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Package, Pencil, Plus, Power, Scissors, TrendingUp } from "lucide-react";
+import { ClipboardList, Package, Pencil, Plus, Power, Scissors, TrendingUp } from "lucide-react";
 
 import { errorMessage } from "../../api/client";
 import { useCreatePriceChangeMutation } from "../../api/queries/approvals";
@@ -23,6 +23,7 @@ import { Modal } from "../../components/ui/Modal";
 import { StatBox } from "../../components/ui/StatBox";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { useCan } from "../../hooks/usePermission";
+import { OpeningBalanceModal } from "./OpeningBalanceModal";
 import { t } from "../../i18n/mn";
 import { PAGE_SIZE } from "../../lib/constants";
 import { dSub, dSum, dToNumber } from "../../lib/decimal";
@@ -80,6 +81,7 @@ export function ProductsPage() {
   const [categoryId, setCategoryId] = useState("");
   // Салбар сонговол үлдэгдэл, зарах үнэ нь ТУХАЙН САЛБАРЫНХААР харагдана.
   const [branchId, setBranchId] = useState("");
+  const [openingOpen, setOpeningOpen] = useState(false);
   const [stockFilter, setStockFilter] = useState<StockFilter>("all");
   const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
   const [offset, setOffset] = useState(0);
@@ -261,6 +263,11 @@ export function ProductsPage() {
     });
   };
 
+  // Аль салбарын үнэ харагдаж байгаа — багананы гарчигт бичнэ.
+  const branchLabel = branchId
+    ? ((branchesQuery.data ?? []).find((b) => b.id === branchId)?.name ?? "")
+    : "";
+
   const columns: Column<Product>[] = [
     { key: "name", header: t.products.product, primary: true, render: (row) => <span className="font-semibold">{row.name_mn}</span> },
     { key: "sku", header: t.products.sku, numeric: true, render: (row) => row.sku },
@@ -291,66 +298,60 @@ export function ProductsPage() {
     },
     {
       key: "price",
-      header: t.common.price,
+      // Үнэ салбар бүрд өөр байж болно. Аль салбарын үнэ харагдаж буйг
+      // гарчигт бичнэ — эс бөгөөс «энэ үнэ хаана үйлчлэх вэ» гэдэг ойлгомжгүй.
+      header: branchLabel ? `${t.common.price} · ${branchLabel}` : `${t.common.price} · ${t.products.basePrice}`,
       align: "right",
       numeric: true,
       render: (row) => <span className="font-bold">{formatMNT(row.price)}</span>,
-    },
-    {
-      key: "avg_cost",
-      header: t.tanks.avgCost,
-      align: "right",
-      numeric: true,
-      hideOnMobile: true,
-      render: (row) => formatMNT(row.avg_cost),
-    },
-    {
-      key: "stock",
-      header: t.products.stockQty,
-      align: "right",
-      numeric: true,
-      render: (row) => (
-        <span className="inline-flex items-center gap-2">
-          <span className={row.is_low ? "font-bold text-danger-dark" : ""}>
-            {formatQty(row.stock_qty, row.unit)}
-          </span>
-          {row.is_low ? <StatusBadge size="sm" tone="danger" label={t.pos.lowStock} /> : null}
-        </span>
-      ),
-    },
-    {
-      key: "stock_value",
-      header: t.inventory.value,
-      align: "right",
-      numeric: true,
-      hideOnMobile: true,
-      render: (row) => formatMNT(row.stock_value),
     },
     {
       key: "actions",
       header: t.common.actions,
       align: "right",
       render: (row) => (
-        <div className="flex flex-wrap justify-end gap-2">
+        // Зөвхөн дүрстэй жижиг товч: мөрөнд 4 хүртэл үйлдэл багтах тул
+        // бичигтэй 48px товчнууд мөрийг хэт бүдүүн, эмх замбараагүй болгодог.
+        <div className="flex justify-end gap-1.5">
           {row.is_convertible ? (
-            <Button variant="secondary" size="md" icon={<Scissors />} onClick={() => setConverting(row)}>
-              {t.inventory.convert}
-            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Scissors />}
+              title={t.inventory.convert}
+              aria-label={t.inventory.convert}
+              onClick={() => setConverting(row)}
+            />
           ) : null}
           {canRequestPrice ? (
-            <Button variant="secondary" size="md" icon={<TrendingUp />} onClick={() => openPriceRequest(row)}>
-              {t.prices.request}
-            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<TrendingUp />}
+              title={t.prices.request}
+              aria-label={t.prices.request}
+              onClick={() => openPriceRequest(row)}
+            />
           ) : null}
           {canManage ? (
             <>
-              <Button variant="secondary" size="md" icon={<Pencil />} onClick={() => openForm(row)}>
-                {t.common.edit}
-              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<Pencil />}
+                title={t.common.edit}
+                aria-label={t.common.edit}
+                onClick={() => openForm(row)}
+              />
               {row.is_active ? (
-                <Button variant="ghost" size="md" icon={<Power />} onClick={() => setDeactivating(row)}>
-                  {t.admin.deactivate}
-                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={<Power />}
+                  title={t.admin.deactivate}
+                  aria-label={t.admin.deactivate}
+                  onClick={() => setDeactivating(row)}
+                />
               ) : null}
             </>
           ) : null}
@@ -366,9 +367,20 @@ export function ProductsPage() {
         subtitle={t.products.priceChangeOnly}
         actions={
           canManage ? (
-            <Button variant="primary" size="lg" icon={<Plus />} onClick={() => openForm(null)}>
-              {t.products.newProduct}
-            </Button>
+            <>
+              {/* Нягтлан салбар + огноо сонгож эхний үлдэгдлээ нэг дор оруулна. */}
+              <Button
+                variant="secondary"
+                size="lg"
+                icon={<ClipboardList />}
+                onClick={() => setOpeningOpen(true)}
+              >
+                {t.products.openingStock}
+              </Button>
+              <Button variant="primary" size="lg" icon={<Plus />} onClick={() => openForm(null)}>
+                {t.products.newProduct}
+              </Button>
+            </>
           ) : null
         }
       />
@@ -667,6 +679,12 @@ export function ProductsPage() {
         loading={deleteMutation.isPending}
         onConfirm={confirmDeactivate}
         onCancel={() => setDeactivating(null)}
+      />
+
+      <OpeningBalanceModal
+        open={openingOpen}
+        onClose={() => setOpeningOpen(false)}
+        branchId={branchId}
       />
     </div>
   );

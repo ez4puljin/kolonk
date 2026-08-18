@@ -7,6 +7,8 @@ import type {
   BulkConversionInput,
   BulkConversionResult,
   InventoryAdjustment,
+  OpeningBalanceRequest,
+  OpeningBalanceResult,
   InventoryRow,
   InventoryTransaction,
   Paged,
@@ -91,6 +93,25 @@ export function useConvertToBulkMutation() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
       void queryClient.invalidateQueries({ queryKey: ["products"] });
+    },
+  });
+}
+
+/**
+ * Эхний үлдэгдэл — системд шилжих үеийн нөөцийг салбараар нэг дор тогтооно.
+ *
+ * Оруулсан тоо хэмжээ нь ЭЦСИЙН үлдэгдэл (нэмэгдэл биш) тул дахин
+ * оруулахад давхардахгүй — зөвхөн зөрүүг нь хөдөлгөнө.
+ */
+export function useOpeningBalanceMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: OpeningBalanceRequest) =>
+      api.post<OpeningBalanceResult>("/api/inventory/opening-balances", payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
+      void queryClient.invalidateQueries({ queryKey: ["products"] });
+      void queryClient.invalidateQueries({ queryKey: ["accounting"] });
     },
   });
 }

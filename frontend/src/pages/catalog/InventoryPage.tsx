@@ -1,10 +1,9 @@
 import { useMemo, useState } from "react";
-import { ArrowLeftRight, Boxes, Scissors, SlidersHorizontal } from "lucide-react";
+import { ArrowLeftRight, Boxes, ClipboardList, Scissors } from "lucide-react";
 
 import { errorMessage } from "../../api/client";
 import { useBranches } from "../../api/queries/branches";
 import {
-  useAdjustInventoryMutation,
   useBranchTransferMutation,
   useInventory,
 } from "../../api/queries/inventory";
@@ -18,11 +17,11 @@ import { DataTable, type Column } from "../../components/ui/DataTable";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Modal } from "../../components/ui/Modal";
 import { StatBox } from "../../components/ui/StatBox";
-import { StatusBadge } from "../../components/ui/StatusBadge";
 import { useCan } from "../../hooks/usePermission";
+import { OpeningBalanceModal } from "./OpeningBalanceModal";
 import { t } from "../../i18n/mn";
 import { PAGE_SIZE } from "../../lib/constants";
-import { dAdd, dMul, dNeg, dSum, dToNumber, dToQty } from "../../lib/decimal";
+import { dMul, dSum, dToNumber, dToQty } from "../../lib/decimal";
 import { formatMNT, formatQty } from "../../lib/format";
 import { useUiStore } from "../../stores/ui";
 import {
@@ -34,8 +33,6 @@ import {
   SearchInput,
   TextAreaField,
 } from "./_shared";
-
-type AdjustSign = "add" | "sub";
 
 /** Мөрийн үнэлгээ — сервер талын нэр өөр байж болох тул өөрсдөө боддог. */
 function rowValue(row: InventoryRow): string {
@@ -55,12 +52,7 @@ export function InventoryPage() {
   const [offset, setOffset] = useState(0);
   const [convertOpen, setConvertOpen] = useState(false);
 
-  const [adjusting, setAdjusting] = useState<InventoryRow | null>(null);
-  const [adjustBranchId, setAdjustBranchId] = useState("");
-  const [sign, setSign] = useState<AdjustSign>("add");
-  const [qty, setQty] = useState("");
-  const [note, setNote] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [openingOpen, setOpeningOpen] = useState(false);
 
   // Салбар хоорондын шилжүүлэг
   const [transferOpen, setTransferOpen] = useState(false);
@@ -80,7 +72,6 @@ export function InventoryPage() {
     sale_mode: modeFilter === "all" ? undefined : modeFilter,
     limit: 1000,
   });
-  const adjustMutation = useAdjustInventoryMutation();
   const transferMutation = useBranchTransferMutation();
 
   const branches = useMemo(
@@ -117,37 +108,6 @@ export function InventoryPage() {
     [categoriesQuery.data],
   );
 
-  const signedQty = sign === "sub" ? dNeg(qty) : qty;
-
-  const openAdjust = (row: InventoryRow): void => {
-    setAdjusting(row);
-    // Шүүлтэнд сонгосон салбар, эс бөгөөс эхний салбар.
-    setAdjustBranchId(branchId || branches[0]?.id || "");
-    setSign("add");
-    setQty("");
-    setNote("");
-    setError(null);
-  };
-
-  const submitAdjust = (): void => {
-    if (!adjusting || dToNumber(qty) === 0) return;
-    setError(null);
-    adjustMutation.mutate(
-      {
-        product_id: adjusting.product_id,
-        qty: signedQty,
-        branch_id: adjustBranchId || null,
-        note: note.trim() || null,
-      },
-      {
-        onSuccess: () => {
-          toastSuccess(t.common.saved);
-          setAdjusting(null);
-        },
-        onError: (mutationError) => setError(errorMessage(mutationError)),
-      },
-    );
-  };
 
   const columns: Column<InventoryRow>[] = [
     { key: "name", header: t.products.product, primary: true, render: (row) => <span className="font-semibold">{row.name_mn}</span> },
@@ -157,20 +117,6 @@ export function InventoryPage() {
       header: t.products.category,
       hideOnMobile: true,
       render: (row) => row.category_name ?? "—",
-    },
-    {
-      key: "qty",
-      header: t.inventory.onHand,
-      align: "right",
-      numeric: true,
-      render: (row) => (
-        <span className="inline-flex items-center gap-2">
-          <span className={row.is_low ? "font-bold text-danger-dark" : "font-semibold"}>
-            {formatQty(row.stock_qty, row.unit)}
-          </span>
-          {row.is_low ? <StatusBadge size="sm" tone="danger" label={t.pos.lowStock} /> : null}
-        </span>
-      ),
     },
     ...(showBranchColumns
       ? branches.map(
@@ -182,7 +128,16 @@ export function InventoryPage() {
             hideOnMobile: true,
             render: (row) => {
               const entry = row.branches.find((item) => item.branch_id === branch.id);
-              return entry && dToQty(entry.qty) !== 0 ? formatQty(entry.qty) : "—";
+              if (!entry || dToQty(entry.qty) === 0) return "—";
+              // Тухайн САЛБАРЫН үлдэгдэл доод хязгаараас доош орсон эсэх —
+              // нийт үлдэгдэл хангалттай ч нэг салбарт дуусах нь бий.
+              const low = dToQty(entry.qty) <= dToQty(row.min_stock);
+              return (
+                <span className={low ? "font-bold text-danger-dark" : ""}>
+                  {formatQty(entry.qty)}
+                  {low ? <span className="ml-1 font-semibold">({t.pos.lowStock})</span> : null}
+                </span>
+              );
             },
           }),
         )
@@ -209,17 +164,6 @@ export function InventoryPage() {
       numeric: true,
       render: (row) => <span className="font-bold">{formatMNT(rowValue(row))}</span>,
     },
-    {
-      key: "actions",
-      header: t.common.actions,
-      align: "right",
-      render: (row) =>
-        canManage ? (
-          <Button variant="secondary" size="md" icon={<SlidersHorizontal />} onClick={() => openAdjust(row)}>
-            {t.inventory.adjust}
-          </Button>
-        ) : null,
-    },
   ];
 
   return (
@@ -245,6 +189,16 @@ export function InventoryPage() {
             {canConvert ? (
               <Button variant="secondary" size="lg" icon={<Scissors />} onClick={() => setConvertOpen(true)}>
                 {t.inventory.convertTitle}
+              </Button>
+            ) : null}
+            {canManage ? (
+              <Button
+                variant="primary"
+                size="lg"
+                icon={<ClipboardList />}
+                onClick={() => setOpeningOpen(true)}
+              >
+                {t.products.openingStock}
               </Button>
             ) : null}
           </>
@@ -446,79 +400,12 @@ export function InventoryPage() {
         </div>
       </Modal>
 
-      <Modal
-        open={adjusting !== null}
-        onClose={() => setAdjusting(null)}
-        size="md"
-        title={t.inventory.adjust}
-        subtitle={adjusting?.name_mn}
-        footer={
-          <>
-            <Button variant="secondary" size="md" onClick={() => setAdjusting(null)}>
-              {t.common.cancel}
-            </Button>
-            <Button
-              variant="primary"
-              size="md"
-              disabled={dToNumber(qty) === 0}
-              loading={adjustMutation.isPending}
-              onClick={submitAdjust}
-            >
-              {t.common.confirm}
-            </Button>
-          </>
-        }
-      >
-        <div className="flex flex-col gap-4">
-          {branches.length > 1 ? (
-            <PickerField
-              label={t.branches.title}
-              value={adjustBranchId}
-              options={branches.map((branch) => ({ value: branch.id, label: branch.name }))}
-              onChange={setAdjustBranchId}
-            />
-          ) : null}
-          <ChipGroup<AdjustSign>
-            label={t.inventory.txType}
-            value={sign}
-            onChange={setSign}
-            options={[
-              { value: "add", label: "+ Илүүдэл" },
-              { value: "sub", label: "− Хорогдол" },
-            ]}
-          />
-          <NumberField
-            name="inventory-adjust-qty"
-            label={t.inventory.adjustQty}
-            value={qty}
-            onChange={setQty}
-            suffix={adjusting?.unit}
-            maxDecimals={3}
-          />
-          <TextAreaField label={t.common.note} value={note} onChange={setNote} />
 
-          {adjusting ? (
-            <div className="flex items-baseline justify-between gap-3 rounded-xl border border-line bg-surface-alt px-4 py-3">
-              <span className="text-sm text-ink-soft">{t.tanks.balanceAfter}</span>
-              <span className="num text-xl font-bold text-ink">
-                {formatQty(
-                  dAdd(
-                    adjustBranchId
-                      ? (adjusting.branches.find((item) => item.branch_id === adjustBranchId)?.qty ?? "0")
-                      : adjusting.stock_qty,
-                    signedQty,
-                  ),
-                  adjusting.unit,
-                )}
-              </span>
-            </div>
-          ) : null}
-
-          {error ? (
-            <p className="rounded-xl bg-danger-soft px-4 py-3 text-sm font-medium text-danger-dark">{error}</p>
-          ) : null}
-        </div>
-      </Modal>
+      <OpeningBalanceModal
+        open={openingOpen}
+        onClose={() => setOpeningOpen(false)}
+        branchId={branchId}
+      />
     </div>
   );
 }
