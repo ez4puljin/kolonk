@@ -396,11 +396,11 @@ export function ShiftReportPage() {
         </Card>
       </div>
 
-      <Card title={t.shift.byTender} flush>
+      <Card title={t.shift.byTender} flush className="max-w-4xl">
         <DataTable columns={tenderColumns} rows={sales.by_tender} rowKey={(row) => row.method} />
       </Card>
 
-      <Card title={t.shift.byFuel} flush>
+      <Card title={t.shift.byFuel} flush className="max-w-4xl">
         <DataTable columns={fuelColumns} rows={fuels} rowKey={(row) => row.fuel_id} />
       </Card>
 

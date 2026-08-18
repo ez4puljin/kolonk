@@ -78,7 +78,7 @@ export function TextField({
   className = "",
 }: TextFieldProps) {
   return (
-    <div className={`flex flex-col gap-1.5 ${className}`}>
+    <div className={`flex max-w-md flex-col gap-1.5 ${className}`}>
       <FieldLabel>{label}</FieldLabel>
       <input
         type="text"
@@ -112,7 +112,7 @@ export function TextAreaField({
   className = "",
 }: TextAreaFieldProps) {
   return (
-    <div className={`flex flex-col gap-1.5 ${className}`}>
+    <div className={`flex max-w-2xl flex-col gap-1.5 ${className}`}>
       <FieldLabel>{label}</FieldLabel>
       <textarea
         value={value}
@@ -136,7 +136,7 @@ export interface DateFieldProps {
 
 export function DateField({ label, value, onChange, min, max, className = "" }: DateFieldProps) {
   return (
-    <div className={`flex flex-col gap-1.5 ${className}`}>
+    <div className={`flex max-w-md flex-col gap-1.5 ${className}`}>
       <FieldLabel>{label}</FieldLabel>
       <input
         type="date"
@@ -187,7 +187,7 @@ export function NumberField({
   const open = numpad !== null && numpad.target === name;
 
   return (
-    <div className={`flex flex-col gap-1.5 ${className}`}>
+    <div className={`flex max-w-md flex-col gap-1.5 ${className}`}>
       <FieldLabel>{label}</FieldLabel>
       <button
         type="button"
@@ -261,7 +261,7 @@ export function PickerField({
   );
 
   return (
-    <div className={`flex flex-col gap-1.5 ${className}`}>
+    <div className={`flex max-w-md flex-col gap-1.5 ${className}`}>
       <FieldLabel>{label}</FieldLabel>
       <button
         type="button"
@@ -351,7 +351,7 @@ export function ToggleField({ label, value, onChange, hint, className = "" }: To
       role="switch"
       aria-checked={value}
       onClick={() => onChange(!value)}
-      className={`flex min-h-14 w-full items-center gap-4 rounded-xl border border-line-strong bg-white px-4 py-2.5 text-left transition-colors hover:bg-surface-alt ${className}`}
+      className={`flex min-h-14 w-full max-w-xl items-center gap-4 rounded-xl border border-line-strong bg-white px-4 py-2.5 text-left transition-colors hover:bg-surface-alt ${className}`}
     >
       <span className="min-w-0 flex-1">
         {/* `truncate` ЗОРИУД алга: утсанд тохиргооны нэр, тайлбар нь
@@ -468,7 +468,7 @@ export function Pager({ offset, limit, total, onChange, className = "" }: PagerP
   const to = Math.min(offset + limit, total);
 
   return (
-    <div className={`flex flex-wrap items-center justify-between gap-3 ${className}`}>
+    <div className={`flex flex-wrap items-center justify-end gap-4 ${className}`}>
       <span className="num text-sm text-ink-soft">
         {from}–{to} {t.common.of} {formatNumber(total, 0)} {t.common.rows}
       </span>

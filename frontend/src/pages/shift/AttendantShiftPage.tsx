@@ -730,7 +730,7 @@ export function AttendantShiftPage() {
   // -------------------------------------------------------------- Ээлж нээх
   if (!shift) {
     return (
-      <div className="flex flex-1 flex-col gap-4 sm:gap-6">
+      <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 sm:gap-6">
         <PageHeader title={t.attendant.title} subtitle={t.attendant.subtitle} />
 
         {/* Бэлэн мөнгөний карт нэг талбартай, милийн жагсаалт урт тул
@@ -802,7 +802,7 @@ export function AttendantShiftPage() {
 
   // ---------------------------------------------------------- Нээлттэй ээлж
   return (
-    <div className="flex flex-1 flex-col gap-4 sm:gap-6">
+    <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 sm:gap-6">
       <PageHeader
         title={t.attendant.title}
         subtitle={

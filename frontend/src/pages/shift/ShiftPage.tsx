@@ -251,7 +251,7 @@ function PosShiftPage() {
   const cashVariance = mode === "close" ? dSub(cash, expected) : null;
 
   return (
-    <div className="flex flex-1 flex-col gap-5">
+    <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5">
       <PageHeader
         title={mode === "open" ? t.shift.open : t.shift.close}
         subtitle={

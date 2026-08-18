@@ -176,7 +176,7 @@ export function ReportCenterPage() {
           </p>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] border-collapse text-sm">
+            <table className="w-full min-w-[720px] max-w-4xl border-collapse text-sm">
               <thead>
                 <tr className="bg-surface-sunken">
                   <th className="border border-line px-3 py-2 text-left">{t.reportCenter.name}</th>

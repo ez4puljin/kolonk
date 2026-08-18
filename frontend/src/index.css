@@ -190,6 +190,14 @@
     overscroll-behavior: contain;
   }
 
+  /* Тайлангийн хуудас — A4 хэмжээтэй байхаар зохиогдсон ч энэ анги ЗӨВХӨН
+     `@media print` дотор тодорхойлогдсон тул дэлгэц дээр огт үйлчлэхгүй,
+     тайлан 1700px өргөн сунадаг байв. Дэлгэцэд уншихад тохирох хэмжээ өгнө. */
+  .report-sheet {
+    max-width: 1100px;
+    margin-inline: auto;
+  }
+
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }

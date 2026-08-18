@@ -187,7 +187,7 @@ export function AuditPage() {
           subtitle={`${expandedLog.entity_type ?? "—"} · ${formatDateTime(expandedLog.created_at)}`}
         >
           <div className="scroll-touch overflow-x-auto">
-            <table className="w-full min-w-[36rem] border-collapse text-[15px]">
+            <table className="w-full max-w-3xl border-collapse text-[15px]">
               <thead>
                 <tr className="border-b border-line-strong bg-surface-alt">
                   <th className="px-3 py-2.5 text-left text-xs font-bold text-ink-soft uppercase">
