@@ -347,7 +347,12 @@ export function AppShell() {
               савыг main-ийн өндөр хүртэл ШАХДАГ. Агуулга түүнээс урт бол
               доод `pb-28` савны дотор үлдэж, агуулга халин доод цэсний ард
               оров. `min-h-full` өндрийг аль хэдийн баталгаажуулдаг. */}
-          <div className="flex min-h-full shrink-0 flex-col px-4 pt-5 pb-28 sm:px-6 lg:pb-6">
+          {/* Агуулгад ДЭЭД ӨРГӨН тавьж голлуулна.
+              Өмнө нь 1920px дэлгэцэд агуулга 1654px хүртэл сунаж, шошго
+              зүүн зах, оролт баруун захад тусдаа хол байрлаж, нүд хоёр
+              талын хооронд явах шаардлагатай болдог байв. Дээд өргөнтэй
+              болсноор мөр богиносож, уншихад хялбар болно. */}
+          <div className="mx-auto flex min-h-full w-full max-w-[1400px] shrink-0 flex-col px-4 pt-5 pb-28 sm:px-6 lg:pb-6">
             <Suspense fallback={<PageFallback />}>
               <Outlet />
             </Suspense>

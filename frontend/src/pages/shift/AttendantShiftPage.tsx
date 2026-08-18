@@ -733,7 +733,10 @@ export function AttendantShiftPage() {
       <div className="flex flex-1 flex-col gap-4 sm:gap-6">
         <PageHeader title={t.attendant.title} subtitle={t.attendant.subtitle} />
 
-        <div className="grid grid-cols-1 gap-4 sm:gap-5 xl:grid-cols-2">
+        {/* Бэлэн мөнгөний карт нэг талбартай, милийн жагсаалт урт тул
+            тэнцүү хуваавал зүүн тал хоосон харагдана. Ширээний дэлгэцэд
+            бэлэн мөнгө нарийн, миль үлдсэн зайг эзэлнэ. */}
+        <div className="grid grid-cols-1 gap-4 sm:gap-5 xl:grid-cols-[22rem_minmax(0,1fr)]">
           <Card title={t.shift.openingCash}>
             <div className="flex flex-col gap-4">
               <NumberField
@@ -779,11 +782,14 @@ export function AttendantShiftPage() {
 
         {/* Утсанд доод цэсний яг дээр тууш бар болж наалдана — дэвсгэртэй тул
             доогуур нь гүйж буй талбаруудыг дарж харагдуулахгүй. Десктопт энгийн. */}
-        <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] z-10 -mx-4 border-t border-line bg-surface/95 px-4 py-2.5 backdrop-blur sm:-mx-6 sm:px-6 lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:p-0 lg:backdrop-blur-none">
+        <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] z-10 -mx-4 border-t border-line bg-surface/95 px-4 py-2.5 backdrop-blur sm:-mx-6 sm:px-6 lg:static lg:mx-0 lg:flex lg:justify-end lg:border-0 lg:bg-transparent lg:p-0 lg:backdrop-blur-none">
           <Button
             variant="success"
             size="lg"
             block
+            // Утсанд бүтэн өргөн (бээлийтэй хуруунд), ширээний дэлгэцэд
+            // хэвийн хэмжээтэй: 1400px өргөн товч мэргэжлийн бус харагдана.
+            className="lg:w-auto lg:min-w-64"
             loading={openMutation.isPending}
             onClick={handleOpen}
           >
