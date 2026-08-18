@@ -756,6 +756,30 @@ export function AttendantShiftPage() {
     );
   }
 
+  /*
+   * Ээлж аль салбарынх болох нь тодорхойгүй бол маягт огт үзүүлэхгүй.
+   *
+   * Салбаргүй хэрэглэгч (Admin, Нягтлан) олон салбартай станцад ээлж нээж
+   * ЧАДАХГҮЙ — сервер татгалздаг. Гэтэл маягт нь бүх салбарын хошууг
+   * нийлүүлж үзүүлдэг байсан тул бөглөж дуусаад л алдаа авдаг байв.
+   */
+  const activeBranches = (branchesQuery.data ?? []).filter((b) => b.is_active);
+  const branchUnresolved = !branchId && activeBranches.length > 1;
+
+  if (!shift && branchUnresolved) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-6 py-10 text-center">
+        <span className="flex h-20 w-20 items-center justify-center rounded-full bg-action-soft text-action-dark">
+          <Gauge className="h-10 w-10" />
+        </span>
+        <div className="space-y-2">
+          <h1 className="text-2xl font-bold text-ink">{t.attendant.noBranch}</h1>
+          <p className="max-w-md text-ink-soft">{t.attendant.noBranchHint}</p>
+        </div>
+      </div>
+    );
+  }
+
   // ------------------------------------------------ Өөр түгээгчийн ээлж нээлттэй
   // Нэг салбарт зэрэг хоёр түгээгч ажиллахыг хориглоно: ээлж эзэмшигчийнх
   // болохоос бусад түгээгчид зөвхөн хэн ажиллаж байгааг харна.
