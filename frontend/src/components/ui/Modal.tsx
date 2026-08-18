@@ -52,9 +52,37 @@ export function Modal({
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
+    /*
+     * Гар утасны BACK товч цонхыг хаана — аппаас гарахгүй.
+     *
+     * Android дээр back нь `popstate` өдөөдөг. Апп үүнийг боловсруулдаггүй
+     * байсан тул хөтөч түүхээрээ буцаж, түгээгч ээлжийн хаалтын цонх
+     * нээлттэй байхад back дарахад Chrome-оос бүрмөсөн гардаг байв.
+     *
+     * Цонх нээгдэхэд түүхэнд нэг бичлэг нэмж, back түүнийг "иднэ".
+     * Үүрлэсэн цонх (тоон гар wizard дотор) тус бүрдээ бичлэгтэй тул
+     * back нэг нэгээр нь хаана.
+     */
+    let closedByBack = false;
+    if (dismissible) {
+      window.history.pushState({ kolonkModal: true }, "");
+    }
+    const handlePop = (): void => {
+      if (!dismissible) return;
+      closedByBack = true;
+      onClose();
+    };
+    window.addEventListener("popstate", handlePop);
+
     return () => {
       window.removeEventListener("keydown", handleKey);
+      window.removeEventListener("popstate", handlePop);
       document.body.style.overflow = previousOverflow;
+      // Цонх ӨӨР аргаар хаагдсан бол нэмсэн бичлэгээ буцаана — эс бөгөөс
+      // түүхэнд хог үлдэж, дараагийн back юу ч хийхгүй өнгөрнө.
+      if (dismissible && !closedByBack && window.history.state?.kolonkModal) {
+        window.history.back();
+      }
     };
   }, [open, onClose, dismissible]);
 
