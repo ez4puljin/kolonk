@@ -88,6 +88,7 @@ function PhotoButton({
   refId = null,
   queue,
   compact = false,
+  onCountChange,
 }: {
   shiftId: UUID | null;
   kind: string;
@@ -97,6 +98,8 @@ function PhotoButton({
   queue?: React.MutableRefObject<QueuedPhoto[]>;
   /** Зөвхөн камерын дүрстэй жижиг товч (мөр бүрийн хажууд). */
   compact?: boolean;
+  /** Зургийн тоо өөрчлөгдөхөд дуудагдана — эцэг нь бэлэн байдлыг мэдэхэд. */
+  onCountChange?: (count: number) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const upload = useUploadShiftPhotoMutation();
@@ -125,7 +128,11 @@ function PhotoButton({
           if (files.length === 0) return;
           if (shiftId === null) {
             queue?.current.push(...files.map((file) => ({ file, refId })));
-            setQueued((n) => n + files.length);
+            setQueued((n) => {
+              const next = n + files.length;
+              onCountChange?.(next);
+              return next;
+            });
             return;
           }
           for (const file of files) {
@@ -409,6 +416,11 @@ export function AttendantShiftPage() {
   const [openCash, setOpenCash] = useState("");
   const [openReadings, setOpenReadings] = useState<Record<UUID, string>>({});
   const openPhotoQueue = useRef<QueuedPhoto[]>([]);
+  /** Ээлж нээхийн өмнө дарсан зургийн тоо — түлхүүр нь хошууны id, бэлэн
+      мөнгөнийх нь "cash". Дараалал нь ref тул дахин зурагдуулахгүй. */
+  const [openPhotos, setOpenPhotos] = useState<Record<string, number>>({});
+  const countPhoto = (key: string) => (n: number) =>
+    setOpenPhotos((prev) => ({ ...prev, [key]: n }));
 
   useEffect(() => {
     if (nozzles.length === 0) return;
@@ -746,6 +758,23 @@ export function AttendantShiftPage() {
 
   // -------------------------------------------------------------- Ээлж нээх
   if (!shift) {
+    /*
+     * Ээлж нээхэд ЗААВАЛ бүрдэх зүйлс.
+     *
+     * Миль эсвэл зураггүй нээсэн ээлжийг дараа нь нөхөх боломжгүй: өдрийн
+     * хаалт нээлтийн заалтаас зөрүүг боддог тул нэг хошуу дутуу бол тэр
+     * өдрийн борлуулалт бүхэлдээ буруу гарна. Тиймээс товчийг бүх зүйл
+     * бүрдтэл идэвхгүй байлгана.
+     *
+     * Тоо хэмжээ 0 байж БОЛНО (шинэ хошуу, касс хоосон) — шалгуур нь
+     * "утга оруулсан эсэх" болохоос "0-ээс их эсэх" биш.
+     */
+    const cashReady = openCash.trim() !== "" && (openPhotos.cash ?? 0) > 0;
+    const nozzleReady = (id: string): boolean =>
+      (openReadings[id] ?? "").trim() !== "" && (openPhotos[id] ?? 0) > 0;
+    const readyCount = nozzles.filter(({ nozzle }) => nozzleReady(nozzle.id)).length;
+    const canOpen = cashReady && nozzles.length > 0 && readyCount === nozzles.length;
+
     return (
       <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 sm:gap-6">
         <PageHeader title={t.attendant.title} subtitle={t.attendant.subtitle} />
@@ -754,7 +783,10 @@ export function AttendantShiftPage() {
             тэнцүү хуваавал зүүн тал хоосон харагдана. Ширээний дэлгэцэд
             бэлэн мөнгө нарийн, миль үлдсэн зайг эзэлнэ. */}
         <div className="grid grid-cols-1 gap-4 sm:gap-5 xl:grid-cols-[22rem_minmax(0,1fr)]">
-          <Card title={t.shift.openingCash}>
+          <Card
+            title={t.shift.openingCash}
+            className={cashReady ? "border-success bg-success-soft/25" : ""}
+          >
             <div className="flex flex-col gap-4">
               <NumberField
                 name="attendant-open-cash"
@@ -764,22 +796,39 @@ export function AttendantShiftPage() {
                 suffix={t.units.mnt}
               />
               <div className="flex flex-wrap gap-3">
-                <PhotoButton shiftId={null} kind="open" queue={openPhotoQueue} />
+                <PhotoButton
+                  shiftId={null}
+                  kind="open"
+                  queue={openPhotoQueue}
+                  onCountChange={countPhoto("cash")}
+                />
               </div>
-              <p className="text-sm text-ink-soft">{t.attendant.photoRequired}</p>
+              <p className={cashReady ? "text-sm font-semibold text-success-dark" : "text-sm text-ink-soft"}>
+                {cashReady ? t.attendant.ready : t.attendant.photoRequired}
+              </p>
             </div>
           </Card>
 
           <Card title={t.attendant.openMile}>
             {/* Утсанд: шошго дээрээ, талбар бүтэн өргөнөөр — урт миль таслагдахгүй. */}
             <div className="flex flex-col divide-y divide-line">
-              {nozzles.map(({ pump, nozzle }) => (
+              {nozzles.map(({ pump, nozzle }) => {
+                const done = nozzleReady(nozzle.id);
+                return (
                 <div
                   key={nozzle.id}
-                  className="flex flex-col gap-1.5 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:gap-3"
+                  className={[
+                    "flex flex-col gap-1.5 px-2 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:gap-3",
+                    // Миль БА зураг хоёулаа орсон мөр ногоон болно — түгээгч
+                    // юу үлдсэнээ нэг харснаар мэдэхийн тулд.
+                    done ? "-mx-2 rounded-lg bg-success-soft/40" : "",
+                  ].join(" ")}
                 >
-                  <span className="min-w-0 flex-1 text-[15px] font-semibold text-ink">
-                    {pump.name} · №{nozzle.nozzle_number} {nozzle.fuel_name}
+                  <span className="flex min-w-0 flex-1 items-center gap-2 text-[15px] font-semibold text-ink">
+                    {done ? <Check className="h-4 w-4 shrink-0 text-success-dark" /> : null}
+                    <span className="min-w-0 truncate">
+                      {pump.name} · №{nozzle.nozzle_number} {nozzle.fuel_name}
+                    </span>
                   </span>
                   {/* Хошуу бүрийн миль дээр тусад нь зураг — маргаан гарвал
                       аль хошууны заалт болох нь тодорхой байх ёстой. */}
@@ -800,10 +849,12 @@ export function AttendantShiftPage() {
                       refId={nozzle.id}
                       queue={openPhotoQueue}
                       compact
+                      onCountChange={countPhoto(nozzle.id)}
                     />
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </Card>
         </div>
@@ -811,18 +862,31 @@ export function AttendantShiftPage() {
         {/* Утсанд доод цэсний яг дээр тууш бар болж наалдана — дэвсгэртэй тул
             доогуур нь гүйж буй талбаруудыг дарж харагдуулахгүй. Десктопт энгийн. */}
         <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] z-10 -mx-4 border-t border-line bg-surface/95 px-4 py-2.5 backdrop-blur sm:-mx-6 sm:px-6 lg:static lg:mx-0 lg:flex lg:justify-end lg:border-0 lg:bg-transparent lg:p-0 lg:backdrop-blur-none">
-          <Button
-            variant="success"
-            size="lg"
-            block
-            // Утсанд бүтэн өргөн (бээлийтэй хуруунд), ширээний дэлгэцэд
-            // хэвийн хэмжээтэй: 1400px өргөн товч мэргэжлийн бус харагдана.
-            className="lg:w-auto lg:min-w-64"
-            loading={openMutation.isPending}
-            onClick={handleOpen}
-          >
-            {t.attendant.openShift}
-          </Button>
+          <div className="flex w-full flex-col gap-2 lg:w-auto lg:items-end">
+            {/* Юу дутуу байгааг ХЭЛНЭ — идэвхгүй товч шалтгаангүй бол
+                түгээгч яагаад дарагдахгүй байгааг ойлгохгүй. */}
+            {!canOpen ? (
+              <p className="text-sm text-ink-soft lg:text-right">
+                {t.attendant.openBlocked}
+                <span className="num ml-2 font-semibold text-ink">
+                  {readyCount}/{nozzles.length} {t.attendant.openProgress}
+                </span>
+              </p>
+            ) : null}
+            <Button
+              variant="success"
+              size="lg"
+              block
+              // Утсанд бүтэн өргөн (бээлийтэй хуруунд), ширээний дэлгэцэд
+              // хэвийн хэмжээтэй: 1400px өргөн товч мэргэжлийн бус харагдана.
+              className="lg:w-auto lg:min-w-64"
+              disabled={!canOpen}
+              loading={openMutation.isPending}
+              onClick={handleOpen}
+            >
+              {t.attendant.openShift}
+            </Button>
+          </div>
         </div>
       </div>
     );
