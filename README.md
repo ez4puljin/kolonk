@@ -189,6 +189,142 @@ docker compose --profile prod up -d --build
    сэргэнэ (`restart: unless-stopped`). Өгөгдөл `pgdata`, зургууд `uploads`,
    backup-ууд `backups` volume-д тус тус хадгалагдана.
 
+## Ubuntu дээр суулгах (санал болгож буй сервер)
+
+Станцын байнгын машинд Ubuntu тохиромжтой: Docker виртуал машингүй шууд
+ажилладаг тул Windows дээрхээс хөнгөн, хурдан бөгөөд цахилгаан тасарсны
+дараа өөрөө сэргэдэг. **i3 + 8GB RAM илүүдэлтэй** — стек нийтдээ ~2GB иднэ.
+
+### 1. Docker суулгах
+
+Docker **Desktop биш, Engine** суулгана (Desktop нь Линукс дээр илүүц
+виртуал машин үүсгэдэг). Ubuntu-гийн агуулахын `docker.io` биш, Docker-ын
+албан ёсны агуулахаас авбал compose plugin хамт ирнэ:
+
+```bash
+curl -fsSL https://get.docker.com | sudo sh
+```
+
+Дараа нь өөрийгөө `docker` бүлэгт нэмнэ (эс бөгөөс команд бүрд `sudo`
+бичих болно):
+
+```bash
+sudo usermod -aG docker $USER
+```
+
+**Нэг удаа гарч, дахин нэвтэрнэ** (эсвэл машиныг унтрааж асаана) — бүлгийн
+эрх тэгж идэвхжинэ. Шалгах:
+
+```bash
+docker run --rm hello-world
+```
+
+### 2. Кодоо татаж, тохируулах
+
+```bash
+sudo apt install -y git
+git clone https://github.com/ez4puljin/kolonk.git ~/kolonk
+cd ~/kolonk
+cp .env.example .env
+```
+
+`.env`-ээ засна (`nano .env`). Заавал бөглөх:
+
+| Түлхүүр | Утга |
+|---|---|
+| `POSTGRES_PASSWORD` | хүчтэй нууц үг |
+| `DATABASE_URL` | дээрх нууц үгийг мөн энд бичнэ |
+| `JWT_SECRET` | урт санамсаргүй мөр — `openssl rand -base64 36` |
+| `TZ` | `Asia/Ulaanbaatar` |
+| `TUNNEL_TOKEN` | Cloudflare Tunnel-ийн токен (интернэтээр гаргах бол) |
+
+### 3. Ажиллуулах
+
+```bash
+./deploy.sh
+```
+
+Энэ нь тест ажлуулж, image барьж, prod + tunnel профайлыг хамт өргөөд,
+дотоод хуудас, дотоод API, гадаад хаяг гурвыг шалгана. Зөвхөн frontend
+өөрчилсөн бол `./deploy.sh --frontend` хурдан.
+
+Дууссаны дараа `http://localhost` (эсвэл дотоод сүлжээнээс машины IP),
+tunnel тохируулсан бол `https://pos.таны-домэйн` дээр нээгдэнэ.
+
+### 4. Цахилгаан тасарсны дараа өөрөө асахаар тохируулах — ЗААВАЛ
+
+Станцын машин цахилгаан унтарсны дараа хүн оролцоогүйгээр сэргэх ёстой.
+
+**Docker өөрөө асна:**
+
+```bash
+sudo systemctl enable docker
+```
+
+Контейнерууд `restart: unless-stopped` тул Docker асмагц өөрсдөө босно —
+`cloudflared` мөн адил, өөрөөр хэлбэл интернэтийн хаяг ч сэргэнэ.
+
+**Ubuntu Desktop-ын унтах горимыг хаах.** Энэ бол хамгийн түгээмэл
+алдаа: Ubuntu Desktop цонхоо түгжсэний дараа машиныг унтууруулдаг тул
+түгээгч утаснаасаа хандахад систем "унтарсан" байдаг.
+
+```bash
+sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
+```
+
+Settings → Power дотор **Automatic Suspend: Off**, **Screen Blank: Never**
+болгоно. Дэлгэц унтарсан ч машин ажиллаж байх ёстой.
+
+**Автоматаар нэвтрэх** (сервер шиг ашиглах бол): Settings → Users →
+Automatic Login: On. Ингэснээр цахилгаан ирмэгц хүн ПИН оруулахгүйгээр
+систем бүрэн босно.
+
+### 5. Windows машинаас өгөгдлөө зөөх
+
+Хуучин машин дээр (PowerShell):
+
+```powershell
+.\backup-data.bat
+```
+
+`kolonk.dump` (+ байвал `kolonk-uploads.zip`) файлыг USB-ээр зөөнө.
+Ubuntu дээр:
+
+```bash
+./restore-data.sh kolonk.dump
+```
+
+> Хавсралтын архивыг Линукс дээр `kolonk-uploads.tgz` нэрээр хүлээж авдаг.
+> Windows-оос ирсэн `.zip`-ийг задлаад дахин `tar czf` хийх, эсвэл зургаа
+> алдахгүй бол алгасаж болно.
+
+### 6. Өдөр тутмын хэрэглээ
+
+| Зорилго | Команд |
+|---|---|
+| Шинэчлэлт татаж гаргах | `git pull && ./deploy.sh` |
+| Төлөв харах | `docker compose ps` |
+| Лог харах | `docker compose logs -f api-prod` |
+| Нөөцлөх | `./backup-data.sh ~/kolonk-backups` |
+| Зогсоох | `docker compose --profile prod --profile tunnel down` |
+
+**Шөнө бүр автоматаар нөөцлөх** (cron):
+
+```bash
+(crontab -l 2>/dev/null; echo "30 3 * * * cd ~/kolonk && ./backup-data.sh ~/kolonk-backups >> ~/kolonk-backup.log 2>&1") | crontab -
+```
+
+### Ubuntu дээрх түгээмэл алдаа
+
+| Алдаа | Шалтгаан → Шийдэл |
+|---|---|
+| `permission denied while trying to connect to the Docker daemon socket` | `docker` бүлэгт ороогүй эсвэл дахин нэвтрээгүй. → `sudo usermod -aG docker $USER`, дараа нь **гарч дахин нэвтэрнэ** |
+| `bash: ./deploy.sh: Permission denied` | Ажиллах эрх алга. → `chmod +x deploy.sh` |
+| `bash: ./deploy.sh: /usr/bin/env: bad interpreter` | Файл CRLF мөрийн төгсгөлтэй clone хийгдсэн. → `sed -i 's/\r$//' *.sh` |
+| Порт 80 завгүй (`address already in use`) | Ubuntu дээр Apache/nginx урьдчилж суусан байна. → `sudo systemctl disable --now apache2 nginx` |
+| Түгээгч утаснаасаа хандахад "холбогдохгүй" | Машин унтсан байна. → Дээрх 4-р алхмын `systemctl mask sleep.target ...` |
+
+
 ### Гар утаснаас (Android / iPhone) хандах
 
 Түгээгчид гар утаснаасаа ашиглах бол утас, компьютер хоёр **нэг Wi-Fi сүлжээнд**
