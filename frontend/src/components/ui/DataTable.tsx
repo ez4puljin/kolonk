@@ -86,8 +86,19 @@ export function DataTable<T>({
   }
 
   const primaryColumn = columns.find((column) => column.primary) ?? columns[0];
+  /*
+   * Үйлдлийн багана картан харагдацад ТУСДАА гарна.
+   *
+   * Өмнө нь бусад баганын хамт 2 баганат торны `truncate`-тай нүдэнд
+   * ордог байсан тул товчнууд 0px болж таслагдаж, гар утаснаас ямар ч
+   * хүснэгтийн үйлдэл (Засах, Идэвхгүй болгох гэх мэт) хийх боломжгүй
+   * байв. Мөн мөр дарагддаг хүснэгтэд бүх карт `<button>` болдог тул
+   * товч дотор товч үүсч, дотоод товч ажиллахгүй болдог байлаа.
+   */
+  const actionColumn = columns.find((column) => column.key === "actions");
   const mobileColumns = columns.filter(
-    (column) => column.key !== primaryColumn.key && !column.hideOnMobile,
+    (column) =>
+      column.key !== primaryColumn.key && column.key !== "actions" && !column.hideOnMobile,
   );
   const interactive = typeof onRowClick === "function";
 
@@ -174,18 +185,26 @@ export function DataTable<T>({
 
           const shell = `rounded-xl border border-line bg-white px-4 py-3.5 text-left ${rowClassName?.(row) ?? ""}`;
 
-          return interactive ? (
-            <button
-              key={rowKey(row)}
-              type="button"
-              onClick={() => onRowClick?.(row)}
-              className={`${shell} touch-target active:bg-surface-alt`}
-            >
-              {body}
-            </button>
-          ) : (
+          const actions = actionColumn ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
+              {actionColumn.render(row)}
+            </div>
+          ) : null;
+
+          return (
             <div key={rowKey(row)} className={shell}>
-              {body}
+              {interactive ? (
+                <button
+                  type="button"
+                  onClick={() => onRowClick?.(row)}
+                  className="touch-target w-full text-left active:bg-surface-alt"
+                >
+                  {body}
+                </button>
+              ) : (
+                body
+              )}
+              {actions}
             </div>
           );
         })}
