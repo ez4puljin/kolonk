@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
@@ -27,6 +27,82 @@ const SIZES: Record<ModalSize, string> = {
   full: "max-w-[96vw] h-[92vh]",
 };
 
+/* -------------------------------------------------------------------------- *
+ * Гар утасны BACK товч цонхыг хаана — аппаас гарахгүй.
+ *
+ * Android дээр back нь `popstate` өдөөнө. Апп үүнийг боловсруулдаггүй байсан
+ * тул хөтөч түүхээрээ буцаж, хаалтын цонх нээлттэй байхад back дарахад
+ * Chrome-оос бүрмөсөн гардаг байв.
+ *
+ * Цонх бүр өөрийн бичлэг түлхэх нь БОЛОХГҮЙ: `history.back()` асинхрон тул
+ * автомат шилжилт шиг хурдан хаагаад нээхэд түлхэлт, буцаалт хоёр давхцаж,
+ * хоцорсон back нь дөнгөж нээгдсэн цонхыг устгана. Иймд бүх үүрлэсэн цонхонд
+ * НЭГ хамгаалах бичлэг ашиглаж, дараалалыг энэ модуль дангаар удирдана —
+ * ямар ч үед нэгээс олон back замд явахгүй.
+ * -------------------------------------------------------------------------- */
+interface GuardEntry {
+  close: () => void;
+  dismissible: boolean;
+}
+
+const modalStack: GuardEntry[] = [];
+/** Түүхэнд хамгаалах бичлэг байгаа эсэх. */
+let guarded = false;
+/** Бидний дуудсан `history.back()` замд явж байгаа эсэх. */
+let pendingBack = false;
+let listening = false;
+
+function hasGuardState(): boolean {
+  const state = window.history.state as { kolonkModal?: boolean } | null;
+  return state?.kolonkModal === true;
+}
+
+function pushGuard(): void {
+  window.history.pushState({ kolonkModal: true }, "");
+  guarded = true;
+}
+
+function handlePop(): void {
+  if (pendingBack) {
+    // Өөрсдийн дуудсан back бууж, хамгаалах бичлэг устлаа.
+    pendingBack = false;
+    guarded = false;
+    // Буцаалт замд байх зуур цонх дахин нээгдсэн бол хамгаалалтаа сэргээнэ.
+    if (modalStack.length > 0) pushGuard();
+    return;
+  }
+  // Хэрэглэгч back дарж, хамгаалах бичлэгийг иджээ.
+  guarded = false;
+  const top = modalStack[modalStack.length - 1];
+  if (top && top.dismissible) {
+    modalStack.pop();
+    top.close();
+  }
+  // Доор нь өөр цонх үлдсэн бол дараагийн back түүнийг хаана — нэг нэгээр.
+  if (modalStack.length > 0) pushGuard();
+}
+
+function acquireGuard(entry: GuardEntry): void {
+  if (!listening) {
+    window.addEventListener("popstate", handlePop);
+    listening = true;
+  }
+  modalStack.push(entry);
+  if (!guarded && !pendingBack) pushGuard();
+}
+
+function releaseGuard(entry: GuardEntry): void {
+  const index = modalStack.indexOf(entry);
+  if (index === -1) return;
+  modalStack.splice(index, 1);
+  // Сүүлчийн цонх хаагдсан үед л бичлэгээ буцаана — эс бөгөөс түүхэнд хог
+  // үлдэж, дараагийн back юу ч хийхгүй өнгөрнө.
+  if (modalStack.length === 0 && guarded && !pendingBack && hasGuardState()) {
+    pendingBack = true;
+    window.history.back();
+  }
+}
+
 export function Modal({
   open,
   onClose,
@@ -38,13 +114,21 @@ export function Modal({
   dismissible = true,
   className = "",
 }: ModalProps) {
+  // `onClose` нь ихэвчлэн inline сум функц — render бүрд шинэ утгатай болно.
+  // Хэрэв үүнийг effect-ийн хамааралд оруулбал цонх нээлттэй хэвээр байхад
+  // effect дахин дахин ажиллаж, түүхийн бичлэг тасралтгүй нэмэгдэж устана.
+  // Иймд хамгийн сүүлийн утгыг ref-д хадгалж, effect-ийг зөвхөн нээлт/хаалтад
+  // хамааруулна.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     if (!open) return;
 
     const handleKey = (event: KeyboardEvent): void => {
       if (event.key === "Escape" && dismissible) {
         event.stopPropagation();
-        onClose();
+        onCloseRef.current();
       }
     };
     window.addEventListener("keydown", handleKey);
@@ -52,39 +136,15 @@ export function Modal({
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
-    /*
-     * Гар утасны BACK товч цонхыг хаана — аппаас гарахгүй.
-     *
-     * Android дээр back нь `popstate` өдөөдөг. Апп үүнийг боловсруулдаггүй
-     * байсан тул хөтөч түүхээрээ буцаж, түгээгч ээлжийн хаалтын цонх
-     * нээлттэй байхад back дарахад Chrome-оос бүрмөсөн гардаг байв.
-     *
-     * Цонх нээгдэхэд түүхэнд нэг бичлэг нэмж, back түүнийг "иднэ".
-     * Үүрлэсэн цонх (тоон гар wizard дотор) тус бүрдээ бичлэгтэй тул
-     * back нэг нэгээр нь хаана.
-     */
-    let closedByBack = false;
-    if (dismissible) {
-      window.history.pushState({ kolonkModal: true }, "");
-    }
-    const handlePop = (): void => {
-      if (!dismissible) return;
-      closedByBack = true;
-      onClose();
-    };
-    window.addEventListener("popstate", handlePop);
+    const entry: GuardEntry = { close: () => onCloseRef.current(), dismissible };
+    acquireGuard(entry);
 
     return () => {
       window.removeEventListener("keydown", handleKey);
-      window.removeEventListener("popstate", handlePop);
       document.body.style.overflow = previousOverflow;
-      // Цонх ӨӨР аргаар хаагдсан бол нэмсэн бичлэгээ буцаана — эс бөгөөс
-      // түүхэнд хог үлдэж, дараагийн back юу ч хийхгүй өнгөрнө.
-      if (dismissible && !closedByBack && window.history.state?.kolonkModal) {
-        window.history.back();
-      }
+      releaseGuard(entry);
     };
-  }, [open, onClose, dismissible]);
+  }, [open, dismissible]);
 
   if (!open || typeof document === "undefined") return null;
 
