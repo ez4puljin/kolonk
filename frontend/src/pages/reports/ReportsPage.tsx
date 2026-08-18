@@ -588,7 +588,7 @@ export function ReportsPage() {
           />
 
           {summary ? (
-            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 min-[520px]:grid-cols-2 xl:grid-cols-4">
               <StatBox label={t.sales.title} value={formatMNT(summary.totals.total)} tone="action" />
               <StatBox label={t.accounting.grossProfit} value={formatMNT(summary.totals.gross_profit)} tone="success" />
               <StatBox label={t.reports.litersSold} value={formatLiters(summary.totals.liters)} />
@@ -691,7 +691,7 @@ export function ReportsPage() {
       {tab === "fuel" ? (
         <div className="flex flex-col gap-4">
           {fuelQuery.data ? (
-            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 min-[520px]:grid-cols-2 xl:grid-cols-4">
               <StatBox label={t.reports.litersSold} value={formatLiters(fuelQuery.data.grade_totals.liters)} />
               <StatBox label={t.reports.revenue} value={formatMNT(fuelQuery.data.grade_totals.revenue)} tone="action" />
               <StatBox label={t.common.cost} value={formatMNT(fuelQuery.data.grade_totals.cogs)} />
@@ -775,7 +775,7 @@ export function ReportsPage() {
       {tab === "tankloss" ? (
         <div className="flex flex-col gap-4">
           {tankLossQuery.data ? (
-            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 min-[520px]:grid-cols-2 xl:grid-cols-4">
               <StatBox
                 label={t.shift.variance}
                 value={formatLiters(tankLossQuery.data.totals.liters)}

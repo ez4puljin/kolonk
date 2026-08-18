@@ -414,7 +414,7 @@ function StatementModal({ contractId, onClose }: { contractId: UUID | null; onCl
         </div>
       ) : data ? (
         <div className="flex flex-col gap-4">
-          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 min-[520px]:grid-cols-2 xl:grid-cols-4">
             <StatBox label={t.partners.openingBalance} value={formatMNT(data.opening_balance)} />
             <StatBox label={t.partners.salesTotal} value={formatMNT(data.sales_total)} tone="action" />
             <StatBox label={t.partners.paymentsTotal} value={formatMNT(data.payments_total)} tone="success" />
@@ -654,7 +654,7 @@ export function ApArPage() {
         <TabBar variant="underline" value={tab} onChange={setTab} items={TABS} />
       </PageHeader>
 
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 min-[520px]:grid-cols-2 xl:grid-cols-4">
         {BUCKET_LABELS.map((label, index) => (
           <StatBox
             key={label}

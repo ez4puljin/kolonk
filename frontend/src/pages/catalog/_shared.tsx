@@ -354,8 +354,11 @@ export function ToggleField({ label, value, onChange, hint, className = "" }: To
       className={`flex min-h-14 w-full items-center gap-4 rounded-xl border border-line-strong bg-white px-4 py-2.5 text-left transition-colors hover:bg-surface-alt ${className}`}
     >
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[15px] font-semibold text-ink">{label}</span>
-        {hint ? <span className="block truncate text-xs text-ink-soft">{hint}</span> : null}
+        {/* `truncate` ЗОРИУД алга: утсанд тохиргооны нэр, тайлбар нь
+            179px-д шахагдаж 30% нь л харагддаг байв — хэрэглэгч уг
+            унтраалга юу хийхийг мэдэх аргагүй болно. */}
+        <span className="block text-[15px] font-semibold text-ink">{label}</span>
+        {hint ? <span className="block text-xs text-ink-soft">{hint}</span> : null}
       </span>
       <span
         className={`flex h-8 w-14 shrink-0 items-center rounded-full p-1 transition-colors ${value ? "bg-success" : "bg-surface-sunken"}`}

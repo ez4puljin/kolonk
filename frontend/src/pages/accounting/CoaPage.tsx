@@ -189,7 +189,7 @@ export function CoaPage() {
                   <span className="num shrink-0 text-[15px] font-bold text-ink">{account.code}</span>
 
                   <span
-                    className={`min-w-0 flex-1 truncate text-[15px] ${
+                    className={`min-w-0 flex-1 text-[15px] ${
                       account.is_postable ? "text-ink" : "font-semibold text-ink-soft"
                     }`}
                   >

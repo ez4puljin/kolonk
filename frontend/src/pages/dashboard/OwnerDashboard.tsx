@@ -369,7 +369,7 @@ export function OwnerDashboard() {
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-base font-bold text-ink">{t.dashboard.pendingApprovals}</span>
-          <span className="block truncate text-sm text-ink-soft">
+          <span className="block text-sm text-ink-soft">
             {`${t.prices.title}: ${data.pending.price_changes} · ${t.refunds.title}: ${data.pending.refunds}`}
           </span>
         </span>

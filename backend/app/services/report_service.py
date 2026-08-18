@@ -1119,16 +1119,21 @@ async def fuel_mile_trend(
     }
 
 
-async def branch_shift_overview(db: AsyncSession) -> list[dict[str, Any]]:
-    """Салбар бүрийн НЭЭЛТТЭЙ түгээгчийн ээлж — самбарт харуулах хураангуй."""
+async def branch_shift_overview(
+    db: AsyncSession, branch_id: uuid.UUID | None = None
+) -> list[dict[str, Any]]:
+    """Салбар бүрийн НЭЭЛТТЭЙ түгээгчийн ээлж — самбарт харуулах хураангуй.
+
+    ``branch_id`` өгвөл зөвхөн тэр салбар. Салбартай хэрэглэгч (түгээгч,
+    салбарын менежер) хөрш салбарын ээлжийг харах ёсгүй.
+    """
     from app.models.branch import Branch
     from app.services.pricing_service import fuel_price_map
 
-    branches = (
-        await db.scalars(
-            select(Branch).where(Branch.is_active.is_(True)).order_by(Branch.sort_order, Branch.name)
-        )
-    ).all()
+    stmt = select(Branch).where(Branch.is_active.is_(True))
+    if branch_id is not None:
+        stmt = stmt.where(Branch.id == branch_id)
+    branches = (await db.scalars(stmt.order_by(Branch.sort_order, Branch.name))).all()
     open_shifts = (
         await db.scalars(
             select(Shift).where(Shift.status == ShiftStatus.OPEN).order_by(Shift.opened_at.desc())

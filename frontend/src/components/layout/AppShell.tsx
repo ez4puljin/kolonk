@@ -335,7 +335,11 @@ export function AppShell() {
 
         {/* Агуулга */}
         <main className="scroll-touch flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-surface">
-          <div className="flex min-h-full flex-1 flex-col px-4 pt-5 pb-28 sm:px-6 lg:pb-6">
+          {/* `flex-1` ЗОРИУД байхгүй: main бол flex багана тул flex-1 нь энэ
+              савыг main-ийн өндөр хүртэл ШАХДАГ. Агуулга түүнээс урт бол
+              доод `pb-28` савны дотор үлдэж, агуулга халин доод цэсний ард
+              оров. `min-h-full` өндрийг аль хэдийн баталгаажуулдаг. */}
+          <div className="flex min-h-full shrink-0 flex-col px-4 pt-5 pb-28 sm:px-6 lg:pb-6">
             <Suspense fallback={<PageFallback />}>
               <Outlet />
             </Suspense>

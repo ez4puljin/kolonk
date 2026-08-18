@@ -90,7 +90,9 @@ export function StatBox({
     </>
   );
 
-  const shell = `relative overflow-hidden rounded-xl border pl-6 pr-5 py-4 ${SHELL[tone]} ${className}`;
+  // Утсанд хэвтээ зайг хураана: 152px өргөнтэй хайрцагт 44px зай нь
+  // 9 оронтой төгрөгийн дүнг таслахад хүргэж байв.
+  const shell = `relative overflow-hidden rounded-xl border pl-4 pr-3 py-4 sm:pl-6 sm:pr-5 ${SHELL[tone]} ${className}`;
 
   if (interactive) {
     return (

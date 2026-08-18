@@ -53,7 +53,7 @@ export function ProgressBar({
     <div className={`flex flex-col gap-1.5 ${className}`}>
       {(label || valueLabel) && (
         <div className="flex items-baseline justify-between gap-3 text-sm">
-          {label ? <span className="truncate font-medium text-ink-soft">{label}</span> : <span />}
+          {label ? <span className="min-w-0 font-medium text-ink-soft">{label}</span> : <span />}
           {valueLabel ? <span className="num shrink-0 font-semibold text-ink">{valueLabel}</span> : null}
         </div>
       )}

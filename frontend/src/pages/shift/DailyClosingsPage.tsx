@@ -369,7 +369,7 @@ export function DailyClosingsPage() {
         <p className="text-[13px] text-ink-soft sm:text-sm">{t.dailyClosings.subtitle}</p>
       </header>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 min-[520px]:grid-cols-2 lg:grid-cols-4">
         <StatBox
           label={t.dailyClosings.totalShort}
           value={formatMNT(shortSum)}

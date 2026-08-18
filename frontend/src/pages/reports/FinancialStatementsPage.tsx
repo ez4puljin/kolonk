@@ -111,7 +111,7 @@ function StatementSection({
         <ul className="flex flex-col divide-y divide-line">
           {rows.map((row) => (
             <li key={row.code} className="flex min-h-11 items-center justify-between gap-3 py-1.5">
-              <span className="min-w-0 flex-1 truncate text-[15px] text-ink">
+              <span className="min-w-0 flex-1 text-[15px] text-ink">
                 <span className="num mr-2 text-ink-faint">{row.code}</span>
                 {row.name_mn}
               </span>
@@ -284,7 +284,7 @@ function BalanceColumn({ title, rows, total }: { title: string; rows: readonly B
         <ul className="flex flex-col divide-y divide-line">
           {rows.map((row) => (
             <li key={row.code} className="flex min-h-11 items-center justify-between gap-3 py-1.5">
-              <span className="min-w-0 flex-1 truncate text-[15px] text-ink">
+              <span className="min-w-0 flex-1 text-[15px] text-ink">
                 <span className="num mr-2 text-ink-faint">{row.code}</span>
                 {row.name_mn}
               </span>
