@@ -61,6 +61,18 @@ import { useAuthStore } from "../../stores/auth";
 import { useUiStore } from "../../stores/ui";
 import { FieldLabel, NumberField, PickerField, TextField } from "../catalog/_shared";
 
+/**
+ * Ээлж нээгдэхээс ӨМНӨ дарсан зураг.
+ *
+ * Тэр үед shiftId хараахан байхгүй тул серверт шууд илгээх боломжгүй.
+ * `refId` нь аль хошууны миль болохыг хадгална — үүнгүйгээр ээлж
+ * нээгдсэний дараа бүх зураг ялгаагүй нэг дор хавсрагдана.
+ */
+interface QueuedPhoto {
+  file: File;
+  refId: UUID | null;
+}
+
 /** Литрийн утгыг байгаагаар нь (3 орон) хадгална. */
 function litersOf(value: string | null | undefined): LitersStr {
   const raw = (value ?? "").trim();
@@ -82,7 +94,7 @@ function PhotoButton({
   /** Тодорхой бичлэгт (жишээ нь нэг хошууны мильд) хамааруулах id. */
   refId?: UUID | null;
   /** Ээлж хараахан нээгдээгүй үед файлуудыг энд дарааллуулна. */
-  queue?: React.MutableRefObject<File[]>;
+  queue?: React.MutableRefObject<QueuedPhoto[]>;
   /** Зөвхөн камерын дүрстэй жижиг товч (мөр бүрийн хажууд). */
   compact?: boolean;
 }) {
@@ -112,7 +124,7 @@ function PhotoButton({
           event.target.value = "";
           if (files.length === 0) return;
           if (shiftId === null) {
-            queue?.current.push(...files);
+            queue?.current.push(...files.map((file) => ({ file, refId })));
             setQueued((n) => n + files.length);
             return;
           }
@@ -396,7 +408,7 @@ export function AttendantShiftPage() {
   // ---- Нээлтийн төлөв ----
   const [openCash, setOpenCash] = useState("");
   const [openReadings, setOpenReadings] = useState<Record<UUID, string>>({});
-  const openPhotoQueue = useRef<File[]>([]);
+  const openPhotoQueue = useRef<QueuedPhoto[]>([]);
 
   useEffect(() => {
     if (nozzles.length === 0) return;
@@ -456,8 +468,13 @@ export function AttendantShiftPage() {
         onSuccess: (created) => {
           toastSuccess(t.attendant.openedToast);
           // Дараалалд орсон зургуудыг шинэ ээлжид хавсаргана.
-          for (const file of openPhotoQueue.current.splice(0)) {
-            uploadPhoto.mutate({ shiftId: created.shift.id, kind: "open", file });
+          for (const item of openPhotoQueue.current.splice(0)) {
+            uploadPhoto.mutate({
+              shiftId: created.shift.id,
+              kind: "open",
+              file: item.file,
+              refId: item.refId,
+            });
           }
         },
         onError: (cause) => toastError(errorMessage(cause)),
@@ -764,16 +781,27 @@ export function AttendantShiftPage() {
                   <span className="min-w-0 flex-1 text-[15px] font-semibold text-ink">
                     {pump.name} · №{nozzle.nozzle_number} {nozzle.fuel_name}
                   </span>
-                  <NumberField
-                    name={`open-mile-${nozzle.id}`}
-                    label=""
-                    value={openReadings[nozzle.id] ?? ""}
-                    onChange={(value) =>
-                      setOpenReadings((prev) => ({ ...prev, [nozzle.id]: value }))
-                    }
-                    maxDecimals={3}
-                    className="w-full sm:w-52"
-                  />
+                  {/* Хошуу бүрийн миль дээр тусад нь зураг — маргаан гарвал
+                      аль хошууны заалт болох нь тодорхой байх ёстой. */}
+                  <div className="flex items-center gap-2">
+                    <NumberField
+                      name={`open-mile-${nozzle.id}`}
+                      label=""
+                      value={openReadings[nozzle.id] ?? ""}
+                      onChange={(value) =>
+                        setOpenReadings((prev) => ({ ...prev, [nozzle.id]: value }))
+                      }
+                      maxDecimals={3}
+                      className="min-w-0 flex-1 sm:w-52 sm:flex-none"
+                    />
+                    <PhotoButton
+                      shiftId={null}
+                      kind="open"
+                      refId={nozzle.id}
+                      queue={openPhotoQueue}
+                      compact
+                    />
+                  </div>
                 </div>
               ))}
             </div>
