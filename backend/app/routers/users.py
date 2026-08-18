@@ -183,10 +183,10 @@ async def _assert_username_free(db: AsyncSession, username: str, exclude_id: uui
 
 
 async def _assert_branch_change_ok(db: AsyncSession, user: User, new_branch) -> None:
-    """Түгээгчийн салбарыг солиход одоогийн салбарыг нь сануулна.
+    """Түгээгчийн салбар солих боломжтой эсэх.
 
     Нээлттэй ээлжтэй байхад салбар солих нь ээлжийн тайланг хоёр салбарт
-    хуваана — тиймээс хориглоно.
+    хуваана — тиймээс хориглоно. Ээлж хаалттай үед чөлөөтэй шилжүүлнэ.
     """
     if new_branch is None or user.branch_id == new_branch.id:
         return
@@ -205,17 +205,13 @@ async def _assert_branch_change_ok(db: AsyncSession, user: User, new_branch) -> 
             detail="Нээлттэй ээлжтэй байхад салбар солих боломжгүй. Эхлээд ээлжээ хаана уу",
         )
 
-    if user.branch_id:
-        current = await db.get(Branch, user.branch_id)
-        if current is not None and current.id != new_branch.id:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=(
-                    f"'{user.full_name}' одоо '{current.name}' салбарт бүртгэлтэй байна. "
-                    f"'{new_branch.name}' руу шилжүүлэхийн тулд эхлээд одоогийн салбараас нь "
-                    f"чөлөөлнө үү (эсвэл салбарыг хоосон болгоод дахин сонгоно уу)."
-                ),
-            )
+    # Өмнө нь "эхлээд одоогийн салбараас нь чөлөөлнө үү" гэж хориглож байсан.
+    # Тэр зөвлөмж ХҮРЭХ АРГАГҮЙ байв: PATCH нь `branch_id: null`-ыг талбар
+    # огт өгөөгүйгээс ялгаж чаддаггүй, ялгасан ч түгээгчид салбар заавал
+    # шаардлагатай тул хоосон болгож болдоггүй. Үр дүнд нь буруу салбарт
+    # бүртгэгдсэн түгээгчийг ХЭЗЭЭ Ч зөөж чаддаггүй байлаа.
+    #
+    # Бодит эрсдэл нь дээрх нээлттэй ээлж — тэр шалгуур хэвээр үлдэнэ.
 
 
 async def _active_owner_count(db: AsyncSession) -> int:
