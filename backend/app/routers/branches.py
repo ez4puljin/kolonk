@@ -43,6 +43,8 @@ class BranchUpdate(BaseModel):
     phone: str | None = None
     is_active: bool | None = None
     sort_order: int | None = None
+    require_open_mile: bool | None = None
+    require_open_photo: bool | None = None
 
 
 class PaymentMethodRow(BaseModel):
@@ -77,6 +79,10 @@ class BranchOut(BaseModel):
     user_count: int = 0
     #: Ээлж нээгдсэн эсэх — салбар идэвхгүй болгохын өмнө шалгана.
     open_shifts: int = 0
+    #: Ээлж нээхэд хошууны миль заавал шаардах эсэх.
+    require_open_mile: bool = True
+    #: Ээлж нээхэд зураг заавал шаардах эсэх.
+    require_open_photo: bool = True
 
 
 def _clean(value: str | None) -> str | None:
@@ -116,6 +122,8 @@ async def _with_counts(db: AsyncSession, rows: list[Branch]) -> list[BranchOut]:
             sort_order=b.sort_order,
             user_count=users.get(b.id, 0),
             open_shifts=shifts.get(b.id, 0),
+            require_open_mile=b.require_open_mile,
+            require_open_photo=b.require_open_photo,
         )
         for b in rows
     ]
@@ -176,6 +184,11 @@ async def update_branch(
         raise HTTPException(status_code=404, detail="Салбар олдсонгүй")
 
     before = {"code": branch.code, "name": branch.name, "is_active": branch.is_active}
+
+    if payload.require_open_mile is not None:
+        branch.require_open_mile = payload.require_open_mile
+    if payload.require_open_photo is not None:
+        branch.require_open_photo = payload.require_open_photo
 
     if payload.code is not None:
         code = _clean(payload.code)

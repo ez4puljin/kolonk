@@ -57,6 +57,7 @@ import { usePermission } from "../../hooks/usePermission";
 import { t } from "../../i18n/mn";
 import { dAdd, dMul, dSub, dSum, dToQty } from "../../lib/decimal";
 import { formatDateTime, formatLiters, formatMNT, formatNumber } from "../../lib/format";
+import { useBranches } from "../../api/queries/branches";
 import { useAuthStore } from "../../stores/auth";
 import { useUiStore } from "../../stores/ui";
 import { FieldLabel, NumberField, PickerField, TextField } from "../catalog/_shared";
@@ -348,6 +349,16 @@ export function AttendantShiftPage() {
   const toastError = useUiStore((state) => state.toastError);
   const toastSuccess = useUiStore((state) => state.toastSuccess);
   const { can } = usePermission();
+  const branchId = useAuthStore((state) => state.user?.branch?.id ?? null);
+  const branchesQuery = useBranches();
+  /*
+   * Ээлж нээх журам салбар бүрд өөр (Салбарын тохиргоо → Ээлж нээх журам).
+   * Тохиргоо ачаалагдаж дуустал ХАТУУ талыг нь барина: сулласан гэж
+   * андуурч шаардлагагүй ээлж нээгдэхээс сэргийлнэ.
+   */
+  const branchRules = (branchesQuery.data ?? []).find((b) => b.id === branchId);
+  const requireMile = branchRules?.require_open_mile ?? true;
+  const requirePhoto = branchRules?.require_open_photo ?? true;
   const currentUserId = useAuthStore((state) => state.user?.id ?? null);
 
   const { data: current, isLoading: shiftLoading } = useCurrentShift();
@@ -415,6 +426,16 @@ export function AttendantShiftPage() {
   // ---- Нээлтийн төлөв ----
   const [openCash, setOpenCash] = useState("");
   const [openReadings, setOpenReadings] = useState<Record<UUID, string>>({});
+  /*
+   * Түгээгч тухайн хошууны мильд ГАРААР хүрсэн эсэх.
+   *
+   * Талбар нь хошууны хадгалсан заалтаар урьдчилж бөглөгддөг (түгээгч юу
+   * байх ёстойг хараад зөрүүг нь мэдэхийн тулд). Тиймээс «утга оруулсан
+   * эсэх»-ээр шалгавал шалгуур ҮРГЭЛЖ хангагдаж, түгээгч тоолуур руугаа
+   * харалгүй ээлж нээх боломжтой болно. Тоон гараар баталсан эсэхийг нь
+   * тусад нь тэмдэглэж, түүгээр шалгана.
+   */
+  const [mileConfirmed, setMileConfirmed] = useState<Record<string, boolean>>({});
   const openPhotoQueue = useRef<QueuedPhoto[]>([]);
   /** Ээлж нээхийн өмнө дарсан зургийн тоо — түлхүүр нь хошууны id, бэлэн
       мөнгөнийх нь "cash". Дараалал нь ref тул дахин зурагдуулахгүй. */
@@ -769,9 +790,11 @@ export function AttendantShiftPage() {
      * Тоо хэмжээ 0 байж БОЛНО (шинэ хошуу, касс хоосон) — шалгуур нь
      * "утга оруулсан эсэх" болохоос "0-ээс их эсэх" биш.
      */
-    const cashReady = openCash.trim() !== "" && (openPhotos.cash ?? 0) > 0;
+    const cashReady =
+      openCash.trim() !== "" && (!requirePhoto || (openPhotos.cash ?? 0) > 0);
     const nozzleReady = (id: string): boolean =>
-      (openReadings[id] ?? "").trim() !== "" && (openPhotos[id] ?? 0) > 0;
+      (!requireMile || (mileConfirmed[id] === true && (openReadings[id] ?? "").trim() !== "")) &&
+      (!requirePhoto || (openPhotos[id] ?? 0) > 0);
     const readyCount = nozzles.filter(({ nozzle }) => nozzleReady(nozzle.id)).length;
     const canOpen = cashReady && nozzles.length > 0 && readyCount === nozzles.length;
 
@@ -804,7 +827,7 @@ export function AttendantShiftPage() {
                 />
               </div>
               <p className={cashReady ? "text-sm font-semibold text-success-dark" : "text-sm text-ink-soft"}>
-                {cashReady ? t.attendant.ready : t.attendant.photoRequired}
+                {cashReady ? t.attendant.ready : requirePhoto ? t.attendant.photoRequired : t.attendant.cashRequired}
               </p>
             </div>
           </Card>
@@ -837,9 +860,10 @@ export function AttendantShiftPage() {
                       name={`open-mile-${nozzle.id}`}
                       label=""
                       value={openReadings[nozzle.id] ?? ""}
-                      onChange={(value) =>
-                        setOpenReadings((prev) => ({ ...prev, [nozzle.id]: value }))
-                      }
+                      onChange={(value) => {
+                        setOpenReadings((prev) => ({ ...prev, [nozzle.id]: value }));
+                        setMileConfirmed((prev) => ({ ...prev, [nozzle.id]: true }));
+                      }}
                       maxDecimals={3}
                       className="min-w-0 flex-1 sm:w-52 sm:flex-none"
                     />
@@ -867,10 +891,14 @@ export function AttendantShiftPage() {
                 түгээгч яагаад дарагдахгүй байгааг ойлгохгүй. */}
             {!canOpen ? (
               <p className="text-sm text-ink-soft lg:text-right">
-                {t.attendant.openBlocked}
-                <span className="num ml-2 font-semibold text-ink">
-                  {readyCount}/{nozzles.length} {t.attendant.openProgress}
-                </span>
+                {requireMile || requirePhoto
+                  ? t.attendant.openBlocked
+                  : t.attendant.openNeedsCash}
+                {requireMile || requirePhoto ? (
+                  <span className="num ml-2 font-semibold text-ink">
+                    {readyCount}/{nozzles.length} {t.attendant.openProgress}
+                  </span>
+                ) : null}
               </p>
             ) : null}
             <Button

@@ -6,7 +6,7 @@ v1-д нэг салбар ("Төв салбар") seed-ээр үүсэж, бүх
 
 import uuid
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -25,3 +25,13 @@ class Branch(UUIDPKMixin, TimestampMixin, Base):
     manager_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id"))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # --- Ээлж нээх журам (салбар бүр өөр байж болно) ---
+    #: Хошуу бүрийн миль заавал бүртгэгдсэн байх ёстой эсэх.
+    require_open_mile: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true"), nullable=False
+    )
+    #: Миль, бэлэн мөнгөнд зураг заавал хавсаргах эсэх.
+    require_open_photo: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true"), nullable=False
+    )

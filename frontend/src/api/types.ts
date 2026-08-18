@@ -1162,6 +1162,10 @@ export interface Branch {
   sort_order: number;
   user_count: number;
   open_shifts: number;
+  /** Ээлж нээхэд хошууны миль заавал бүртгэх эсэх. */
+  require_open_mile: boolean;
+  /** Ээлж нээхэд зураг заавал хавсаргах эсэх. */
+  require_open_photo: boolean;
 }
 
 /** Салбарт тухайн төлбөрийн хэрэгсэл идэвхтэй эсэх. */
@@ -1181,6 +1185,8 @@ export interface BranchCreate {
   phone?: string | null;
   is_active?: boolean;
   sort_order?: number;
+  require_open_mile?: boolean;
+  require_open_photo?: boolean;
 }
 
 export type BranchUpdate = Partial<BranchCreate>;

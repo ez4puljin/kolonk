@@ -141,6 +141,8 @@ export function BranchSetupPage() {
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
   const [active, setActive] = useState(true);
+  const [requireMile, setRequireMile] = useState(true);
+  const [requirePhoto, setRequirePhoto] = useState(true);
 
   useEffect(() => {
     if (!branch) return;
@@ -148,6 +150,8 @@ export function BranchSetupPage() {
     setAddress(branch.address ?? "");
     setPhone(branch.phone ?? "");
     setActive(branch.is_active);
+    setRequireMile(branch.require_open_mile);
+    setRequirePhoto(branch.require_open_photo);
   }, [branch]);
 
   const saveGeneral = (): void => {
@@ -158,6 +162,8 @@ export function BranchSetupPage() {
         address: address.trim() || null,
         phone: phone.trim() || null,
         is_active: active,
+        require_open_mile: requireMile,
+        require_open_photo: requirePhoto,
       },
       {
         onSuccess: () => toastSuccess(t.common.saved),
@@ -550,6 +556,25 @@ export function BranchSetupPage() {
               <TextField label={t.branches.address} value={address} onChange={setAddress} />
             </div>
             <ToggleField label={t.branches.isActive} value={active} onChange={setActive} />
+          </div>
+
+          {/* Ээлж нээх журам — станц бүр өөр байдаг тул салбараар тохируулна. */}
+          <div className="mt-5 flex flex-col gap-3 border-t border-line pt-5">
+            <h3 className="text-sm font-bold tracking-wide text-ink-soft uppercase">
+              {t.branches.shiftRules}
+            </h3>
+            <ToggleField
+              label={t.branches.requireMile}
+              hint={t.branches.requireMileHint}
+              value={requireMile}
+              onChange={setRequireMile}
+            />
+            <ToggleField
+              label={t.branches.requirePhoto}
+              hint={t.branches.requirePhotoHint}
+              value={requirePhoto}
+              onChange={setRequirePhoto}
+            />
           </div>
         </Card>
       ) : null}
