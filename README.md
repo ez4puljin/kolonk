@@ -198,12 +198,23 @@ docker compose --profile prod up -d --build
 ### 1. Docker суулгах
 
 Docker **Desktop биш, Engine** суулгана (Desktop нь Линукс дээр илүүц
-виртуал машин үүсгэдэг). Ubuntu-гийн агуулахын `docker.io` биш, Docker-ын
-албан ёсны агуулахаас авбал compose plugin хамт ирнэ:
+виртуал машин үүсгэдэг).
+
+Ubuntu Desktop дээр `curl`, `git` хоёр анхнаасаа суудаггүй тул эхлээд:
+
+```bash
+sudo apt update && sudo apt install -y curl git
+```
+
+Дараа нь Docker-ын албан ёсны скриптээр суулгана (compose plugin хамт ирнэ):
 
 ```bash
 curl -fsSL https://get.docker.com | sudo sh
 ```
+
+> `curl` суулгахыг хүсэхгүй бол `wget -qO- https://get.docker.com | sudo sh`,
+> эсвэл Ubuntu-гийн багцаас `sudo apt install -y docker.io docker-compose-v2`
+> — сүүлийнх нь илүү энгийн ч хувилбар нь арай хуучин байдаг.
 
 Дараа нь өөрийгөө `docker` бүлэгт нэмнэ (эс бөгөөс команд бүрд `sudo`
 бичих болно):
@@ -318,6 +329,7 @@ Ubuntu дээр:
 
 | Алдаа | Шалтгаан → Шийдэл |
 |---|---|
+| `curl: command not found` | Ubuntu Desktop дээр curl анхнаасаа байдаггүй. → `sudo apt update && sudo apt install -y curl git` |
 | `permission denied while trying to connect to the Docker daemon socket` | `docker` бүлэгт ороогүй эсвэл дахин нэвтрээгүй. → `sudo usermod -aG docker $USER`, дараа нь **гарч дахин нэвтэрнэ** |
 | `bash: ./deploy.sh: Permission denied` | Ажиллах эрх алга. → `chmod +x deploy.sh` |
 | `bash: ./deploy.sh: /usr/bin/env: bad interpreter` | Файл CRLF мөрийн төгсгөлтэй clone хийгдсэн. → `sed -i 's/\r$//' *.sh` |
