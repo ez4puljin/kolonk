@@ -90,6 +90,7 @@ function PhotoButton({
   queue,
   compact = false,
   onCountChange,
+  onAdded,
 }: {
   shiftId: UUID | null;
   kind: string;
@@ -101,6 +102,8 @@ function PhotoButton({
   compact?: boolean;
   /** Зургийн тоо өөрчлөгдөхөд дуудагдана — эцэг нь бэлэн байдлыг мэдэхэд. */
   onCountChange?: (count: number) => void;
+  /** Зураг амжилттай нэмэгдэх бүрд — дараагийн талбар руу шилжихэд. */
+  onAdded?: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const upload = useUploadShiftPhotoMutation();
@@ -134,13 +137,17 @@ function PhotoButton({
               onCountChange?.(next);
               return next;
             });
+            onAdded?.();
             return;
           }
           for (const file of files) {
             upload.mutate(
               { shiftId, kind, file, refId },
               {
-                onSuccess: () => toastSuccess(`1 ${t.attendant.photoUploaded}`),
+                onSuccess: () => {
+                  toastSuccess(`1 ${t.attendant.photoUploaded}`);
+                  onAdded?.();
+                },
                 onError: (cause) => toastError(errorMessage(cause)),
               },
             );
@@ -436,6 +443,38 @@ export function AttendantShiftPage() {
    * тусад нь тэмдэглэж, түүгээр шалгана.
    */
   const [mileConfirmed, setMileConfirmed] = useState<Record<string, boolean>>({});
+  const openNumPad = useUiStore((state) => state.openNumPad);
+  const { data: shiftFiles } = useShiftAttachments(shiftId);
+
+  /** Хаалтын үед зураг шууд серверт очдог тул тоог хавсралтаас уншина. */
+  const closePhotoCount = (nozzleId: string): number =>
+    (shiftFiles ?? []).filter((a) => a.kind === "close" && a.ref_id === nozzleId).length;
+
+  /*
+   * Мөр бүрдмэгц ДАРААГИЙН хошууны тоон гарыг нээнэ.
+   *
+   * Түгээгч хошуу болгонд миль бичээд зураг дарах давтагдсан ажилтай тул
+   * мөр бүрийн дараа талбар рүү нь гараар хүрэх нь удаан. Бүрдсэн даруйд
+   * дараагийнх нь өөрөө нээгдэнэ.
+   */
+  const jumpToNextMile = (prefix: string, fromId: string, values: Record<string, string>): void => {
+    const index = nozzles.findIndex(({ nozzle }) => nozzle.id === fromId);
+    const next = nozzles[index + 1];
+    if (!next) return;
+    /*
+     * ХОЙШЛУУЛЖ нээнэ. NumberField-ийн onSubmit нь эхлээд `onChange`-ийг
+     * дуудаад ДАРАА нь `closeNumPad()` хийдэг — шууд нээвэл тэр хаалт
+     * шинэ цонхыг маань тэр дор нь хааж орхино.
+     */
+    setTimeout(() => {
+      openNumPad({
+        target: prefix + next.nozzle.id,
+        title: `${next.pump.name} · №${next.nozzle.nozzle_number} ${next.nozzle.fuel_name}`,
+        value: values[next.nozzle.id] ?? "",
+        allowDecimal: true,
+      });
+    }, 0);
+  };
   const openPhotoQueue = useRef<QueuedPhoto[]>([]);
   /** Ээлж нээхийн өмнө дарсан зургийн тоо — түлхүүр нь хошууны id, бэлэн
       мөнгөнийх нь "cash". Дараалал нь ref тул дахин зурагдуулахгүй. */
@@ -887,6 +926,14 @@ export function AttendantShiftPage() {
                       onChange={(value) => {
                         setOpenReadings((prev) => ({ ...prev, [nozzle.id]: value }));
                         setMileConfirmed((prev) => ({ ...prev, [nozzle.id]: true }));
+                        // Зураг нь аль хэдийн байвал (эсвэл шаардлагагүй бол) мөр
+                        // бүрдэж дуусна — дараагийн хошуу руу шилжинэ.
+                        if (!requirePhoto || (openPhotos[nozzle.id] ?? 0) > 0) {
+                          jumpToNextMile("open-mile-", nozzle.id, {
+                            ...openReadings,
+                            [nozzle.id]: value,
+                          });
+                        }
                       }}
                       maxDecimals={3}
                       className="min-w-0 flex-1 sm:w-52 sm:flex-none"
@@ -898,6 +945,11 @@ export function AttendantShiftPage() {
                       queue={openPhotoQueue}
                       compact
                       onCountChange={countPhoto(nozzle.id)}
+                      onAdded={() => {
+                        if (!requireMile || mileConfirmed[nozzle.id] === true) {
+                          jumpToNextMile("open-mile-", nozzle.id, openReadings);
+                        }
+                      }}
                     />
                   </div>
                 </div>
@@ -1115,13 +1167,29 @@ export function AttendantShiftPage() {
                       name={`close-mile-${nozzle.id}`}
                       label=""
                       value={closeReadings[nozzle.id] ?? ""}
-                      onChange={(value) =>
-                        setCloseReadings((prev) => ({ ...prev, [nozzle.id]: value }))
-                      }
+                      onChange={(value) => {
+                        setCloseReadings((prev) => ({ ...prev, [nozzle.id]: value }));
+                        if (!requirePhoto || closePhotoCount(nozzle.id) > 0) {
+                          jumpToNextMile("close-mile-", nozzle.id, {
+                            ...closeReadings,
+                            [nozzle.id]: value,
+                          });
+                        }
+                      }}
                       maxDecimals={3}
                       className="min-w-0 flex-1 sm:w-52 sm:flex-none"
                     />
-                    <PhotoButton shiftId={shiftId} kind="close" refId={nozzle.id} compact />
+                    <PhotoButton
+                      shiftId={shiftId}
+                      kind="close"
+                      refId={nozzle.id}
+                      compact
+                      onAdded={() => {
+                        if ((closeReadings[nozzle.id] ?? "").trim() !== "") {
+                          jumpToNextMile("close-mile-", nozzle.id, closeReadings);
+                        }
+                      }}
+                    />
                   </div>
                 </div>
               ))}
