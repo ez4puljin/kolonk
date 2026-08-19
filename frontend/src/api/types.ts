@@ -469,6 +469,10 @@ export interface ShiftNozzleRow {
   nozzle_id: UUID;
   nozzle_number: number;
   fuel_name: string;
+  /** Өмнөх ээлжийн хаалтын миль — нээх мөчид хөлдөөсөн. */
+  prev_close_reading: LitersStr | null;
+  /** Нээлт − өмнөх хаалт. 0-ээс өөр бол мэдэгдэлгүй түгээлт эсвэл буруу бичилт. */
+  mile_gap_l: LitersStr | null;
   opening_reading: LitersStr | null;
   closing_reading: LitersStr | null;
   reading_delta_l: LitersStr | null;
@@ -2540,6 +2544,10 @@ export interface DailyClosingRow {
   declared_cash: MoneyStr | null;
   expected_cash: MoneyStr | null;
   cash_over_short: MoneyStr | null;
+  /** Милийн залгамжийн зөрүү — нээлт vs өмнөх хаалтын нийлбэр (0 байх ёстой). */
+  mile_gap_l: LitersStr;
+  /** Хэдэн хошуу дээр зөрсөн. */
+  mile_gap_nozzles: number;
   attendant_id: UUID | null;
   branch_id: UUID | null;
   branch_name: string;

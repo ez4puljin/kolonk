@@ -30,12 +30,60 @@ import { StatBox } from "../../components/ui/StatBox";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { usePermission } from "../../hooks/usePermission";
 import { t } from "../../i18n/mn";
-import { dSub, dSum, dToQty } from "../../lib/decimal";
-import { formatMNT } from "../../lib/format";
+import { dAbs, dIsZero, dSub, dSum, dToQty } from "../../lib/decimal";
+import { formatLiters, formatMNT } from "../../lib/format";
 import { useUiStore } from "../../stores/ui";
 import { NumberField, PickerField, TextField } from "../catalog/_shared";
 
 type StatusFilter = "" | "approved" | "pending";
+
+/** Хөл дүрийн зохиомол мөрийн түлхүүр — жинхэнэ ээлжийн id-тэй давхцахгүй. */
+const TOTALS_KEY = "__totals__";
+
+/**
+ * Хүснэгтийн мөрүүдийн доор хөл дүн нэмнэ.
+ *
+ * Тусад нь блок болгож бичвэл багана бүртэй эгнэхгүй тул нягтлан аль дүн
+ * аль баганых болохыг нүдээрээ тааруулах хэрэгтэй болно. Иймд жинхэнэ мөр
+ * болгож нэмээд өнгөөр нь ялгана.
+ */
+function withTotalsRow(rows: readonly DailyClosingRow[]): DailyClosingRow[] {
+  if (rows.length === 0) return [...rows];
+  const sumOf = (pick: (row: DailyClosingRow) => string | null): string =>
+    dSum(rows.map((row) => pick(row) ?? "0"));
+  return [
+    ...rows,
+    {
+      shift_id: TOTALS_KEY,
+      shift_number: 0,
+      date: "",
+      attendant: "",
+      opening_cash: sumOf((row) => row.opening_cash),
+      fuel_total: sumOf((row) => row.fuel_total),
+      credit_total: sumOf((row) => row.credit_total),
+      oil_total: sumOf((row) => row.oil_total),
+      settlement_total: sumOf((row) => row.settlement_total),
+      transfer_total: sumOf((row) => row.transfer_total),
+      declared_cash: sumOf((row) => row.declared_cash),
+      expected_cash: sumOf((row) => row.expected_cash),
+      cash_over_short: sumOf((row) => row.cash_over_short),
+      // Милийн зөрүүг АБСОЛЮТ дүнгээр нэмнэ: нэг ээлж +10 л, нөгөө нь −10 л
+      // байхад тэмдэгтэй нийлбэр 0 гарч, хоёр зөрчил хоёулаа нуугдана.
+      mile_gap_l: dSum(rows.map((row) => dAbs(row.mile_gap_l ?? "0"))),
+      mile_gap_nozzles: rows.reduce((acc, row) => acc + (row.mile_gap_nozzles ?? 0), 0),
+      attendant_id: null,
+      branch_id: null,
+      branch_name: "",
+      approved: false,
+      approved_at: null,
+      approved_by_name: "",
+      approval_note: null,
+      note: null,
+    },
+  ];
+}
+
+const isTotals = (row: DailyClosingRow): boolean => row.shift_id === TOTALS_KEY;
 
 function todayIso(): string {
   const now = new Date();
@@ -233,19 +281,31 @@ export function DailyClosingsPage() {
     {
       key: "date",
       header: t.dailyClosings.date,
-      render: (row) => <span className="num">{row.date}</span>,
+      render: (row) =>
+        isTotals(row) ? (
+          // Утсанд карт болох тул гарчиг нь `attendant` багана — давхар
+          // бичихгүйн тулд энд зөвхөн ширээний дэлгэцэд гаргана.
+          <span className="hidden font-black text-ink md:inline">{t.dailyClosings.grandTotal}</span>
+        ) : (
+          <span className="num">{row.date}</span>
+        ),
       width: "7rem",
     },
     {
       key: "branch",
       header: t.dailyClosings.branch,
-      render: (row) => row.branch_name || "—",
+      render: (row) => (isTotals(row) ? "" : row.branch_name || "—"),
       hideOnMobile: true,
     },
     {
       key: "attendant",
       header: t.dailyClosings.attendant,
-      render: (row) => row.attendant || "—",
+      render: (row) =>
+        isTotals(row) ? (
+          <span className="font-black text-ink md:hidden">{t.dailyClosings.grandTotal}</span>
+        ) : (
+          row.attendant || "—"
+        ),
       primary: true,
     },
     {
@@ -288,6 +348,24 @@ export function DailyClosingsPage() {
       hideOnMobile: true,
     },
     {
+      // Миль хуримтлагдсан заалт тул өмнөх хаалттай ЯГ тэнцүү байх ёстой.
+      key: "mile_gap",
+      header: t.dailyClosings.mileGap,
+      render: (row) => {
+        if (dIsZero(row.mile_gap_l ?? "0")) {
+          return <span className="text-ink-faint">0</span>;
+        }
+        return (
+          <span className="font-bold text-warning-dark">
+            {dToQty(row.mile_gap_l) > 0 ? "+" : ""}
+            {formatLiters(row.mile_gap_l, 3)}
+          </span>
+        );
+      },
+      align: "right",
+      numeric: true,
+    },
+    {
       key: "over_short",
       header: t.dailyClosings.overShort,
       render: (row) => {
@@ -304,7 +382,7 @@ export function DailyClosingsPage() {
       key: "status",
       header: t.dailyClosings.status,
       render: (row) =>
-        row.approved ? (
+        isTotals(row) ? null : row.approved ? (
           <StatusBadge
             dot
             tone="success"
@@ -321,7 +399,8 @@ export function DailyClosingsPage() {
     columns.push({
       key: "actions",
       header: "",
-      render: (row) => (
+      render: (row) =>
+        isTotals(row) ? null : (
         <div
           className="flex justify-end gap-2"
           onClick={(event) => event.stopPropagation()}
@@ -361,6 +440,8 @@ export function DailyClosingsPage() {
       align: "right",
     });
   }
+
+  const tableRows = useMemo(() => withTotalsRow(rows), [rows]);
 
   return (
     <div className="flex flex-col gap-4 sm:gap-5">
@@ -434,11 +515,16 @@ export function DailyClosingsPage() {
 
       <DataTable
         columns={columns}
-        rows={rows}
+        rows={tableRows}
         rowKey={(row) => row.shift_id}
         loading={listQuery.isLoading}
         emptyTitle={t.dailyClosings.empty}
-        onRowClick={(row) => navigate(`/shift/report/${row.shift_id}`)}
+        rowClassName={(row) => (isTotals(row) ? "bg-surface-alt font-bold" : "")}
+        onRowClick={(row) => {
+          // Хөл дүн бол жинхэнэ ээлж биш — тайлан руу орох зүйлгүй.
+          if (isTotals(row)) return;
+          navigate(`/shift/report/${row.shift_id}`);
+        }}
       />
 
       <CorrectModal row={editing} open={editing !== null} onClose={() => setEditing(null)} />

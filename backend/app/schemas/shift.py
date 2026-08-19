@@ -113,6 +113,10 @@ class NozzleRow(BaseModel):
     nozzle_id: uuid.UUID
     nozzle_number: int
     fuel_name: str
+    #: Өмнөх ээлжийн хаалтын миль — нээх мөчид хөлдөөсөн.
+    prev_close_reading: Decimal | None = None
+    #: Нээлт − өмнөх хаалт. 0-ээс өөр бол мэдэгдэлгүй түгээлт эсвэл буруу бичилт.
+    mile_gap_l: Decimal | None = None
     opening_reading: Decimal | None = None
     closing_reading: Decimal | None = None
     reading_delta_l: Decimal | None = None

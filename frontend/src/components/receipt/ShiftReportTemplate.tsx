@@ -176,7 +176,9 @@ export function ShiftReportTemplate({ report, stationName }: ShiftReportTemplate
             <th>{t.pumps.pump}</th>
             <th>{t.pumps.nozzle}</th>
             <th>{t.tanks.fuelType}</th>
+            <th className="sr-num">{t.attendant.prevClose}</th>
             <th className="sr-num">{t.shift.openingReading}</th>
+            <th className="sr-num">{t.attendant.mileGap}</th>
             <th className="sr-num">{t.shift.closingReading}</th>
             <th className="sr-num">{t.shift.readingDelta}</th>
             <th className="sr-num">{t.shift.soldLiters}</th>
@@ -186,7 +188,7 @@ export function ShiftReportTemplate({ report, stationName }: ShiftReportTemplate
         <tbody>
           {nozzles.length === 0 ? (
             <tr>
-              <td colSpan={8}>{t.common.empty}</td>
+              <td colSpan={10}>{t.common.empty}</td>
             </tr>
           ) : (
             nozzles.map((row) => (
@@ -196,7 +198,9 @@ export function ShiftReportTemplate({ report, stationName }: ShiftReportTemplate
                 </td>
                 <td>{row.nozzle_number}</td>
                 <td>{row.fuel_name}</td>
+                <td className="sr-num">{formatLiters(row.prev_close_reading, 3)}</td>
                 <td className="sr-num">{formatLiters(row.opening_reading, 3)}</td>
+                <td className="sr-num">{formatLiters(row.mile_gap_l, 3)}</td>
                 <td className="sr-num">{formatLiters(row.closing_reading, 3)}</td>
                 <td className="sr-num">{formatLiters(row.reading_delta_l, 3)}</td>
                 <td className="sr-num">{formatLiters(row.sold_liters, 3)}</td>

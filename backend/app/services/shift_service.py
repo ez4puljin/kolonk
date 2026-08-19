@@ -444,23 +444,48 @@ async def open_shift(
     for fuel_id, fuel in fuels.items():
         price_cache[fuel_id] = await effective_fuel_price(db, fuel, branch_id)
 
+    # Миль бол хошуунаас гарсан хуримтлагдсан хэмжээ — өмнөх хаалт, өнөөдрийн
+    # нээлт хоёр ЯГ тэнцүү байх ёстой. Зөрвөл хаалтын миль буруу бичигдсэн,
+    # эсвэл ээлж хаагдсаны дараа мэдэгдэлгүй шатахуун түгээгдсэн гэсэн үг.
+    # Нээх мөчид хошуун дээр байсан утгыг хөлдөөж хадгална — өмнөх ээлжийн
+    # хаалтыг сүүлд засвал зөрүү нь алга болчихгүйн тулд.
+    mile_gaps: list[dict[str, str]] = []
     for nozzle_id, reading in readings:
         nozzle = nozzles[nozzle_id]
+        previous = q3(_dec(nozzle.totalizer, ZERO_L))
         db.add(
             TotalizerReading(
                 nozzle_id=nozzle.id,
                 shift_id=shift.id,
                 reading=reading,
+                prev_reading=previous,
                 reading_type=ReadingType.SHIFT_OPEN,
                 price_per_liter=price_cache.get(nozzle.fuel_id),
                 recorded_by=user.id,
                 recorded_at=now,
             )
         )
+        gap = q3(reading - previous)
+        if gap != ZERO_L:
+            mile_gaps.append(
+                {"nozzle_id": str(nozzle.id), "prev": str(previous), "open": str(reading), "gap": str(gap)}
+            )
         # Механик тоолуур бол үнэн — ээлж нээхэд хошууны заалтыг оруулсан утгаар тогтооно.
         nozzle.totalizer = reading
 
     await db.flush()
+
+    if mile_gaps:
+        # Мөнгөний алдагдал байж болзошгүй тул тусад нь мөрөөр үлдээнэ —
+        # ээлжийн тайлан, нягтлангийн жагсаалт хоёулаа үүнийг харуулна.
+        await audit(
+            db,
+            user_id=user.id,
+            action="shift.mile_gap",
+            entity_type="shift",
+            entity_id=shift.id,
+            after={"count": len(mile_gaps), "nozzles": mile_gaps},
+        )
 
     await emit(
         db,
@@ -660,6 +685,20 @@ async def close_shift(
     )
 
     return await shift_report(db, shift, posted_entries=posted)
+
+
+async def _shift_prev_readings(db: AsyncSession, shift: Shift) -> dict[uuid.UUID, Decimal]:
+    """Нээлтийн заалт бүрийн хажууд хөлдөөсөн өмнөх хаалтын миль."""
+    rows = (
+        await db.execute(
+            select(TotalizerReading.nozzle_id, TotalizerReading.prev_reading).where(
+                TotalizerReading.shift_id == shift.id,
+                TotalizerReading.reading_type == str(ReadingType.SHIFT_OPEN),
+                TotalizerReading.prev_reading.is_not(None),
+            )
+        )
+    ).all()
+    return {row[0]: q3(_dec(row[1], ZERO_L)) for row in rows}
 
 
 async def _shift_readings(
@@ -974,6 +1013,7 @@ async def _nozzle_section(db: AsyncSession, shift: Shift) -> list[dict[str, Any]
 
     opens = await _shift_readings(db, shift, ReadingType.SHIFT_OPEN)
     closes = await _shift_readings(db, shift, ReadingType.SHIFT_CLOSE)
+    prevs = await _shift_prev_readings(db, shift)
 
     pairs = (
         await db.execute(
@@ -992,6 +1032,9 @@ async def _nozzle_section(db: AsyncSession, shift: Shift) -> list[dict[str, Any]
         if opening is None and closing is None and sold_l == 0 and sold_amount == 0:
             continue
         delta = q3(closing - opening) if (opening is not None and closing is not None) else None
+        # Өмнөх хаалт vs энэ ээлжийн нээлт — тэгээс өөр бол тайлбар шаардана.
+        previous = prevs.get(nozzle.id)
+        mile_gap = q3(opening - previous) if (opening is not None and previous is not None) else None
         out.append(
             {
                 "pump_id": pump.id,
@@ -1000,6 +1043,8 @@ async def _nozzle_section(db: AsyncSession, shift: Shift) -> list[dict[str, Any]
                 "nozzle_id": nozzle.id,
                 "nozzle_number": nozzle.nozzle_number,
                 "fuel_name": nozzle.fuel.name_mn if nozzle.fuel is not None else "",
+                "prev_close_reading": previous,
+                "mile_gap_l": mile_gap,
                 "opening_reading": opening,
                 "closing_reading": closing,
                 "reading_delta_l": delta,

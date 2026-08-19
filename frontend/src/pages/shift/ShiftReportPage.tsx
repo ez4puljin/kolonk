@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Download, Printer } from "lucide-react";
+import { AlertTriangle, Download, Printer } from "lucide-react";
 
 import { errorMessage } from "../../api/client";
 import { downloadShiftReport, useShiftReport } from "../../api/queries/shifts";
@@ -13,6 +13,7 @@ import type {
   TenderRow,
 } from "../../api/types";
 import { PageHeader } from "../../components/layout/PageHeader";
+import { AttendantRecord } from "../../components/shift/AttendantRecord";
 import { ShiftReportTemplate } from "../../components/receipt/ShiftReportTemplate";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
@@ -25,7 +26,7 @@ import { usePrint } from "../../hooks/usePrint";
 import { t } from "../../i18n/mn";
 import { dToNumber } from "../../lib/decimal";
 import { SHIFT_STATUS_META, statusMeta } from "../../lib/constants";
-import { dCmp, dIsZero } from "../../lib/decimal";
+import { dCmp, dIsPositive, dIsZero } from "../../lib/decimal";
 import { formatDateTime, formatLiters, formatMNT, formatMoneyExact, formatNumber, formatPct } from "../../lib/format";
 import { useUiStore } from "../../stores/ui";
 
@@ -179,12 +180,37 @@ export function ShiftReportPage() {
       render: (row) => `${row.nozzle_number} · ${row.fuel_name}`,
     },
     {
+      key: "prev",
+      header: t.attendant.prevClose,
+      render: (row) => formatLiters(row.prev_close_reading, 3),
+      align: "right",
+      numeric: true,
+      hideOnMobile: true,
+    },
+    {
       key: "open",
       header: t.shift.openingReading,
       render: (row) => formatLiters(row.opening_reading, 3),
       align: "right",
       numeric: true,
       hideOnMobile: true,
+    },
+    {
+      // Миль бол хуримтлагдсан заалт — өмнөх хаалттай ЯГ тэнцүү байх ёстой.
+      key: "gap",
+      header: t.attendant.mileGap,
+      render: (row) => {
+        if (row.mile_gap_l === null) return "—";
+        if (dIsZero(row.mile_gap_l)) return <span className="text-success-dark">0.000</span>;
+        return (
+          <span className="font-bold text-warning-dark">
+            {dIsPositive(row.mile_gap_l) ? "+" : ""}
+            {formatLiters(row.mile_gap_l, 3)}
+          </span>
+        );
+      },
+      align: "right",
+      numeric: true,
     },
     {
       key: "close",
@@ -216,6 +242,11 @@ export function ShiftReportPage() {
       numeric: true,
     },
   ];
+
+  // Милийн залгамж зөрчигдсөн хошуунууд — тайлангийн дээд талд сануулна.
+  const gapRows = nozzles.filter(
+    (row) => row.mile_gap_l !== null && !dIsZero(row.mile_gap_l),
+  );
 
   return (
     <div className="flex flex-1 flex-col gap-5">
@@ -251,6 +282,34 @@ export function ShiftReportPage() {
           </>
         }
       />
+
+      {/* Милийн залгамжийн зөрчил — мөнгөний алдагдал байж болзошгүй тул
+          тайланг нээмэгц хамгийн түрүүнд харагдана. */}
+      {gapRows.length > 0 ? (
+        <div className="rounded-2xl border border-warning bg-warning-soft/50 px-4 py-3.5">
+          <p className="flex items-center gap-2 text-[15px] font-bold text-warning-dark">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {t.attendant.mileGapTitle} · {t.attendant.mileGapNozzles.replace("{n}", String(gapRows.length))}
+          </p>
+          <p className="mt-1 text-sm text-ink-soft">{t.attendant.mileGapHint}</p>
+          <ul className="num mt-2 flex flex-col gap-1 text-sm font-semibold text-ink">
+            {gapRows.map((row) => (
+              <li key={row.nozzle_id}>
+                {row.pump_name} · №{row.nozzle_number} {row.fuel_name} —{" "}
+                <span className="text-warning-dark">
+                  {dIsPositive(row.mile_gap_l ?? "0") ? "+" : ""}
+                  {formatLiters(row.mile_gap_l, 3)}
+                </span>{" "}
+                <span className="font-normal text-ink-soft">
+                  {t.attendant.mileGapRow
+                    .replace("{prev}", formatLiters(row.prev_close_reading, 3))
+                    .replace("{now}", formatLiters(row.opening_reading, 3))}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {/* Гол үзүүлэлт */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -309,21 +368,43 @@ export function ShiftReportPage() {
                   </thead>
                   <tbody>
                     {daily.nozzles.map((row) => (
-                      <tr key={row.nozzle_id} className="border-t border-line">
-                        <td className="px-3 py-2">
-                          {row.pump_name} №{row.nozzle_number} {row.fuel_name}
-                          {row.segments.length > 1 ? (
-                            <span className="ml-2 text-xs text-warning-dark">
-                              {row.segments.length} {t.attendant.segments}
-                            </span>
-                          ) : null}
-                        </td>
-                        <td className="px-3 py-2 text-ink-soft">{row.tank_name ?? "—"}</td>
-                        <td className="px-3 py-2 text-right">{formatNumber(row.open_reading, 1)}</td>
-                        <td className="px-3 py-2 text-right">{formatNumber(row.close_reading, 1)}</td>
-                        <td className="px-3 py-2 text-right">{formatLiters(row.liters, 1)}</td>
-                        <td className="px-3 py-2 text-right font-bold">{formatMNT(row.amount)}</td>
-                      </tr>
+                      <Fragment key={row.nozzle_id}>
+                        <tr className="border-t border-line">
+                          <td className="px-3 py-2">
+                            {row.pump_name} №{row.nozzle_number} {row.fuel_name}
+                            {row.segments.length > 1 ? (
+                              <span className="ml-2 text-xs text-warning-dark">
+                                {row.segments.length} {t.attendant.segments}
+                              </span>
+                            ) : null}
+                          </td>
+                          <td className="px-3 py-2 text-ink-soft">{row.tank_name ?? "—"}</td>
+                          <td className="px-3 py-2 text-right">{formatNumber(row.open_reading, 1)}</td>
+                          <td className="px-3 py-2 text-right">{formatNumber(row.close_reading, 1)}</td>
+                          <td className="px-3 py-2 text-right">{formatLiters(row.liters, 1)}</td>
+                          <td className="px-3 py-2 text-right font-bold">{formatMNT(row.amount)}</td>
+                        </tr>
+                        {/* Ээлжийн дундуур үнэ өөрчлөгдсөн бол дүн нь нэг үнээр
+                            биш, сегмент тус бүрээр бодогдоно. Нягтлан гараар
+                            шалгах боломжтой байхын тулд задаргааг нь харуулна. */}
+                        {row.segments.length > 1
+                          ? row.segments.map((segment, index) => (
+                              <tr key={`${row.nozzle_id}-${index}`} className="bg-surface-alt/60 text-xs">
+                                <td className="px-3 py-1.5 pl-8 text-ink-soft" colSpan={2}>
+                                  {t.attendant.segments} {index + 1} · {formatMNT(segment.price)}/
+                                  {t.units.liter}
+                                </td>
+                                <td className="px-3 py-1.5" colSpan={2} />
+                                <td className="px-3 py-1.5 text-right text-ink-soft">
+                                  {formatLiters(segment.liters, 3)}
+                                </td>
+                                <td className="px-3 py-1.5 text-right font-semibold text-ink-soft">
+                                  {formatMNT(segment.amount)}
+                                </td>
+                              </tr>
+                            ))
+                          : null}
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>
@@ -413,6 +494,9 @@ export function ShiftReportPage() {
           <DataTable columns={nozzleColumns} rows={nozzles} rowKey={(row) => row.nozzle_id} />
         </Card>
       ) : null}
+
+      {/* Түгээгчийн оруулсан тоо + дарсан зураг — баримтын хэсэг. */}
+      {id ? <AttendantRecord shiftId={id} report={report} /> : null}
 
       {portal}
     </div>

@@ -110,6 +110,9 @@ class TotalizerReading(UUIDPKMixin, TimestampMixin, Base):
     reading_type: Mapped[str] = mapped_column(String(24), nullable=False, default=ReadingType.MANUAL)
     #: Заалт бүртгэх үеийн литрийн үнэ (түгээгчийн горимд сегментийн эх үнэ).
     price_per_liter: Mapped[Decimal | None] = mapped_column(Money)
+    #: Нээлтийн заалт дээр — тухайн мөчид хошуун дээр байсан өмнөх хаалтын миль.
+    #: Хоёрын зөрүү нь мэдэгдэлгүй түгээлт эсвэл буруу бичсэн хаалтыг илтгэнэ.
+    prev_reading: Mapped[Decimal | None] = mapped_column(Totalizer)
     recorded_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id"))
     recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

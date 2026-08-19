@@ -540,7 +540,11 @@ def _build_workbook(report: dict[str, Any]) -> bytes:
             "Насос",
             "Хошуу",
             "Түлш",
+            # Миль бол хуримтлагдсан заалт — өмнөх хаалттай тэнцүү байх ёстой.
+            # Зөрүүг Excel дээр ч харуулна: нягтлан ихэвчлэн энэ файлыг хардаг.
+            "Өмнөх хаалт",
             "Нээлтийн заалт",
+            "Милийн зөрүү (л)",
             "Хаалтын заалт",
             "Тоолуурын зөрүү (л)",
             "Борлуулсан (л)",
@@ -553,13 +557,26 @@ def _build_workbook(report: dict[str, Any]) -> bytes:
                 f"{row.get('pump_number')} — {row.get('pump_name')}",
                 row.get("nozzle_number"),
                 row.get("fuel_name"),
+                _num(row.get("prev_close_reading")),
                 _num(row.get("opening_reading")),
+                _num(row.get("mile_gap_l")),
                 _num(row.get("closing_reading")),
                 _num(row.get("reading_delta_l")),
                 _num(row.get("sold_liters")),
                 _num(row.get("sold_amount")),
             ],
-            [None, None, None, LITER_FMT, LITER_FMT, LITER_FMT, LITER_FMT, MONEY_FMT],
+            [
+                None,
+                None,
+                None,
+                LITER_FMT,
+                LITER_FMT,
+                LITER_FMT,
+                LITER_FMT,
+                LITER_FMT,
+                LITER_FMT,
+                MONEY_FMT,
+            ],
         )
 
     # --- Сав ---

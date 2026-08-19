@@ -31,7 +31,7 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import CashAccount, ItemType, PaymentMethod, ReadingType, SaleType, ShiftStatus
@@ -879,6 +879,26 @@ async def daily_closings_list(
     users = {
         u.id: u for u in (await db.scalars(select(User).where(User.id.in_(user_ids)))).all()
     }
+    # Милийн залгамжийн зөрүү — ээлж бүрд нээлтийн заалт vs өмнөх хаалт.
+    shift_ids = [shift.id for _, shift in rows]
+    gap_rows = (
+        await db.execute(
+            select(
+                TotalizerReading.shift_id,
+                func.sum(TotalizerReading.reading - TotalizerReading.prev_reading),
+                func.count(),
+            )
+            .where(
+                TotalizerReading.shift_id.in_(shift_ids),
+                TotalizerReading.reading_type == str(ReadingType.SHIFT_OPEN),
+                TotalizerReading.prev_reading.is_not(None),
+                TotalizerReading.reading != TotalizerReading.prev_reading,
+            )
+            .group_by(TotalizerReading.shift_id)
+        )
+    ).all()
+    gaps = {row[0]: (q3(_d(row[1], ZERO_L)), int(row[2])) for row in gap_rows}
+
     branch_ids_seen = {shift.branch_id for _, shift in rows if shift.branch_id is not None}
     branches = (
         {
@@ -918,6 +938,8 @@ async def daily_closings_list(
                 "declared_cash": q2(_d(shift.declared_cash)) if shift.declared_cash is not None else None,
                 "expected_cash": q2(_d(shift.expected_cash)) if shift.expected_cash is not None else None,
                 "cash_over_short": q2(over_short) if over_short is not None else None,
+                "mile_gap_l": gaps.get(shift.id, (ZERO_L, 0))[0],
+                "mile_gap_nozzles": gaps.get(shift.id, (ZERO_L, 0))[1],
                 "approved": closing.approved_at is not None,
                 "approved_at": closing.approved_at,
                 "approved_by_name": approver.full_name if approver else "",

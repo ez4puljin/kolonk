@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  AlertTriangle,
   Banknote,
   Camera,
   Check,
@@ -55,7 +56,7 @@ import { Spinner } from "../../components/ui/Spinner";
 import { StatBox } from "../../components/ui/StatBox";
 import { usePermission } from "../../hooks/usePermission";
 import { t } from "../../i18n/mn";
-import { dAdd, dMul, dSub, dSum, dToQty } from "../../lib/decimal";
+import { dAdd, dIsPositive, dIsZero, dMul, dSub, dSum, dToQty } from "../../lib/decimal";
 import { formatDateTime, formatLiters, formatMNT, formatNumber } from "../../lib/format";
 import { useBranches } from "../../api/queries/branches";
 import { useAuthStore } from "../../stores/auth";
@@ -443,6 +444,8 @@ export function AttendantShiftPage() {
    * тусад нь тэмдэглэж, түүгээр шалгана.
    */
   const [mileConfirmed, setMileConfirmed] = useState<Record<string, boolean>>({});
+  /** Милийн залгамжийн зөрүүг түгээгч хараад зөвшөөрсөн эсэх. */
+  const [mileGapAck, setMileGapAck] = useState(false);
   const openNumPad = useUiStore((state) => state.openNumPad);
   const { data: shiftFiles } = useShiftAttachments(shiftId);
 
@@ -859,7 +862,30 @@ export function AttendantShiftPage() {
       (!requireMile || (mileConfirmed[id] === true && (openReadings[id] ?? "").trim() !== "")) &&
       (!requirePhoto || (openPhotos[id] ?? 0) > 0);
     const readyCount = nozzles.filter(({ nozzle }) => nozzleReady(nozzle.id)).length;
-    const canOpen = cashReady && nozzles.length > 0 && readyCount === nozzles.length;
+
+    /*
+     * Милийн залгамж.
+     *
+     * Миль бол хошуунаас гарсан хуримтлагдсан хэмжээ — өчигдрийн хаалт,
+     * өнөөдрийн нээлт хоёр ЯГ тэнцүү байх ёстой. Зөрсөн бол хоёрын нэг нь
+     * болсон: хаалтын миль буруу бичигдсэн, эсвэл ээлж хаагдсаны дараа
+     * мэдэгдэлгүй шатахуун түгээгдсэн. Хоёулаа мөнгөний алдагдал тул
+     * түгээгч зөрүүг ХАРААД зөвшөөрсөн үед л ээлж нээгдэнэ.
+     */
+    const mileGapOf = (nozzleId: string, previous: LitersStr): string | null => {
+      const entered = (openReadings[nozzleId] ?? "").trim();
+      if (entered === "") return null;
+      const gap = dSub(entered, previous ?? "0");
+      return dIsZero(gap) ? null : gap;
+    };
+    const gapRows = nozzles
+      .map(({ pump, nozzle }) => ({ pump, nozzle, gap: mileGapOf(nozzle.id, nozzle.totalizer) }))
+      .filter((row) => row.gap !== null);
+    const canOpen =
+      cashReady &&
+      nozzles.length > 0 &&
+      readyCount === nozzles.length &&
+      (gapRows.length === 0 || mileGapAck);
 
     return (
       <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 sm:gap-6">
@@ -900,6 +926,7 @@ export function AttendantShiftPage() {
             <div className="flex flex-col divide-y divide-line">
               {nozzles.map(({ pump, nozzle }) => {
                 const done = nozzleReady(nozzle.id);
+                const gap = mileGapOf(nozzle.id, nozzle.totalizer);
                 return (
                 <div
                   key={nozzle.id}
@@ -907,7 +934,12 @@ export function AttendantShiftPage() {
                     "flex flex-col gap-1.5 px-2 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:gap-3",
                     // Миль БА зураг хоёулаа орсон мөр ногоон болно — түгээгч
                     // юу үлдсэнээ нэг харснаар мэдэхийн тулд.
-                    done ? "-mx-2 rounded-lg bg-success-soft/40" : "",
+                    gap !== null
+                      ? "-mx-2 rounded-lg bg-warning-soft/50"
+                      : done
+                        ? "-mx-2 rounded-lg bg-success-soft/40"
+                        : "",
+                    "flex-wrap",
                   ].join(" ")}
                 >
                   <span className="flex min-w-0 flex-1 items-center gap-2 text-[15px] font-semibold text-ink">
@@ -952,6 +984,17 @@ export function AttendantShiftPage() {
                       }}
                     />
                   </div>
+                  {gap !== null ? (
+                    <p className="num w-full text-sm font-semibold text-warning-dark sm:w-auto sm:basis-full">
+                      {t.attendant.mileGap}: {dIsPositive(gap) ? "+" : ""}
+                      {formatNumber(gap, 3)} {t.units.liter}
+                      <span className="ml-2 font-normal text-ink-soft">
+                        {t.attendant.mileGapRow
+                          .replace("{prev}", formatNumber(nozzle.totalizer, 3))
+                          .replace("{now}", formatNumber(openReadings[nozzle.id] ?? "0", 3))}
+                      </span>
+                    </p>
+                  ) : null}
                 </div>
                 );
               })}
@@ -963,6 +1006,38 @@ export function AttendantShiftPage() {
             доогуур нь гүйж буй талбаруудыг дарж харагдуулахгүй. Десктопт энгийн. */}
         <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] z-10 -mx-4 border-t border-line bg-surface/95 px-4 py-2.5 backdrop-blur sm:-mx-6 sm:px-6 lg:static lg:mx-0 lg:flex lg:justify-end lg:border-0 lg:bg-transparent lg:p-0 lg:backdrop-blur-none">
           <div className="flex w-full flex-col gap-2 lg:w-auto lg:items-end">
+            {/* Милийн залгамж зөрчигдвөл шалтгааныг тайлбарлаж, түгээгчээр
+                зөвшөөрүүлнэ — дараа нь маргаан гарвал хэн харснаа мэдэхийн
+                тулд зөрүү нь ээлжийн тайланд мөрөөр үлдэнэ. */}
+            {gapRows.length > 0 ? (
+              <div className="w-full rounded-xl border border-warning bg-warning-soft/50 px-4 py-3 lg:max-w-2xl">
+                <p className="flex items-center gap-2 text-[15px] font-bold text-warning-dark">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  {t.attendant.mileGapTitle}
+                </p>
+                <p className="mt-1 text-sm text-ink-soft">{t.attendant.mileGapHint}</p>
+                <ul className="num mt-2 flex flex-col gap-1 text-sm font-semibold text-ink">
+                  {gapRows.map(({ pump, nozzle, gap }) => (
+                    <li key={nozzle.id}>
+                      {pump.name} · №{nozzle.nozzle_number} {nozzle.fuel_name} —{" "}
+                      <span className="text-warning-dark">
+                        {dIsPositive(gap ?? "0") ? "+" : ""}
+                        {formatNumber(gap ?? "0", 3)} {t.units.liter}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <label className="mt-3 flex items-center gap-2.5 text-sm font-semibold text-ink">
+                  <input
+                    type="checkbox"
+                    checked={mileGapAck}
+                    onChange={(event) => setMileGapAck(event.target.checked)}
+                    className="h-5 w-5 rounded border-line accent-warning"
+                  />
+                  {t.attendant.mileGapConfirm}
+                </label>
+              </div>
+            ) : null}
             {/* Юу дутуу байгааг ХЭЛНЭ — идэвхгүй товч шалтгаангүй бол
                 түгээгч яагаад дарагдахгүй байгааг ойлгохгүй. */}
             {!canOpen ? (

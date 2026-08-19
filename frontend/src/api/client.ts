@@ -224,6 +224,31 @@ export async function download(path: string, params?: QueryParams, filename?: st
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Хамгаалалттай эндпойнтоос файл татаад блоб URL болгоно.
+ *
+ * `<img src>` нь `Authorization` толгой явуулж чаддаггүй тул зургийг эхлээд
+ * токентой татаж, санах ойн URL үүсгэнэ. Дуусахад `URL.revokeObjectURL`-ээр
+ * чөлөөлөх нь ДУУДАГЧИЙН үүрэг — эс бөгөөс блоб хуудас хаагдтал үлдэнэ.
+ */
+export async function blobUrl(path: string): Promise<string> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, { headers });
+  } catch (error) {
+    throw new ApiError(0, t.errors.network, error);
+  }
+  if (!response.ok) {
+    if (response.status === 401) handleUnauthorized();
+    throw new ApiError(response.status, fallbackDetail(response.status));
+  }
+  return URL.createObjectURL(await response.blob());
+}
+
 export const api = {
   get: <T>(path: string, options?: RequestOptions): Promise<T> =>
     request<T>(path, { ...options, method: "GET" }),
