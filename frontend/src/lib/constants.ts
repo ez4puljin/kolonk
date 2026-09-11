@@ -162,6 +162,13 @@ export const DOC_STATUS_META: Record<DocStatus, StatusMeta> = {
   posted: meta(t.status.posted, "success", colors.success, CHIP.success),
 };
 
+/** Түлшний ачилтын төлөв: ноорог → түгээлтэд → хаагдсан. */
+export const SHIPMENT_STATUS_META: Record<string, StatusMeta> = {
+  draft: meta(t.status.draft, "neutral", colors.neutral, CHIP.neutral),
+  posted: meta("Түгээлтэд", "action", colors.action, CHIP.action),
+  closed: meta("Хаагдсан", "success", colors.success, CHIP.success),
+};
+
 export const INVOICE_STATUS_META: Record<InvoiceStatus, StatusMeta> = {
   open: meta(t.status.unpaid, "warning", colors.warning, CHIP.warning),
   partial: meta(t.status.partial, "action", colors.action, CHIP.action),

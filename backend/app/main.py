@@ -22,6 +22,8 @@ ROUTER_MODULES = [
     "inventory",
     "suppliers",
     "fuel_receipts",
+    "fuel_shipments",
+    "branch_settlements",
     "purchases",
     "procurement",
     "expenses",

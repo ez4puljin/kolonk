@@ -23,7 +23,14 @@ from app.models.advance import EmployeeAdvance
 from app.models.branch import Branch
 from app.models.branch_payment import BranchPaymentMethod
 from app.models.payroll import Employee, PayrollLine, PayrollPeriod
-from app.models.procurement import FuelReceipt, Purchase, PurchaseItem
+from app.models.procurement import (
+    FuelReceipt,
+    FuelShipment,
+    FuelShipmentItem,
+    FuelShipmentOutflow,
+    Purchase,
+    PurchaseItem,
+)
 from app.models.pricing import BranchPrice
 from app.models.product import (
     InventoryTransaction,
@@ -32,6 +39,7 @@ from app.models.product import (
     ProductCategory,
 )
 from app.models.sale import Payment, Sale, SaleItem
+from app.models.settlement import BranchSettlement
 from app.models.shift import (
     Shift,
     ShiftAttachment,
@@ -54,6 +62,7 @@ __all__ = [
     "ArPayment",
     "AuditLog",
     "Branch",
+    "BranchSettlement",
     "BranchPaymentMethod",
     "BranchPrice",
     "Contract",
@@ -64,6 +73,9 @@ __all__ = [
     "Expense",
     "Fuel",
     "FuelReceipt",
+    "FuelShipment",
+    "FuelShipmentItem",
+    "FuelShipmentOutflow",
     "InventoryTransaction",
     "JournalEntry",
     "JournalLine",

@@ -97,6 +97,35 @@ class DocStatus(StrEnum):
     POSTED = "posted"
 
 
+class ShipmentStatus(StrEnum):
+    """Түлшний ачилтын төлөв."""
+
+    #: Ноорог — засаж, устгаж болно.
+    DRAFT = "draft"
+    #: Бүртгэсэн — өглөг нээгдэж, машин түгээлтэд гарсан.
+    POSTED = "posted"
+    #: Хаагдсан — бүх литр саванд орсон/зарагдсан/хорогдсон.
+    CLOSED = "closed"
+
+
+class ShipmentOutflowKind(StrEnum):
+    """Машинаас шууд гарсан литрийн төрөл."""
+
+    #: Саванд оруулалгүй шууд борлуулсан.
+    SALE = "sale"
+    #: Хорогдол, асгаралт — зардалд бичигдэнэ.
+    LOSS = "loss"
+
+
+class SettlementEntryType(StrEnum):
+    """Салбарын тооцооны дэвтрийн мөрийн төрөл."""
+
+    #: Толгой компаниас салбарт очсон түлшний өр (түгээлт бүрд үүснэ).
+    CHARGE = "charge"
+    #: Салбараас толгойн данс руу төлсөн төлбөр.
+    PAYMENT = "payment"
+
+
 class ApprovalStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"
@@ -157,6 +186,9 @@ class SourceType(StrEnum):
     EXPENSE = "expense"
     PAYROLL = "payroll"
     OPENING_BALANCE = "opening_balance"
+    FUEL_SHIPMENT = "fuel_shipment"
+    SHIPMENT_OUTFLOW = "shipment_outflow"
+    BRANCH_SETTLEMENT = "branch_settlement"
 
 
 class EventType(StrEnum):
@@ -178,6 +210,11 @@ class EventType(StrEnum):
     PAYROLL_PAID = "PAYROLL_PAID"
     ADVANCE_PAID = "ADVANCE_PAID"
     OPENING_BALANCE_POSTED = "OPENING_BALANCE_POSTED"
+    SHIPMENT_POSTED = "SHIPMENT_POSTED"
+    SHIPMENT_DELIVERY = "SHIPMENT_DELIVERY"
+    SHIPMENT_SALE = "SHIPMENT_SALE"
+    SHIPMENT_LOSS = "SHIPMENT_LOSS"
+    BRANCH_SETTLEMENT_PAID = "BRANCH_SETTLEMENT_PAID"
 
 
 class PresetType(StrEnum):

@@ -104,6 +104,11 @@ const PayrollPage = lazyPage("PayrollPage");
 const EmployeesPage = lazyPage("EmployeesPage");
 const PurchaseNewPage = lazyPage("PurchaseNewPage");
 const ReceiveNewPage = lazyPage("ReceiveNewPage");
+const FuelShipmentsPage = lazyPage("FuelShipmentsPage");
+const FuelShipmentFormPage = lazyPage("FuelShipmentFormPage");
+const FuelShipmentDetailPage = lazyPage("FuelShipmentDetailPage");
+const BranchSettlementsPage = lazyPage("BranchSettlementsPage");
+const BranchReportPage = lazyPage("BranchReportPage");
 const SuppliersPage = lazyPage("SuppliersPage");
 const ProductsPage = lazyPage("ProductsPage");
 const InventoryPage = lazyPage("InventoryPage");
@@ -396,6 +401,49 @@ export function AppRoutes() {
             element={
               <RequirePermission code="purchases.manage">
                 <PurchasesPage />
+              </RequirePermission>
+            }
+          />
+          {/* Түлшний ачилт — машинаар татаж салбаруудад түгээх. */}
+          <Route
+            path="/shipments"
+            element={
+              <RequirePermission code="shipments.manage">
+                <FuelShipmentsPage />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="/shipments/new"
+            element={
+              <RequirePermission code="shipments.manage">
+                <FuelShipmentFormPage />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="/shipments/:id"
+            element={
+              <RequirePermission code="shipments.manage">
+                <FuelShipmentDetailPage />
+              </RequirePermission>
+            }
+          />
+          {/* Салбарын тооцоо — түгээсэн түлшний өр, төлбөр. */}
+          <Route
+            path="/branch-settlements"
+            element={
+              <RequirePermission code="settlements.manage">
+                <BranchSettlementsPage />
+              </RequirePermission>
+            }
+          />
+          {/* Салбарын орлого зарлага, ашгийн харьцуулалт. */}
+          <Route
+            path="/reports/branches"
+            element={
+              <RequirePermission code="accounting.view">
+                <BranchReportPage />
               </RequirePermission>
             }
           />

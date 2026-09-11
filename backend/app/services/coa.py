@@ -28,6 +28,8 @@ class ACC:
     AR_EMPLOYEE = "1205"
     INV_FUEL = "1301"
     INV_GOODS = "1302"
+    #: Машин дээр яваа түлш — ачилт бүртгэгдэхэд орж, саванд буухад гарна.
+    FUEL_IN_TRANSIT = "1303"
     VAT_INPUT = "1402"
 
     # --- Өр төлбөр ---
@@ -157,6 +159,7 @@ COA_SEED: list[dict[str, Any]] = [
     _acc(ACC.AR_EMPLOYEE, "Ажилтны урьдчилгаа", AccountType.ASSET, 1205, parent_code=ACC.HDR_ASSET),
     _acc(ACC.INV_FUEL, "Түлшний бараа материал", AccountType.ASSET, 1301, parent_code=ACC.HDR_ASSET),
     _acc(ACC.INV_GOODS, "Дэлгүүрийн бараа материал", AccountType.ASSET, 1302, parent_code=ACC.HDR_ASSET),
+    _acc(ACC.FUEL_IN_TRANSIT, "Замд яваа түлш (ачилт)", AccountType.ASSET, 1303, parent_code=ACC.HDR_ASSET),
     _acc(ACC.VAT_INPUT, "Орох НӨАТ", AccountType.ASSET, 1402, parent_code=ACC.HDR_ASSET),
     # ---------------- 2000 Өр төлбөр ----------------
     _acc(ACC.HDR_LIABILITY, "Өр төлбөр", AccountType.LIABILITY, 2000, is_postable=False),

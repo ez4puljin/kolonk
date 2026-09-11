@@ -81,12 +81,17 @@ export function useTrialBalance(asOf?: string) {
   });
 }
 
-export function useIncomeStatement(dateFrom: string, dateTo: string, enabled = true) {
+export function useIncomeStatement(
+  dateFrom: string,
+  dateTo: string,
+  enabled = true,
+  branchId?: string,
+) {
   return useQuery({
-    queryKey: accountingKeys.pnl(dateFrom, dateTo),
+    queryKey: [...accountingKeys.pnl(dateFrom, dateTo), branchId ?? ""],
     queryFn: () =>
       api.get<IncomeStatement>("/api/accounting/statements/pnl", {
-        params: { date_from: dateFrom, date_to: dateTo },
+        params: { date_from: dateFrom, date_to: dateTo, branch_id: branchId || undefined },
       }),
     enabled: enabled && Boolean(dateFrom && dateTo),
   });

@@ -19,9 +19,10 @@ from app.config import settings
 from app.database import get_db
 from app.deps import require_permission
 from app.enums import DocStatus
+from app.models.branch import Branch
 from app.models.fuel import Fuel, Tank
 from app.models.partner import Supplier
-from app.models.procurement import FuelReceipt
+from app.models.procurement import FuelReceipt, FuelShipment
 from app.models.user import User
 from app.money import q2, q3, q6
 from app.schemas.procurement import (
@@ -68,12 +69,18 @@ def _to_out(
     tank_name: str | None = None,
     fuel_name: str | None = None,
     fuel_code: str | None = None,
+    vehicle_no: str | None = None,
+    branch_name: str | None = None,
 ) -> FuelReceiptOut:
     return FuelReceiptOut(
         id=receipt.id,
         number=_number(receipt),
         supplier_id=receipt.supplier_id,
         supplier_name=supplier_name,
+        shipment_id=receipt.shipment_id,
+        vehicle_no=vehicle_no,
+        branch_id=receipt.branch_id,
+        branch_name=branch_name,
         tank_id=receipt.tank_id,
         tank_name=tank_name,
         fuel_id=receipt.fuel_id,
@@ -102,8 +109,8 @@ def _to_out(
 
 
 def _row_to_out(row: Row) -> FuelReceiptOut:
-    receipt, supplier_name, tank_name, fuel_name, fuel_code = row
-    return _to_out(receipt, supplier_name, tank_name, fuel_name, fuel_code)
+    receipt, supplier_name, tank_name, fuel_name, fuel_code, vehicle_no, branch_name = row
+    return _to_out(receipt, supplier_name, tank_name, fuel_name, fuel_code, vehicle_no, branch_name)
 
 
 def _snapshot(receipt: FuelReceipt) -> dict:
@@ -139,10 +146,20 @@ def _recalculate(receipt: FuelReceipt) -> None:
 
 def _base_query():
     return (
-        select(FuelReceipt, Supplier.name, Tank.name, Fuel.name_mn, Fuel.code)
+        select(
+            FuelReceipt,
+            Supplier.name,
+            Tank.name,
+            Fuel.name_mn,
+            Fuel.code,
+            FuelShipment.vehicle_no,
+            Branch.name,
+        )
         .join(Supplier, Supplier.id == FuelReceipt.supplier_id)
         .join(Tank, Tank.id == FuelReceipt.tank_id)
         .join(Fuel, Fuel.id == FuelReceipt.fuel_id)
+        .outerjoin(FuelShipment, FuelShipment.id == FuelReceipt.shipment_id)
+        .outerjoin(Branch, Branch.id == FuelReceipt.branch_id)
     )
 
 
@@ -183,6 +200,7 @@ async def _resolve_targets(
 async def list_receipts(
     status: DocStatus | None = Query(default=None),
     supplier_id: uuid.UUID | None = Query(default=None),
+    branch_id: uuid.UUID | None = Query(default=None),
     tank_id: uuid.UUID | None = Query(default=None),
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
@@ -196,6 +214,8 @@ async def list_receipts(
         conditions.append(FuelReceipt.status == str(status))
     if supplier_id is not None:
         conditions.append(FuelReceipt.supplier_id == supplier_id)
+    if branch_id is not None:
+        conditions.append(FuelReceipt.branch_id == branch_id)
     if tank_id is not None:
         conditions.append(FuelReceipt.tank_id == tank_id)
     if date_from is not None:
@@ -250,6 +270,7 @@ async def create_receipt(
 
     receipt = FuelReceipt(
         supplier_id=supplier.id,
+        branch_id=tank.branch_id,
         tank_id=tank.id,
         fuel_id=fuel.id,
         receipt_date=payload.receipt_date or date.today(),
@@ -367,7 +388,7 @@ async def post_receipt(
         after={"status": str(receipt.status)},
         ip=_client_ip(request),
     )
-    return _to_out(receipt, row[1], row[2], row[3], row[4])
+    return _to_out(receipt, row[1], row[2], row[3], row[4], row[5], row[6])
 
 
 @router.delete("/fuel-receipts/{receipt_id}", status_code=204, response_model=None)

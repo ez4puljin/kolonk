@@ -25,6 +25,7 @@ from app.schemas.accounting import (
     ApPaymentResultOut,
     BalanceSheetOut,
     CashFlowOut,
+    BranchSummaryOut,
     IncomeStatementOut,
     IntegrityCheckOut,
     InventoryValuationOut,
@@ -238,12 +239,26 @@ async def get_integrity(
 async def get_pnl(
     date_from: date = Query(...),
     date_to: date = Query(...),
+    branch_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     user: User = CanView,
 ) -> dict:
     if date_to < date_from:
         raise HTTPException(status_code=422, detail="Дуусах огноо эхлэх огнооноос өмнө байж болохгүй")
-    return await statement_service.income_statement(db, date_from, date_to)
+    return await statement_service.income_statement(db, date_from, date_to, branch_id=branch_id)
+
+
+@router.get("/accounting/statements/branch-summary", response_model=BranchSummaryOut)
+async def get_branch_summary(
+    date_from: date = Query(...),
+    date_to: date = Query(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = CanView,
+) -> dict:
+    """Салбар бүрийн орлого / зардал / ашиг — харьцуулсан хүснэгт."""
+    if date_to < date_from:
+        raise HTTPException(status_code=422, detail="Дуусах огноо эхлэх огнооноос өмнө байж болохгүй")
+    return await statement_service.branch_summary(db, date_from, date_to)
 
 
 @router.get("/accounting/statements/balance-sheet", response_model=BalanceSheetOut)

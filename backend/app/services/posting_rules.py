@@ -98,12 +98,17 @@ def build_sale_lines(sale: Any, items: Iterable[Any], payments: Iterable[Any]) -
 
     # --- 1. Төлбөрийн дебит мөрүүд ---
     customer_id = getattr(sale, "customer_id", None)
+    branch_id = getattr(sale, "branch_id", None)
     for pay in payments:
         method = str(getattr(pay, "method", PaymentMethod.CASH))
         amount = _m(getattr(pay, "amount", ZERO))
         if amount == 0:
             continue
-        dims = Dims(customer_id=customer_id) if method == str(PaymentMethod.CONTRACT) else Dims()
+        dims = (
+            Dims(customer_id=customer_id, branch_id=branch_id)
+            if method == str(PaymentMethod.CONTRACT)
+            else Dims(branch_id=branch_id)
+        )
         lines.append(
             LineSpec(
                 account_code=ACC.tender_account(method),
@@ -150,17 +155,31 @@ def build_sale_lines(sale: Any, items: Iterable[Any], payments: Iterable[Any]) -
                     account_code=ACC.REV_FUEL,
                     credit=net,
                     memo="Түлшний борлуулалт",
-                    dims=Dims(fuel_id=fuel_id, tank_id=tank_id),
+                    dims=Dims(fuel_id=fuel_id, tank_id=tank_id, branch_id=branch_id),
                 )
             )
 
     goods_net = q2(goods_gross - vat_parts[-1])
     if goods_net != 0:
-        lines.append(LineSpec(account_code=ACC.REV_GOODS, credit=goods_net, memo="Барааны борлуулалт"))
+        lines.append(
+            LineSpec(
+                account_code=ACC.REV_GOODS,
+                credit=goods_net,
+                memo="Барааны борлуулалт",
+                dims=Dims(branch_id=branch_id),
+            )
+        )
 
     vat_booked = q2(sum(vat_parts, ZERO))
     if vat_booked != 0:
-        lines.append(LineSpec(account_code=ACC.VAT_OUTPUT, credit=vat_booked, memo="Борлуулалтын НӨАТ"))
+        lines.append(
+            LineSpec(
+                account_code=ACC.VAT_OUTPUT,
+                credit=vat_booked,
+                memo="Борлуулалтын НӨАТ",
+                dims=Dims(branch_id=branch_id),
+            )
+        )
 
     # --- 5. Өртгийн мөрүүд ---
     for key in group_keys:
@@ -168,13 +187,18 @@ def build_sale_lines(sale: Any, items: Iterable[Any], payments: Iterable[Any]) -
         cogs = fuel_groups[key]["cogs"]
         if cogs == 0:
             continue
-        dims = Dims(fuel_id=fuel_id, tank_id=tank_id)
+        dims = Dims(fuel_id=fuel_id, tank_id=tank_id, branch_id=branch_id)
         lines.append(LineSpec(account_code=ACC.COGS_FUEL, debit=cogs, memo="Түлшний өртөг", dims=dims))
         lines.append(LineSpec(account_code=ACC.INV_FUEL, credit=cogs, memo="Түлшний нөөц хасалт", dims=dims))
 
     if goods_cogs != 0:
-        lines.append(LineSpec(account_code=ACC.COGS_GOODS, debit=goods_cogs, memo="Барааны өртөг"))
-        lines.append(LineSpec(account_code=ACC.INV_GOODS, credit=goods_cogs, memo="Барааны нөөц хасалт"))
+        goods_dims = Dims(branch_id=branch_id)
+        lines.append(
+            LineSpec(account_code=ACC.COGS_GOODS, debit=goods_cogs, memo="Барааны өртөг", dims=goods_dims)
+        )
+        lines.append(
+            LineSpec(account_code=ACC.INV_GOODS, credit=goods_cogs, memo="Барааны нөөц хасалт", dims=goods_dims)
+        )
 
     return lines
 
@@ -197,6 +221,7 @@ def build_fuel_receipt_lines(receipt: Any) -> list[LineSpec]:
         return []
 
     supplier_id = getattr(receipt, "supplier_id", None)
+    branch_id = getattr(receipt, "branch_id", None)
     number = getattr(receipt, "number", None)
     memo = f"Шатахуун таталт{f' №{number}' if number else ''}"
 
@@ -209,6 +234,7 @@ def build_fuel_receipt_lines(receipt: Any) -> list[LineSpec]:
                 fuel_id=getattr(receipt, "fuel_id", None),
                 tank_id=getattr(receipt, "tank_id", None),
                 supplier_id=supplier_id,
+                branch_id=branch_id,
             ),
         )
     ]
@@ -241,6 +267,7 @@ def build_purchase_lines(purchase: Any) -> list[LineSpec]:
         return []
 
     supplier_id = getattr(purchase, "supplier_id", None)
+    branch_id = getattr(purchase, "branch_id", None)
     number = getattr(purchase, "number", None)
     memo = f"Худалдан авалт{f' №{number}' if number else ''}"
 
@@ -249,7 +276,7 @@ def build_purchase_lines(purchase: Any) -> list[LineSpec]:
             account_code=ACC.INV_GOODS,
             debit=subtotal,
             memo=memo,
-            dims=Dims(supplier_id=supplier_id),
+            dims=Dims(supplier_id=supplier_id, branch_id=branch_id),
         )
     ]
     if vat != 0:
@@ -292,6 +319,7 @@ def build_expense_lines(expense: Any) -> list[LineSpec]:
         raise ValueError(f"Зардлын данс биш: {account_code}")
 
     supplier_id = getattr(expense, "supplier_id", None)
+    branch_id = getattr(expense, "branch_id", None)
     number = getattr(expense, "number", None)
     memo = f"Зардал{f' №{number}' if number else ''}"
 
@@ -308,7 +336,7 @@ def build_expense_lines(expense: Any) -> list[LineSpec]:
             account_code=account_code,
             debit=subtotal,
             memo=memo,
-            dims=Dims(supplier_id=supplier_id),
+            dims=Dims(supplier_id=supplier_id, branch_id=branch_id),
         )
     ]
     if vat != 0:
@@ -317,7 +345,7 @@ def build_expense_lines(expense: Any) -> list[LineSpec]:
                 account_code=ACC.VAT_INPUT,
                 debit=vat,
                 memo="Орох НӨАТ",
-                dims=Dims(supplier_id=supplier_id),
+                dims=Dims(supplier_id=supplier_id, branch_id=branch_id),
             )
         )
     # Харилцахаас төлсөн бол аль данснаас гарсныг хэмжүүрээр тэмдэглэнэ —
@@ -330,7 +358,7 @@ def build_expense_lines(expense: Any) -> list[LineSpec]:
             account_code=credit_account,
             credit=gross,
             memo=memo,
-            dims=Dims(supplier_id=supplier_id, bank_account_id=bank_account_id),
+            dims=Dims(supplier_id=supplier_id, bank_account_id=bank_account_id, branch_id=branch_id),
         )
     )
     return lines
@@ -586,4 +614,215 @@ def build_settlement_lines(method: str, amount: Decimal) -> list[LineSpec]:
     return [
         LineSpec(account_code=ACC.BANK, debit=value, memo=label),
         LineSpec(account_code=clearing, credit=value, memo=label),
+    ]
+
+
+# --------------------------------------------------------------------------- #
+# SHIPMENT_POSTED / SHIPMENT_DELIVERY / SHIPMENT_SALE / SHIPMENT_LOSS
+# --------------------------------------------------------------------------- #
+def build_shipment_lines(shipment: Any, items: Iterable[Any]) -> list[LineSpec]:
+    """Ачилтын бүртгэл: Дт 1303 (түлш бүрээр, тээвэртэй), Дт 1402, Кт 2101.
+
+    Түлш машин дээр байгаа тул 1301 биш «Замд яваа түлш» (1303) дансанд орно.
+    Салбарт буулгах бүрд 1303 → 1301 шилжинэ (``build_shipment_delivery_lines``).
+    """
+    items = list(items)
+    supplier_id = getattr(shipment, "supplier_id", None)
+    number = getattr(shipment, "number", None)
+    vehicle = getattr(shipment, "vehicle_no", "") or ""
+    memo = f"Ачилт{f' №{number}' if number else ''} — {vehicle}".strip(" —")
+
+    lines: list[LineSpec] = []
+    landed_total = ZERO
+    for item in items:
+        liters = _d(getattr(item, "liters", ZERO))
+        landed = _d(getattr(item, "landed_unit_cost", ZERO))
+        amount = _m(liters * landed)
+        if amount == 0:
+            continue
+        landed_total = q2(landed_total + amount)
+        lines.append(
+            LineSpec(
+                account_code=ACC.FUEL_IN_TRANSIT,
+                debit=amount,
+                memo=memo,
+                dims=Dims(fuel_id=getattr(item, "fuel_id", None), supplier_id=supplier_id),
+            )
+        )
+    if not lines:
+        return []
+
+    # Тээврийн хуваарилалтын дугуйллын зөрүүг эхний мөрөнд шингээнэ —
+    # ингэснээр Дт 1303 == subtotal (литр·өртөг + тээвэр) яг тэнцэнэ.
+    subtotal = _m(getattr(shipment, "subtotal", ZERO))
+    drift = q2(subtotal - landed_total)
+    if drift != 0:
+        first = lines[0]
+        lines[0] = LineSpec(
+            account_code=first.account_code,
+            debit=q2(first.debit + drift),
+            memo=first.memo,
+            dims=first.dims,
+        )
+
+    vat = _m(getattr(shipment, "vat_amount", ZERO))
+    if vat != 0:
+        lines.append(
+            LineSpec(
+                account_code=ACC.VAT_INPUT,
+                debit=vat,
+                memo="Орох НӨАТ",
+                dims=Dims(supplier_id=supplier_id),
+            )
+        )
+    lines.append(
+        LineSpec(
+            account_code=ACC.AP_SUPPLIER,
+            credit=q2(subtotal + vat),
+            memo=memo,
+            dims=Dims(supplier_id=supplier_id),
+        )
+    )
+    return lines
+
+
+def build_shipment_delivery_lines(receipt: Any) -> list[LineSpec]:
+    """Ачилтаас салбарын саванд буулгах: Дт 1301 (салбар), Кт 1303.
+
+    Өглөг, НӨАТ ачилт дээрээ аль хэдийн бүртгэгдсэн тул энд зөвхөн нөөц
+    шилжинэ.  ``receipt.subtotal`` = литр × ачилтын landed нэгж өртөг.
+    """
+    amount = _m(getattr(receipt, "subtotal", ZERO))
+    if amount == 0:
+        return []
+    number = getattr(receipt, "number", None)
+    memo = f"Ачилтаас буулгалт{f' №{number}' if number else ''}"
+    fuel_id = getattr(receipt, "fuel_id", None)
+    return [
+        LineSpec(
+            account_code=ACC.INV_FUEL,
+            debit=amount,
+            memo=memo,
+            dims=Dims(
+                fuel_id=fuel_id,
+                tank_id=getattr(receipt, "tank_id", None),
+                branch_id=getattr(receipt, "branch_id", None),
+            ),
+        ),
+        LineSpec(
+            account_code=ACC.FUEL_IN_TRANSIT,
+            credit=amount,
+            memo=memo,
+            dims=Dims(fuel_id=fuel_id),
+        ),
+    ]
+
+
+def build_shipment_sale_lines(outflow: Any) -> list[LineSpec]:
+    """Машинаас шууд борлуулалт: Дт мөнгө, Кт 4101 + 2201; Дт 5101, Кт 1303.
+
+    ``outflow.amount`` — НӨАТ-тай нийт үнэ, ``outflow.cost_amount`` — өртөг.
+    """
+    gross = _m(getattr(outflow, "amount", ZERO))
+    cost = _m(getattr(outflow, "cost_amount", ZERO))
+    if gross == 0 and cost == 0:
+        return []
+
+    fuel_id = getattr(outflow, "fuel_id", None)
+    branch_id = getattr(outflow, "branch_id", None)
+    memo = "Машинаас шууд борлуулалт"
+    dims = Dims(fuel_id=fuel_id, branch_id=branch_id)
+
+    lines: list[LineSpec] = []
+    if gross != 0:
+        received = str(getattr(outflow, "received_to", "bank"))
+        cash_account = _cash_account(received)
+        bank_account_id = (
+            getattr(outflow, "bank_account_id", None) if cash_account == ACC.BANK else None
+        )
+        vat = vat_from_gross(gross, VAT_RATE)
+        net = q2(gross - vat)
+        lines.append(
+            LineSpec(
+                account_code=cash_account,
+                debit=gross,
+                memo=memo,
+                dims=Dims(fuel_id=fuel_id, branch_id=branch_id, bank_account_id=bank_account_id),
+            )
+        )
+        lines.append(LineSpec(account_code=ACC.REV_FUEL, credit=net, memo=memo, dims=dims))
+        if vat != 0:
+            lines.append(
+                LineSpec(account_code=ACC.VAT_OUTPUT, credit=vat, memo="Борлуулалтын НӨАТ", dims=dims)
+            )
+    if cost != 0:
+        lines.append(LineSpec(account_code=ACC.COGS_FUEL, debit=cost, memo="Түлшний өртөг", dims=dims))
+        lines.append(
+            LineSpec(
+                account_code=ACC.FUEL_IN_TRANSIT,
+                credit=cost,
+                memo="Машинаас хасалт",
+                dims=Dims(fuel_id=fuel_id),
+            )
+        )
+    return lines
+
+
+def build_shipment_loss_lines(outflow: Any) -> list[LineSpec]:
+    """Машин дээрх хорогдол: Дт 5201, Кт 1303 (өртгөөр)."""
+    cost = _m(getattr(outflow, "cost_amount", ZERO))
+    if cost == 0:
+        return []
+    fuel_id = getattr(outflow, "fuel_id", None)
+    memo = "Ачилтын хорогдол"
+    return [
+        LineSpec(
+            account_code=ACC.FUEL_LOSS,
+            debit=cost,
+            memo=memo,
+            dims=Dims(fuel_id=fuel_id, branch_id=getattr(outflow, "branch_id", None)),
+        ),
+        LineSpec(
+            account_code=ACC.FUEL_IN_TRANSIT,
+            credit=cost,
+            memo=memo,
+            dims=Dims(fuel_id=fuel_id),
+        ),
+    ]
+
+
+# --------------------------------------------------------------------------- #
+# BRANCH_SETTLEMENT_PAID
+# --------------------------------------------------------------------------- #
+def build_branch_settlement_lines(payment: Any) -> list[LineSpec]:
+    """Салбараас толгойн данс руу төлбөр: Дт 1110 (толгойн данс), Кт касс/банк.
+
+    Салбарын кассад хуримтлагдсан борлуулалтын мөнгө толгойн харилцах руу
+    шилжиж байгаа бодит хөдөлгөөн.  Кредит тал салбарын хэмжүүртэй тул
+    салбарын кассын үлдэгдэл ерөнхий дэвтрээс зөв гарна.
+    """
+    amount = _m(getattr(payment, "amount", ZERO))
+    if amount == 0:
+        return []
+    branch_id = getattr(payment, "branch_id", None)
+    memo = "Салбарын тооцооны төлбөр"
+
+    paid_from = str(getattr(payment, "paid_from", "cash"))
+    credit_account = _cash_account(paid_from)
+    from_bank = (
+        getattr(payment, "from_bank_account_id", None) if credit_account == ACC.BANK else None
+    )
+    return [
+        LineSpec(
+            account_code=ACC.BANK,
+            debit=amount,
+            memo=memo,
+            dims=Dims(bank_account_id=getattr(payment, "to_bank_account_id", None)),
+        ),
+        LineSpec(
+            account_code=credit_account,
+            credit=amount,
+            memo=memo,
+            dims=Dims(branch_id=branch_id, bank_account_id=from_bank),
+        ),
     ]

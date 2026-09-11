@@ -119,6 +119,9 @@ async def post_fuel_receipt(
     if capacity > ZERO and q3(_d(tank.current_l) + liters) > capacity:
         raise HTTPException(status_code=422, detail="Савны багтаамжаас хэтэрч байна")
 
+    # Худалдан авалт аль салбарынх вэ — савны салбараас хуулбарлана.
+    receipt.branch_id = tank.branch_id
+
     subtotal = q2(q2(liters * unit_cost) + freight)
     vat_amount = q2(subtotal * VAT_RATE)
     total_gross = q2(subtotal + vat_amount)

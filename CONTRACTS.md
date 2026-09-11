@@ -76,7 +76,7 @@ posting = PostingService()   # module-level singleton
 
 ## 4. Дансны код (`app/services/coa.py` → `ACC` тогтмол)
 
-`ACC.CASH="1101"`, `ACC.CARD_CLEARING="1102"`, `ACC.QR_CLEARING="1103"`, `ACC.BANK="1110"`, `ACC.AR_CONTRACT="1201"`, `ACC.INV_FUEL="1301"`, `ACC.INV_GOODS="1302"`, `ACC.VAT_INPUT="1402"`, `ACC.AP_SUPPLIER="2101"`, `ACC.VAT_OUTPUT="2201"`, `ACC.VOUCHER_LIABILITY="2301"`, `ACC.PREPAID_LIABILITY="2302"`, `ACC.OWNER_CAPITAL="3101"`, `ACC.RETAINED="3201"`, `ACC.REV_FUEL="4101"`, `ACC.REV_GOODS="4102"`, `ACC.SALES_RETURNS="4901"`, `ACC.OTHER_INCOME="4903"`, `ACC.COGS_FUEL="5101"`, `ACC.COGS_GOODS="5102"`, `ACC.FUEL_LOSS="5201"`, `ACC.CASH_SHORT="5902"`.
+`ACC.CASH="1101"`, `ACC.CARD_CLEARING="1102"`, `ACC.QR_CLEARING="1103"`, `ACC.BANK="1110"`, `ACC.AR_CONTRACT="1201"`, `ACC.INV_FUEL="1301"`, `ACC.INV_GOODS="1302"`, `ACC.FUEL_IN_TRANSIT="1303"`, `ACC.VAT_INPUT="1402"`, `ACC.AP_SUPPLIER="2101"`, `ACC.VAT_OUTPUT="2201"`, `ACC.VOUCHER_LIABILITY="2301"`, `ACC.PREPAID_LIABILITY="2302"`, `ACC.OWNER_CAPITAL="3101"`, `ACC.RETAINED="3201"`, `ACC.REV_FUEL="4101"`, `ACC.REV_GOODS="4102"`, `ACC.SALES_RETURNS="4901"`, `ACC.OTHER_INCOME="4903"`, `ACC.COGS_FUEL="5101"`, `ACC.COGS_GOODS="5102"`, `ACC.FUEL_LOSS="5201"`, `ACC.CASH_SHORT="5902"`.
 
 Tender → дебит данс: cash→1101, card→1102, qr→1103, contract→1201, voucher→2301, prepaid→2302 (`ACC.tender_account(method)` функц WP3 гаргана).
 
@@ -88,6 +88,11 @@ Tender → дебит данс: cash→1101, card→1102, qr→1103, contract→
 | `VOUCHER_SOLD` | tender данс | 2301 |
 | `PREPAID_TOPUP` | tender данс | 2302 |
 | `FUEL_RECEIPT_POSTED` | 1301 = liters·unit_cost + freight; 1402 = НӨАТ | 2101 = нийт (dim_supplier) |
+| `SHIPMENT_POSTED` | 1303 = Σ литр·landed өртөг (dim_fuel); 1402 = НӨАТ | 2101 = нийт (dim_supplier) — машины НИЙТ ачилтаар нэг нэхэмжлэх |
+| `SHIPMENT_DELIVERY` | 1301 (dim_fuel/tank/branch) | 1303 (dim_fuel) — НӨАТ/өглөг давхардахгүй, ачилт дээрээ бүртгэгдсэн |
+| `SHIPMENT_SALE` | 1101/1110 = НӨАТ-тай үнэ; 5101 = өртөг | 4101 = net, 2201 = НӨАТ; 1303 = өртөг |
+| `SHIPMENT_LOSS` | 5201 (dim_fuel) | 1303 |
+| `BRANCH_SETTLEMENT_PAID` | 1110 (dim_bank_account — толгойн данс) | 1101/1110 (dim_branch — салбарын мөнгө) |
 | `PURCHASE_POSTED` | 1302 = subtotal; 1402 = НӨАТ | 2101 (dim_supplier) |
 | `AP_PAYMENT` | 2101 (dim_supplier) | 1110 эсвэл 1101 |
 | `AR_RECEIPT` | 1110 (dim_bank_account) эсвэл 1101 | 1201 (dim_customer) |

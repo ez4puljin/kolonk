@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { CheckCircle2, Plus, ShoppingCart } from "lucide-react";
 
 import { errorMessage } from "../../api/client";
+import { useBranches } from "../../api/queries/branches";
 import {
   useFuelReceipts,
   usePostPurchaseMutation,
@@ -47,16 +48,19 @@ export function PurchasesPage() {
   const [range, setRange] = useState<DateRange>({ from: daysAgoInput(29), to: todayInput() });
   const [status, setStatus] = useState<StatusFilter>("all");
   const [supplierId, setSupplierId] = useState("");
+  const [branchId, setBranchId] = useState("");
   const [offset, setOffset] = useState(0);
   const [posting, setPosting] = useState<Purchase | null>(null);
   const [detail, setDetail] = useState<Purchase | null>(null);
 
   const suppliersQuery = useSuppliers({ limit: 200 });
+  const branchesQuery = useBranches();
   const purchasesQuery = usePurchases({
     date_from: range.from,
     date_to: range.to,
     status: status === "all" ? undefined : status,
     supplier_id: supplierId || undefined,
+    branch_id: branchId || undefined,
     limit: PAGE_SIZE,
     offset,
   });
@@ -65,6 +69,7 @@ export function PurchasesPage() {
     date_from: range.from,
     date_to: range.to,
     supplier_id: supplierId || undefined,
+    branch_id: branchId || undefined,
     limit: PAGE_SIZE,
   });
   const fuelRows = fuelQuery.data?.items ?? [];
@@ -92,6 +97,14 @@ export function PurchasesPage() {
       })),
     ],
     [suppliersQuery.data],
+  );
+
+  const branchOptions = useMemo(
+    () => [
+      { value: "", label: t.common.all },
+      ...(branchesQuery.data ?? []).map((branch) => ({ value: branch.id, label: branch.name })),
+    ],
+    [branchesQuery.data],
   );
 
   const confirmPost = (): void => {
@@ -125,13 +138,35 @@ export function PurchasesPage() {
       render: (row) => formatDate(row.receipt_date),
     },
     { key: "supplier", header: t.procurement.supplier, render: (row) => row.supplier_name ?? "—" },
-    { key: "tank", header: t.tanks.tank, render: (row) => row.tank_name ?? "—" },
+    {
+      key: "branch",
+      header: t.nav.branches,
+      render: (row) => row.branch_name ?? "—",
+    },
+    {
+      key: "tank",
+      header: t.tanks.tank,
+      render: (row) => (
+        <span>
+          {row.tank_name ?? "—"}
+          {row.vehicle_no ? <span className="text-ink-soft"> · {row.vehicle_no}</span> : null}
+        </span>
+      ),
+    },
     {
       key: "liters",
       header: t.pos.liters,
       align: "right",
       numeric: true,
       render: (row) => formatLiters(row.liters),
+    },
+    {
+      key: "unit_cost",
+      header: t.procurement.landedCost,
+      align: "right",
+      numeric: true,
+      hideOnMobile: true,
+      render: (row) => formatMNT(row.landed_unit_cost),
     },
     {
       key: "total_gross",
@@ -278,6 +313,16 @@ export function PurchasesPage() {
               setOffset(0);
             }}
             className="min-w-[16rem]"
+          />
+          <PickerField
+            label={t.nav.branches}
+            value={branchId}
+            options={branchOptions}
+            onChange={(next) => {
+              setBranchId(next);
+              setOffset(0);
+            }}
+            className="min-w-[14rem]"
           />
         </div>
       </div>

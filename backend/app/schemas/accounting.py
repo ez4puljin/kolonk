@@ -136,6 +136,31 @@ class IncomeStatementOut(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
+# Салбарын харьцуулалт
+# --------------------------------------------------------------------------- #
+class BranchSummaryRow(BaseModel):
+    branch_id: uuid.UUID | None = None
+    branch_name: str
+    branch_code: str | None = None
+    revenue: Decimal
+    cogs: Decimal
+    gross_profit: Decimal
+    expense: Decimal
+    net_profit: Decimal
+
+
+class BranchSummaryOut(BaseModel):
+    date_from: date
+    date_to: date
+    items: list[BranchSummaryRow]
+    total_revenue: Decimal
+    total_cogs: Decimal
+    total_gross_profit: Decimal
+    total_expense: Decimal
+    total_net_profit: Decimal
+
+
+# --------------------------------------------------------------------------- #
 # Баланс
 # --------------------------------------------------------------------------- #
 class BalanceSheetRow(BaseModel):

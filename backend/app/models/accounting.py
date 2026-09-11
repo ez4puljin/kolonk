@@ -78,6 +78,8 @@ class JournalLine(UUIDPKMixin, TimestampMixin, Base):
     dim_supplier_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), index=True)
     #: 1110 мөрийг аль харилцах данстай холбох вэ.  Σ(данс) == 1110 үлдэгдэл.
     dim_bank_account_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), index=True)
+    #: Аль салбарын гүйлгээ вэ — салбар бүрийн орлого зарлага, ашгийн тайланд.
+    dim_branch_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), index=True)
 
     entry: Mapped[JournalEntry] = relationship(back_populates="lines")
 

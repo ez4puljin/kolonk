@@ -52,6 +52,9 @@ interface NavEntry {
   icon: LucideIcon;
   /** Эдгээрийн аль нэг эрх байхад л харагдана. Хоосон = бүгдэд. */
   permissions: readonly string[];
+  /** Эдгээрийн аль нэг эрхтэй бол НУУНА — өргөн хувилбар нь байгаа үед
+      давхардсан цэс харуулахгүй (ж: Admin хяналттай хүнд энгийн самбар). */
+  hideIfPermissions?: readonly string[];
   end?: boolean;
   /** Дэд цэсүүд — байвал NavGroup болж зурагдана (`to` ашиглагдахгүй). */
   children?: readonly NavEntry[];
@@ -74,7 +77,14 @@ const NAV: readonly NavSection[] = [
       { to: "/pos", label: t.nav.pos, icon: Fuel, permissions: ["sales.create"] },
       { to: "/shift", label: t.nav.shift, icon: Gauge, permissions: ["shifts.open", "shifts.close", "shifts.view_all"] },
       { to: "/daily-closings", label: t.nav.dailyClosings, icon: CalendarCheck, permissions: ["shifts.view_all", "shifts.approve"] },
-      { to: "/dashboard", label: t.nav.dashboard, icon: LayoutDashboard, permissions: ["sales.view"] },
+      // Admin хяналттай хүнд энгийн самбарыг нуунa — хоёр самбар давхардуулахгүй.
+      {
+        to: "/dashboard",
+        label: t.nav.dashboard,
+        icon: LayoutDashboard,
+        permissions: ["sales.view"],
+        hideIfPermissions: ["dashboard.owner"],
+      },
       { to: "/owner", label: t.nav.owner, icon: Crown, permissions: ["dashboard.owner"] },
       { to: "/sales", label: t.nav.sales, icon: Receipt, permissions: ["sales.view"] },
     ],
@@ -96,19 +106,12 @@ const NAV: readonly NavSection[] = [
     key: "partners",
     accent: "bg-violet-500",
     title: t.nav.sections.partners,
+    // Группгүй, шууд жагсаана — 4 цэсийг үүрлэвэл нэг илүү товшилт л нэмнэ.
     items: [
-      {
-        to: "/customers",
-        label: t.nav.customerGroup,
-        icon: Users,
-        permissions: ["contracts.manage", "suppliers.manage", "payroll.manage"],
-        children: [
-          { to: "/customers", label: t.nav.customers, icon: Users, permissions: ["contracts.manage"] },
-          { to: "/suppliers", label: t.nav.suppliers, icon: Truck, permissions: ["suppliers.manage"] },
-          { to: "/employees", label: t.nav.employees, icon: UserCog, permissions: ["payroll.manage"] },
-        ],
-      },
+      { to: "/customers", label: t.nav.customers, icon: Users, permissions: ["contracts.manage"] },
       { to: "/contracts", label: t.nav.contracts, icon: FileText, permissions: ["contracts.manage"] },
+      { to: "/suppliers", label: t.nav.suppliers, icon: Truck, permissions: ["suppliers.manage"] },
+      { to: "/employees", label: t.nav.employees, icon: UserCog, permissions: ["payroll.manage"] },
     ],
   },
   {
@@ -116,18 +119,50 @@ const NAV: readonly NavSection[] = [
     accent: "bg-amber-500",
     title: t.nav.sections.finance,
     items: [
+      // --- Түлш татан авалт, салбар хоорондын тооцоо ---
+      { to: "/shipments", label: t.nav.shipments, icon: Truck, permissions: ["shipments.manage"] },
+      { to: "/branch-settlements", label: t.nav.branchSettlements, icon: Scale, permissions: ["settlements.manage"] },
+      // --- Мөнгөн хөрөнгө ---
+      {
+        to: "/bank-accounts",
+        label: "Банк",
+        icon: Landmark,
+        permissions: ["bank.manage"],
+        children: [
+          { to: "/bank-accounts", label: t.nav.bankAccounts, icon: Landmark, permissions: ["bank.manage"] },
+          { to: "/bank-statements", label: t.nav.bankStatements, icon: FileSpreadsheet, permissions: ["bank.manage"] },
+        ],
+      },
       { to: "/expenses", label: t.nav.expenses, icon: Wallet, permissions: ["expenses.manage"] },
-      { to: "/bank-accounts", label: t.nav.bankAccounts, icon: Landmark, permissions: ["bank.manage"] },
-      { to: "/bank-statements", label: t.nav.bankStatements, icon: FileSpreadsheet, permissions: ["bank.manage"] },
       { to: "/payroll", label: t.nav.payroll, icon: Coins, permissions: ["payroll.manage"] },
       { to: "/approvals", label: t.nav.approvals, icon: ClipboardCheck, permissions: ["prices.approve", "sales.refund.approve"] },
-      { to: "/report-center", label: t.nav.reportCenter, icon: FileText, permissions: ["reports.view"] },
-      { to: "/reports", label: t.nav.reports, icon: Store, permissions: ["reports.view"], end: true },
-      { to: "/reports/inventory", label: t.nav.inventoryReport, icon: Boxes, permissions: ["reports.view"] },
-      { to: "/reports/financial", label: t.nav.financialReports, icon: Scale, permissions: ["accounting.view"] },
-      { to: "/accounting", label: t.nav.accounting, icon: Calculator, permissions: ["accounting.view"], end: true },
-      { to: "/accounting/journal", label: t.nav.journal, icon: BookOpen, permissions: ["accounting.view"] },
-      { to: "/accounting/apar", label: t.nav.apar, icon: Wallet, permissions: ["accounting.view"] },
+      // --- Тайлан ---
+      {
+        to: "/report-center",
+        label: t.nav.reportCenter,
+        icon: FileText,
+        permissions: ["reports.view", "accounting.view"],
+        children: [
+          { to: "/report-center", label: "Тайлангийн төв", icon: FileText, permissions: ["reports.view"] },
+          { to: "/reports", label: "Борлуулалтын тайлан", icon: Store, permissions: ["reports.view"], end: true },
+          { to: "/reports/inventory", label: t.nav.inventoryReport, icon: Boxes, permissions: ["reports.view"] },
+          { to: "/reports/branches", label: t.nav.branchReport, icon: Building2, permissions: ["accounting.view"] },
+          { to: "/reports/financial", label: t.nav.financialReports, icon: Scale, permissions: ["accounting.view"] },
+        ],
+      },
+      // --- НББ ---
+      {
+        to: "/accounting",
+        label: t.nav.accounting,
+        icon: Calculator,
+        permissions: ["accounting.view"],
+        children: [
+          // /accounting нь дансны төлөвлөгөөний хуудас — группын нэртэй давхардуулахгүй.
+          { to: "/accounting", label: "Дансны төлөвлөгөө", icon: Calculator, permissions: ["accounting.view"], end: true },
+          { to: "/accounting/journal", label: t.nav.journal, icon: BookOpen, permissions: ["accounting.view"] },
+          { to: "/accounting/apar", label: t.nav.apar, icon: Wallet, permissions: ["accounting.view"] },
+        ],
+      },
     ],
   },
   {
@@ -150,7 +185,14 @@ const MOBILE_NAV: readonly NavEntry[] = [
   { to: "/shift", label: t.nav.shift, icon: Gauge, permissions: ["shifts.open", "shifts.close", "shifts.view_all"] },
   { to: "/sales", label: t.nav.sales, icon: Receipt, permissions: ["sales.view"] },
   { to: "/tanks", label: t.nav.tanks, icon: Database, permissions: ["tanks.view"] },
-  { to: "/dashboard", label: t.nav.dashboard, icon: LayoutDashboard, permissions: ["sales.view"] },
+  {
+    to: "/dashboard",
+    label: t.nav.dashboard,
+    icon: LayoutDashboard,
+    permissions: ["sales.view"],
+    // Admin хяналттай хүнд хоёр самбар давхардуулахгүй.
+    hideIfPermissions: ["dashboard.owner"],
+  },
   { to: "/owner", label: t.nav.owner, icon: Crown, permissions: ["dashboard.owner"] },
   { to: "/reports", label: t.nav.reports, icon: Store, permissions: ["reports.view"], end: true },
 ];
@@ -208,26 +250,28 @@ export function AppShell() {
     setSidebar(false);
   }, [location.pathname, setSidebar]);
 
+  // Эрхтэй + ПОС-ын горимд тохирсон + өргөн хувилбараар нь халаагдаагүй цэс л харагдана.
+  const entryVisible = (item: NavEntry): boolean =>
+    canAny(item.permissions) &&
+    routeVisible(item.to) &&
+    !(item.hideIfPermissions && canAny(item.hideIfPermissions));
+
   const sections = NAV.map((section) => ({
     ...section,
     items: section.items
-      .filter((item) => canAny(item.permissions) && routeVisible(item.to))
+      .filter(entryVisible)
       .map((item) =>
         item.children
           ? {
               ...item,
-              children: item.children.filter(
-                (child) => canAny(child.permissions) && routeVisible(child.to),
-              ),
+              children: item.children.filter(entryVisible),
             }
           : item,
       )
       .filter((item) => !item.children || item.children.length > 0),
   })).filter((section) => section.items.length > 0);
 
-  const mobileItems = MOBILE_NAV.filter(
-    (item) => canAny(item.permissions) && routeVisible(item.to),
-  ).slice(0, 5);
+  const mobileItems = MOBILE_NAV.filter(entryVisible).slice(0, 5);
 
   const handleLogout = (): void => {
     logoutMutation.mutate(undefined, {

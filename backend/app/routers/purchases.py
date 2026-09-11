@@ -189,6 +189,7 @@ def _build_items(
 async def list_purchases(
     status: DocStatus | None = Query(default=None),
     supplier_id: uuid.UUID | None = Query(default=None),
+    branch_id: uuid.UUID | None = Query(default=None),
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=500),
@@ -201,6 +202,8 @@ async def list_purchases(
         conditions.append(Purchase.status == str(status))
     if supplier_id is not None:
         conditions.append(Purchase.supplier_id == supplier_id)
+    if branch_id is not None:
+        conditions.append(Purchase.branch_id == branch_id)
     if date_from is not None:
         conditions.append(Purchase.purchase_date >= date_from)
     if date_to is not None:

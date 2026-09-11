@@ -1231,6 +1231,11 @@ export interface FuelReceipt {
   number: number;
   supplier_id: UUID;
   supplier_name: string | null;
+  /** Ачилтаас буусан бол эх ачилт ба машины дугаар. */
+  shipment_id: UUID | null;
+  vehicle_no: string | null;
+  branch_id: UUID | null;
+  branch_name: string | null;
   tank_id: UUID;
   tank_name: string | null;
   fuel_id: UUID;
@@ -2609,4 +2614,194 @@ export interface ReceiveResult {
   fuel_total: MoneyStr;
   goods_total: MoneyStr;
   total_gross: MoneyStr;
+}
+
+// ---------------------------------------------------------------------------
+// Түлшний ачилт (машинаар татаж салбаруудад түгээх)
+// ---------------------------------------------------------------------------
+
+export type ShipmentStatus = "draft" | "posted" | "closed";
+export type ShipmentOutflowKind = "sale" | "loss";
+
+export interface ShipmentItem {
+  id: UUID;
+  fuel_id: UUID;
+  fuel_name: string | null;
+  fuel_code: string | null;
+  liters: LitersStr;
+  unit_cost: MoneyStr;
+  amount: MoneyStr;
+  landed_unit_cost: MoneyStr;
+  delivered_l: LitersStr;
+  outflow_l: LitersStr;
+  remaining_l: LitersStr;
+}
+
+export interface ShipmentDeliveryRow {
+  id: UUID;
+  number: number | null;
+  receipt_date: IsoDate;
+  branch_id: UUID | null;
+  branch_name: string | null;
+  tank_id: UUID;
+  tank_name: string | null;
+  fuel_name: string | null;
+  fuel_code: string | null;
+  liters: LitersStr;
+  unit_cost: MoneyStr;
+  subtotal: MoneyStr;
+}
+
+export interface ShipmentOutflow {
+  id: UUID;
+  kind: ShipmentOutflowKind | string;
+  kind_name: string | null;
+  fuel_id: UUID;
+  fuel_name: string | null;
+  branch_id: UUID | null;
+  branch_name: string | null;
+  outflow_date: IsoDate;
+  liters: LitersStr;
+  unit_price: MoneyStr;
+  amount: MoneyStr;
+  cost_amount: MoneyStr;
+  received_to: "cash" | "bank" | string;
+  bank_account_id: UUID | null;
+  customer_name: string | null;
+  note: string | null;
+}
+
+export interface FuelShipment {
+  id: UUID;
+  number: number | null;
+  supplier_id: UUID;
+  supplier_name: string | null;
+  vehicle_no: string;
+  driver_name: string | null;
+  shipment_date: IsoDate;
+  invoice_no: string | null;
+  freight_cost: MoneyStr;
+  subtotal: MoneyStr;
+  vat_amount: MoneyStr;
+  total_gross: MoneyStr;
+  status: ShipmentStatus | string;
+  status_name: string | null;
+  ap_invoice_id: UUID | null;
+  amount_paid: MoneyStr;
+  invoice_status: string | null;
+  posted_at: IsoDateTime | null;
+  closed_at: IsoDateTime | null;
+  note: string | null;
+  created_at: IsoDateTime | null;
+  items: ShipmentItem[];
+  total_liters: LitersStr;
+  remaining_liters: LitersStr;
+}
+
+export interface FuelShipmentDetail extends FuelShipment {
+  deliveries: ShipmentDeliveryRow[];
+  outflows: ShipmentOutflow[];
+}
+
+export interface ShipmentItemCreate {
+  fuel_id: UUID;
+  liters: LitersStr;
+  unit_cost: MoneyStr;
+}
+
+export interface FuelShipmentCreate {
+  supplier_id: UUID;
+  vehicle_no: string;
+  driver_name?: string | null;
+  shipment_date?: IsoDate | null;
+  invoice_no?: string | null;
+  freight_cost?: MoneyStr;
+  note?: string | null;
+  items: ShipmentItemCreate[];
+}
+
+export interface ShipmentDeliverRequest {
+  tank_id: UUID;
+  liters: LitersStr;
+  receipt_date?: IsoDate | null;
+  note?: string | null;
+}
+
+export interface ShipmentOutflowRequest {
+  kind: ShipmentOutflowKind;
+  fuel_id: UUID;
+  liters: LitersStr;
+  unit_price?: MoneyStr;
+  received_to?: "cash" | "bank";
+  bank_account_id?: UUID | null;
+  branch_id?: UUID | null;
+  outflow_date?: IsoDate | null;
+  customer_name?: string | null;
+  note?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Салбарын тооцоо
+// ---------------------------------------------------------------------------
+
+export interface SettlementBalance {
+  branch_id: UUID;
+  branch_name: string;
+  branch_code: string;
+  charged: MoneyStr;
+  paid: MoneyStr;
+  balance: MoneyStr;
+}
+
+export interface SettlementEntry {
+  id: UUID;
+  branch_id: UUID;
+  branch_name: string | null;
+  entry_type: "charge" | "payment" | string;
+  entry_type_name: string | null;
+  entry_date: IsoDate;
+  amount: MoneyStr;
+  ref_type: string | null;
+  ref_id: UUID | null;
+  paid_from: string | null;
+  to_bank_account_id: UUID | null;
+  to_bank_account_name: string | null;
+  note: string | null;
+  created_at: IsoDateTime | null;
+}
+
+export interface SettlementPaymentCreate {
+  branch_id: UUID;
+  amount: MoneyStr;
+  entry_date?: IsoDate | null;
+  paid_from: "cash" | "bank";
+  from_bank_account_id?: UUID | null;
+  to_bank_account_id: UUID;
+  note?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Салбарын харьцуулсан тайлан
+// ---------------------------------------------------------------------------
+
+export interface BranchSummaryRow {
+  branch_id: UUID | null;
+  branch_name: string;
+  branch_code: string | null;
+  revenue: MoneyStr;
+  cogs: MoneyStr;
+  gross_profit: MoneyStr;
+  expense: MoneyStr;
+  net_profit: MoneyStr;
+}
+
+export interface BranchSummary {
+  date_from: IsoDate;
+  date_to: IsoDate;
+  items: BranchSummaryRow[];
+  total_revenue: MoneyStr;
+  total_cogs: MoneyStr;
+  total_gross_profit: MoneyStr;
+  total_expense: MoneyStr;
+  total_net_profit: MoneyStr;
 }

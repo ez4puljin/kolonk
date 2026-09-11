@@ -25,6 +25,7 @@ export interface SupplierListParams {
 
 export interface DocumentListParams {
   supplier_id?: UUID;
+  branch_id?: UUID;
   status?: string;
   date_from?: string;
   date_to?: string;

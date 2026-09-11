@@ -745,6 +745,11 @@ async def _post_cash_difference(
             LineSpec(account_code=ACC.OTHER_INCOME, credit=amount, memo=description),
         ]
 
+    # Кассын зөрүү аль салбарын ээлжид гарсныг хэмжүүрээр тэмдэглэнэ.
+    from dataclasses import replace as _replace
+
+    lines = [_replace(ln, dims=_replace(ln.dims, branch_id=shift.branch_id)) for ln in lines]
+
     entry = await posting.post(
         db,
         event_type=event_type,
@@ -814,7 +819,7 @@ async def _post_fuel_variance(
                 account_code=ACC.FUEL_LOSS,
                 debit=value,
                 memo=_truncate(f"{tank.name}: {variance} л дутагдал", 255),
-                dims=Dims(fuel_id=tank.fuel_id, tank_id=tank.id),
+                dims=Dims(fuel_id=tank.fuel_id, tank_id=tank.id, branch_id=shift.branch_id),
             )
             for tank, variance, value in loss_rows
         ]
@@ -848,7 +853,7 @@ async def _post_fuel_variance(
                 account_code=ACC.INV_FUEL,
                 debit=value,
                 memo=_truncate(f"{tank.name}: {variance} л илүүдэл", 255),
-                dims=Dims(fuel_id=tank.fuel_id, tank_id=tank.id),
+                dims=Dims(fuel_id=tank.fuel_id, tank_id=tank.id, branch_id=shift.branch_id),
             )
             for tank, variance, value in gain_rows
         ]

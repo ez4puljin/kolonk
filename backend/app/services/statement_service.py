@@ -55,8 +55,12 @@ async def _totals_by_account(
     *,
     date_from: date | None = None,
     date_to: date | None = None,
+    branch_id: uuid.UUID | None = None,
 ) -> dict[str, tuple[Decimal, Decimal]]:
-    """``{дансны код: (Σдебит, Σкредит)}``."""
+    """``{дансны код: (Σдебит, Σкредит)}``.
+
+    ``branch_id`` өгвөл зөвхөн тухайн салбарын хэмжүүртэй мөрүүдийг тоолно.
+    """
     stmt = (
         select(
             JournalLine.account_code,
@@ -66,6 +70,8 @@ async def _totals_by_account(
         .join(JournalEntry, JournalEntry.id == JournalLine.entry_id)
         .group_by(JournalLine.account_code)
     )
+    if branch_id is not None:
+        stmt = stmt.where(JournalLine.dim_branch_id == branch_id)
     stmt = _apply_period(stmt, date_from, date_to)
     rows = (await db.execute(stmt)).all()
     return {row.account_code: (q2(row.debit), q2(row.credit)) for row in rows}
@@ -177,9 +183,19 @@ async def trial_balance(db: AsyncSession, as_of: date | None = None) -> dict[str
 # --------------------------------------------------------------------------- #
 # Орлого үр дүнгийн тайлан
 # --------------------------------------------------------------------------- #
-async def income_statement(db: AsyncSession, date_from: date, date_to: date) -> dict[str, Any]:
-    """Орлого, өртөг, зардлын тайлан + түлш тус бүрийн ашгийн задаргаа."""
-    totals = await _totals_by_account(db, date_from=date_from, date_to=date_to)
+async def income_statement(
+    db: AsyncSession,
+    date_from: date,
+    date_to: date,
+    branch_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    """Орлого, өртөг, зардлын тайлан + түлш тус бүрийн ашгийн задаргаа.
+
+    ``branch_id`` өгвөл зөвхөн тухайн салбарын хэмжүүртэй бичилтүүдээс гаргана.
+    """
+    totals = await _totals_by_account(
+        db, date_from=date_from, date_to=date_to, branch_id=branch_id
+    )
     accounts = await _account_map(db)
 
     revenue: list[dict[str, Any]] = []
@@ -222,11 +238,16 @@ async def income_statement(db: AsyncSession, date_from: date, date_to: date) -> 
         "total_expense": total_expense,
         "gross_profit": gross_profit,
         "net_profit": net_profit,
-        "fuel_margins": await _fuel_margins(db, date_from, date_to),
+        "fuel_margins": await _fuel_margins(db, date_from, date_to, branch_id=branch_id),
     }
 
 
-async def _fuel_margins(db: AsyncSession, date_from: date, date_to: date) -> list[dict[str, Any]]:
+async def _fuel_margins(
+    db: AsyncSession,
+    date_from: date,
+    date_to: date,
+    branch_id: uuid.UUID | None = None,
+) -> list[dict[str, Any]]:
     """Түлш тус бүрийн орлого/өртөг/ашиг (4101 ба 5101 мөрийн dim_fuel_id-аар)."""
     stmt = (
         select(
@@ -242,6 +263,8 @@ async def _fuel_margins(db: AsyncSession, date_from: date, date_to: date) -> lis
         )
         .group_by(JournalLine.dim_fuel_id, JournalLine.account_code)
     )
+    if branch_id is not None:
+        stmt = stmt.where(JournalLine.dim_branch_id == branch_id)
     stmt = _apply_period(stmt, date_from, date_to)
     rows = (await db.execute(stmt)).all()
 
@@ -276,6 +299,103 @@ async def _fuel_margins(db: AsyncSession, date_from: date, date_to: date) -> lis
         )
     result.sort(key=lambda item: item["revenue"], reverse=True)
     return result
+
+
+# --------------------------------------------------------------------------- #
+# Салбарын харьцуулалт
+# --------------------------------------------------------------------------- #
+async def branch_summary(db: AsyncSession, date_from: date, date_to: date) -> dict[str, Any]:
+    """Салбар бүрийн орлого / өртөг / зардал / ашиг — нэг хүснэгтэд.
+
+    Журналын мөрүүдийг ``dim_branch_id``-аар бүлэглэнэ.  Салбарын хэмжүүргүй
+    (толгойн, хуваарилагдаагүй) мөрүүд «Хуваарилагдаагүй» мөрөнд нэгдэнэ.
+    """
+    from app.models.branch import Branch
+
+    stmt = (
+        select(
+            JournalLine.dim_branch_id,
+            Account.account_type,
+            Account.code,
+            func.coalesce(func.sum(JournalLine.debit), 0).label("debit"),
+            func.coalesce(func.sum(JournalLine.credit), 0).label("credit"),
+        )
+        .join(JournalEntry, JournalEntry.id == JournalLine.entry_id)
+        .join(Account, Account.code == JournalLine.account_code)
+        .where(
+            Account.account_type.in_([str(AccountType.REVENUE), str(AccountType.EXPENSE)])
+        )
+        .group_by(JournalLine.dim_branch_id, Account.account_type, Account.code)
+    )
+    stmt = _apply_period(stmt, date_from, date_to)
+    rows = (await db.execute(stmt)).all()
+
+    buckets: dict[uuid.UUID | None, dict[str, Decimal]] = {}
+    for row in rows:
+        bucket = buckets.setdefault(
+            row.dim_branch_id, {"revenue": ZERO, "cogs": ZERO, "expense": ZERO}
+        )
+        if str(row.account_type) == str(AccountType.REVENUE):
+            bucket["revenue"] = q2(bucket["revenue"] + q2(row.credit) - q2(row.debit))
+        elif row.code in ACC.COGS_ACCOUNTS:
+            bucket["cogs"] = q2(bucket["cogs"] + q2(row.debit) - q2(row.credit))
+        else:
+            bucket["expense"] = q2(bucket["expense"] + q2(row.debit) - q2(row.credit))
+
+    branches = {b.id: b for b in (await db.scalars(select(Branch))).all()}
+
+    items: list[dict[str, Any]] = []
+    totals = {"revenue": ZERO, "cogs": ZERO, "expense": ZERO}
+    for branch_key, bucket in buckets.items():
+        branch = branches.get(branch_key) if branch_key is not None else None
+        gross = q2(bucket["revenue"] - bucket["cogs"])
+        net = q2(gross - bucket["expense"])
+        items.append(
+            {
+                "branch_id": branch_key,
+                "branch_name": branch.name if branch else "Хуваарилагдаагүй",
+                "branch_code": branch.code if branch else None,
+                "revenue": bucket["revenue"],
+                "cogs": bucket["cogs"],
+                "gross_profit": gross,
+                "expense": bucket["expense"],
+                "net_profit": net,
+            }
+        )
+        for key in totals:
+            totals[key] = q2(totals[key] + bucket[key])
+
+    # Гүйлгээгүй ч идэвхтэй салбаруудыг 0 дүнтэй харуулна — жагсаалт бүрэн байг.
+    for branch in branches.values():
+        if branch.is_active and branch.id not in buckets:
+            items.append(
+                {
+                    "branch_id": branch.id,
+                    "branch_name": branch.name,
+                    "branch_code": branch.code,
+                    "revenue": ZERO,
+                    "cogs": ZERO,
+                    "gross_profit": ZERO,
+                    "expense": ZERO,
+                    "net_profit": ZERO,
+                }
+            )
+
+    # Нэртэй салбарууд эхэндээ, «Хуваарилагдаагүй» хамгийн сүүлд.
+    items.sort(key=lambda r: (r["branch_id"] is None, str(r["branch_name"])))
+
+    total_gross = q2(totals["revenue"] - totals["cogs"])
+    total_net = q2(total_gross - totals["expense"])
+    return {
+        "date_from": date_from,
+        "date_to": date_to,
+        "items": items,
+        "total_revenue": totals["revenue"],
+        "total_cogs": totals["cogs"],
+        "total_gross_profit": total_gross,
+        "total_expense": totals["expense"],
+        "total_net_profit": total_net,
+    }
 
 
 # --------------------------------------------------------------------------- #

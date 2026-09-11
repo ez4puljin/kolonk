@@ -34,6 +34,8 @@ class Dims:
     supplier_id: uuid.UUID | None = None
     #: 1110 дансны мөрийг аль харилцах данстай холбох вэ.
     bank_account_id: uuid.UUID | None = None
+    #: Аль салбарын орлого/зардал вэ — салбар бүрийн ашгийн тайланд.
+    branch_id: uuid.UUID | None = None
 
 
 NO_DIMS = Dims()
@@ -154,6 +156,7 @@ class PostingService:
                     dim_customer_id=dims.customer_id,
                     dim_supplier_id=dims.supplier_id,
                     dim_bank_account_id=dims.bank_account_id,
+                    dim_branch_id=dims.branch_id,
                 )
             )
 

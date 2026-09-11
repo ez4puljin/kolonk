@@ -152,6 +152,11 @@ class FuelReceiptOut(BaseModel):
     number: int | None = None
     supplier_id: uuid.UUID
     supplier_name: str | None = None
+    #: Ачилтаас буусан бол — эх ачилт ба машины дугаар.
+    shipment_id: uuid.UUID | None = None
+    vehicle_no: str | None = None
+    branch_id: uuid.UUID | None = None
+    branch_name: str | None = None
     tank_id: uuid.UUID
     tank_name: str | None = None
     fuel_id: uuid.UUID
