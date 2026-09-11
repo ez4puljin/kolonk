@@ -111,6 +111,7 @@ const BranchSettlementsPage = lazyPage("BranchSettlementsPage");
 const BranchReportPage = lazyPage("BranchReportPage");
 const SuppliersPage = lazyPage("SuppliersPage");
 const ProductsPage = lazyPage("ProductsPage");
+const FuelsPage = lazyPage("FuelsPage");
 const InventoryPage = lazyPage("InventoryPage");
 const PriceChangesPage = lazyPage("PriceChangesPage");
 const CustomersPage = lazyPage("CustomersPage");
@@ -475,6 +476,14 @@ export function AppRoutes() {
           />
 
           {/* Бараа, нөөц */}
+          <Route
+            path="/fuels"
+            element={
+              <RequirePermission code="products.manage">
+                <FuelsPage />
+              </RequirePermission>
+            }
+          />
           <Route
             path="/products"
             element={

@@ -237,7 +237,8 @@ export function TanksPage() {
                   </div>
                   <div>
                     <dt className="text-[11px] font-semibold tracking-wide text-ink-faint uppercase">
-                      {t.common.balance}
+                      {/* Чөлөөт багтаамж — «үлдэгдэл» гэвэл савны шингэнтэй андуурагдана. */}
+                      Багтах
                     </dt>
                     <dd className="num text-[15px] font-semibold text-ink">{formatLiters(available, 0)}</dd>
                   </div>

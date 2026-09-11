@@ -663,7 +663,31 @@ export function BranchSetupPage() {
       {/* --- Насос: талбайн зураглал --- */}
       {tab === "pumps" ? (
         <div className="flex flex-col gap-6">
-          <Card title={t.branches.forecourt} subtitle={t.branches.forecourtHint}>
+          <Card
+            title={t.branches.forecourt}
+            subtitle={t.branches.forecourtHint}
+            actions={
+              // Зураглал дээрх «+» нүднээс гадна тодорхой товч — анх удаа
+              // тохируулж буй хүнд нэмэх арга нь шууд харагдана.
+              <Button
+                variant="primary"
+                size="md"
+                icon={<Plus />}
+                onClick={() => {
+                  for (let index = 0; index < GRID_COLS * GRID_ROWS; index++) {
+                    const x = index % GRID_COLS;
+                    const y = Math.floor(index / GRID_COLS);
+                    if (!pumps.some((item) => item.position_x === x && item.position_y === y)) {
+                      openPump(null, { x, y });
+                      return;
+                    }
+                  }
+                }}
+              >
+                {t.pumps.addPump}
+              </Button>
+            }
+          >
             <div
               className="grid gap-3"
               style={{ gridTemplateColumns: `repeat(${GRID_COLS}, minmax(0, 1fr))` }}
@@ -754,8 +778,7 @@ export function BranchSetupPage() {
                       <span className="flex min-w-0 flex-1 flex-col">
                         <span className="truncate font-semibold text-ink">{nozzle.fuel_name}</span>
                         <span className="num truncate text-xs text-ink-soft">
-                          {t.tanks.tank}: {nozzle.tank_name} · {formatMNT(nozzle.price_per_liter)}
-                          {t.units.perLiter}
+                          {t.tanks.tank}: {nozzle.tank_name} · {formatMNT(nozzle.price_per_liter)}/л
                         </span>
                       </span>
                       <Button variant="secondary" size="md" onClick={() => openNozzle(pump, nozzle)}>
@@ -864,6 +887,15 @@ export function BranchSetupPage() {
             onChange={setTankFuel}
             disabled={editTank !== null}
           />
+          {fuels.length === 0 ? (
+            <p className="rounded-xl bg-warning-soft px-4 py-3 text-sm font-medium text-warning-dark">
+              Түлшний төрөл бүртгэгдээгүй байна. Эхлээд{" "}
+              <button type="button" className="font-bold underline" onClick={() => navigate("/fuels")}>
+                Түлш
+              </button>{" "}
+              цэсээр АИ-92, Дизель зэрэг түлшээ нэмнэ үү.
+            </p>
+          ) : null}
           <div className="grid gap-4 sm:grid-cols-2">
             <NumberField
               name="tank-capacity"

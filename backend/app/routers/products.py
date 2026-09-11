@@ -21,7 +21,9 @@ from app.deps import get_current_user, require_permission
 from app.models.product import Product, ProductBranchStock, ProductCategory
 from app.models.user import User
 from app.money import q2, q3
-from app.enums import ProductSaleMode
+from app.enums import EventType, ProductSaleMode, SourceType
+from app.services.coa import ACC
+from app.services.posting import LineSpec, posting
 from app.schemas.product import (
     SALE_MODE_NAMES_MN,
     ProductCategoryCreate,
@@ -557,6 +559,28 @@ async def create_product(
             branch_id=await resolve_branch_id(db, user),
         )
         await db.flush()
+
+        # Эхний үлдэгдэл нь худалдан авалт биш — өртгийг нь эзний хөрөнгөөр
+        # (Дт 1302 / Кт 3101) бичнэ, эс бөгөөс 1302 данс нөөцтэй зөрнө
+        # (integrity шалгалт унадаг). «Эхний үлдэгдэл» цонхны бичилттэй ижил.
+        opening_value = q2(opening * q2(payload.opening_cost))
+        if opening_value > 0:
+            from datetime import date as _date
+
+            memo = f"Эхний үлдэгдэл — {product.name_mn}"
+            await posting.post(
+                db,
+                event_type=str(EventType.OPENING_BALANCE_POSTED),
+                source_type=str(SourceType.OPENING_BALANCE),
+                source_id=product.id,
+                entry_date=_date.today(),
+                description=memo,
+                lines=[
+                    LineSpec(account_code=ACC.INV_GOODS, debit=opening_value, memo=memo),
+                    LineSpec(account_code=ACC.OWNER_CAPITAL, credit=opening_value, memo=memo),
+                ],
+                posted_by=user.id,
+            )
 
     await audit(
         db,

@@ -526,7 +526,42 @@ async def seed_branches(db) -> None:
         log.info("Салбаргүй %d бичлэгийг '%s'-д харьяалуулав", filled, existing.name)
 
 
-async def main() -> None:
+#: Анхны админ бүртгэл — цэвэр суулгалтад ЗӨВХӨН энэ л үүснэ.
+ADMIN_USERNAME = "admin"
+ADMIN_FULL_NAME = "Админ"
+ADMIN_PIN = "000000"
+
+
+async def seed_admin(db, roles: dict[str, Role]) -> bool:
+    """Owner дүртэй хэрэглэгч байхгүй бол анхны админыг үүсгэнэ.
+
+    Owner аль хэдийн байвал (нэрийг нь сольсон ч) юу ч хийхгүй — дахин
+    ажиллуулахад «admin» гэдэг хоёр дахь бүртгэл үүсгэхгүй.
+    """
+    owner_role = roles[RoleCode.OWNER]
+    has_owner = await db.scalar(select(User.id).where(User.role_id == owner_role.id).limit(1))
+    if has_owner is not None:
+        return False
+    db.add(
+        User(
+            username=ADMIN_USERNAME,
+            full_name=ADMIN_FULL_NAME,
+            pin_hash=hash_pin(ADMIN_PIN),
+            role_id=owner_role.id,
+            is_active=True,
+        )
+    )
+    await db.flush()
+    return True
+
+
+async def main(demo: bool = False) -> None:
+    """Цэвэр суулгалт: данс, тохиргоо, эрх + анхны админ.
+
+    ``demo=True`` үед л жишээ салбар, түлш, сав, түгээгүүр, бараа, түнш,
+    хэрэглэгчид нэмэгдэнэ — туршилт, сургалтад.  Бодит станцад админ
+    бүгдийг өөрөө гараар үүсгэнэ.
+    """
     from app.services.coa import ensure_accounts
     from app.services.settings_service import ensure_settings
 
@@ -534,26 +569,44 @@ async def main() -> None:
         await ensure_accounts(db)
         await ensure_settings(db)
         roles = await seed_permissions_and_roles(db)
-        await seed_users(db, roles)
-        await seed_branches(db)
-        fuels, tanks = await seed_fuels_and_tanks(db)
-        await seed_pumps(db, fuels, tanks)
-        await seed_catalog(db)
-        await seed_partners(db)
-        await seed_opening_fuel_stock(db, tanks)
-        await seed_opening_goods_stock(db)
-        await seed_bank_accounts(db)
-        await seed_expenses(db)
-        await seed_employees(db)
-        await seed_branches(db)
+        created_admin = await seed_admin(db, roles)
+
+        if demo:
+            await seed_users(db, roles)
+            await seed_branches(db)
+            fuels, tanks = await seed_fuels_and_tanks(db)
+            await seed_pumps(db, fuels, tanks)
+            await seed_catalog(db)
+            await seed_partners(db)
+            await seed_opening_fuel_stock(db, tanks)
+            await seed_opening_goods_stock(db)
+            await seed_bank_accounts(db)
+            await seed_expenses(db)
+            await seed_employees(db)
+            await seed_branches(db)
         await db.commit()
 
     log.info("=" * 52)
     log.info("Seed амжилттай дууслаа.")
-    for username, full_name, role_code, pin in DEMO_USERS:
-        log.info("  %-8s %-6s %-8s ПИН: %s", username, full_name, role_code, pin)
+    if created_admin:
+        log.info("  Анхны админ: %s / ПИН %s — НЭВТЭРМЭГЦ СОЛИНО УУ", ADMIN_USERNAME, ADMIN_PIN)
+    else:
+        log.info("  Админ аль хэдийн байна — шинээр үүсгэсэнгүй")
+    if demo:
+        for username, full_name, role_code, pin in DEMO_USERS:
+            log.info("  %-8s %-6s %-8s ПИН: %s", username, full_name, role_code, pin)
+    else:
+        log.info("  Салбар, түлш, сав, түгээгүүрийг админ гараар нэмнэ (демо: --demo)")
     log.info("=" * 52)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Колонк — анхны өгөгдөл суулгах")
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="жишээ салбар, түлш, сав, бараа, хэрэглэгчид нэмэх (туршилтад)",
+    )
+    asyncio.run(main(demo=parser.parse_args().demo))

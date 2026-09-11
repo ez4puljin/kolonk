@@ -52,11 +52,6 @@ class Refund(UUIDPKMixin, TimestampMixin, Base):
     decided_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id"))
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     decision_note: Mapped[str | None] = mapped_column(Text)
-    #: Аль өдрөөс хэрэгжих вэ (NULL = батламагц шууд). Тосны үнийн өөрчлөлтийг
-    #: маргаашнаас эхлүүлэхэд ашиглана — өнөөдрийн борлуулалт хуучин үнээрээ явна.
-    effective_date: Mapped[date | None] = mapped_column(Date)
-    #: Үнэ бодитоор солигдсон мөч (хойшлуулсан өөрчлөлтөд worker бөглөнө).
-    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     shift_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("shifts.id"))
 
     items: Mapped[list["RefundItem"]] = relationship(

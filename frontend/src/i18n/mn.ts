@@ -136,6 +136,7 @@ export const t = {
     dashboard: "Хяналтын самбар",
     owner: "Admin хяналт",
     tanks: "Сав",
+    fuels: "Түлш",
     pumps: "Түгээгүүр",
     fuelReceipts: "Шатахуун таталт",
     purchases: "Худалдан авалт",

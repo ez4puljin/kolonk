@@ -12,6 +12,7 @@ import {
   Coins,
   Crown,
   Database,
+  Droplets,
   FileSpreadsheet,
   FileText,
   Fuel,
@@ -94,6 +95,8 @@ const NAV: readonly NavSection[] = [
     accent: "bg-emerald-500",
     title: t.nav.sections.goods,
     items: [
+      // Түлшний төрөл — сав, түгээгүүр үүсгэхийн өмнө энд бүртгэнэ.
+      { to: "/fuels", label: t.nav.fuels, icon: Droplets, permissions: ["products.manage"] },
       { to: "/tanks", label: t.nav.tanks, icon: Database, permissions: ["tanks.view"] },
       { to: "/products", label: t.nav.products, icon: Package, permissions: ["products.view"] },
       { to: "/inventory", label: t.nav.inventory, icon: Boxes, permissions: ["inventory.manage"] },

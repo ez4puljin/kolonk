@@ -157,6 +157,12 @@ export const APPROVAL_STATUS_META: Record<ApprovalStatus, StatusMeta> = {
   rejected: meta(t.status.rejected, "danger", colors.danger, CHIP.danger),
 };
 
+/** Лавлах бичлэгийн идэвхтэй/идэвхгүй төлөв (түлш, бараа г.м). */
+export const ACTIVE_STATUS_META: Record<"active" | "inactive", StatusMeta> = {
+  active: meta(t.common.active, "success", colors.success, CHIP.success),
+  inactive: meta(t.common.inactive, "neutral", colors.neutral, CHIP.neutral),
+};
+
 export const DOC_STATUS_META: Record<DocStatus, StatusMeta> = {
   draft: meta(t.status.draft, "neutral", colors.neutral, CHIP.neutral),
   posted: meta(t.status.posted, "success", colors.success, CHIP.success),

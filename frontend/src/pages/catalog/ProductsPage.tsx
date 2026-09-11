@@ -5,6 +5,7 @@ import { errorMessage } from "../../api/client";
 import { useCreatePriceChangeMutation } from "../../api/queries/approvals";
 import { useBranches } from "../../api/queries/branches";
 import {
+  useCreateCategoryMutation,
   useCreateProductMutation,
   useDeleteProductMutation,
   useProductCategories,
@@ -98,6 +99,12 @@ export function ProductsPage() {
   const [priceError, setPriceError] = useState<string | null>(null);
 
   const [deactivating, setDeactivating] = useState<Product | null>(null);
+
+  // Ангилал үүсгэх — бараа нэмэхийн өмнө дор хаяж нэг ангилал хэрэгтэй.
+  const [catOpen, setCatOpen] = useState(false);
+  const [catName, setCatName] = useState("");
+  const [catError, setCatError] = useState<string | null>(null);
+  const createCategoryMutation = useCreateCategoryMutation();
 
   const categoriesQuery = useProductCategories();
   const branchesQuery = useBranches();
@@ -379,6 +386,9 @@ export function ProductsPage() {
               >
                 {t.products.openingStock}
               </Button>
+              <Button variant="secondary" size="lg" icon={<Plus />} onClick={() => setCatOpen(true)}>
+                Ангилал нэмэх
+              </Button>
               <Button variant="primary" size="lg" icon={<Plus />} onClick={() => openForm(null)}>
                 {t.products.newProduct}
               </Button>
@@ -518,12 +528,22 @@ export function ProductsPage() {
             />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <PickerField
-              label={t.products.category}
-              value={form.category_id}
-              options={categoryOptions}
-              onChange={(value) => setForm({ ...form, category_id: value })}
-            />
+            <div className="flex flex-col gap-1.5">
+              <PickerField
+                label={t.products.category}
+                value={form.category_id}
+                options={categoryOptions}
+                onChange={(value) => setForm({ ...form, category_id: value })}
+              />
+              {categories.length === 0 ? (
+                <p className="text-xs font-medium text-warning-dark">
+                  Ангилал бүртгэгдээгүй байна —{" "}
+                  <button type="button" className="font-bold underline" onClick={() => setCatOpen(true)}>
+                    ангилал нэмэх
+                  </button>
+                </p>
+              ) : null}
+            </div>
             <TextField
               label={t.products.unit}
               value={form.unit}
@@ -662,6 +682,54 @@ export function ProductsPage() {
             <p className="rounded-xl bg-danger-soft px-4 py-3 text-sm font-medium text-danger-dark">
               {priceError}
             </p>
+          ) : null}
+        </div>
+      </Modal>
+
+      <Modal
+        open={catOpen}
+        onClose={() => setCatOpen(false)}
+        size="sm"
+        title="Ангилал нэмэх"
+        subtitle="Бараа бүр нэг ангилалд харьяалагдана — касс дээр ангиллаар нь бүлэглэнэ"
+        footer={
+          <>
+            <Button variant="secondary" size="md" onClick={() => setCatOpen(false)}>
+              {t.common.cancel}
+            </Button>
+            <Button
+              variant="primary"
+              size="md"
+              disabled={catName.trim() === ""}
+              loading={createCategoryMutation.isPending}
+              onClick={() => {
+                setCatError(null);
+                createCategoryMutation.mutate(
+                  { name_mn: catName.trim(), sort_order: categories.length + 1 },
+                  {
+                    onSuccess: (created) => {
+                      toastSuccess(t.common.saved);
+                      setCatName("");
+                      setCatOpen(false);
+                      // Барааны формыг нээлттэй байхад шинэ ангиллыг шууд сонгоно.
+                      if (formOpen && form.category_id === "") {
+                        setForm((prev) => ({ ...prev, category_id: created.id }));
+                      }
+                    },
+                    onError: (error) => setCatError(errorMessage(error)),
+                  },
+                );
+              }}
+            >
+              {t.common.save}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <TextField label={t.products.category} value={catName} onChange={setCatName} placeholder="Тос, тосолгооны материал" maxLength={64} />
+          {catError ? (
+            <p className="rounded-xl bg-danger-soft px-4 py-3 text-sm font-medium text-danger-dark">{catError}</p>
           ) : null}
         </div>
       </Modal>
