@@ -371,7 +371,9 @@ export function AttendantShiftPage() {
 
   const { data: current, isLoading: shiftLoading } = useCurrentShift();
   const { data: pumpsPage, isLoading: pumpsLoading } = usePumps({ active_only: true });
-  const { data: productsPage } = useProducts({ limit: 300 });
+  // Бараа, үнэ, үлдэгдлийг ТҮГЭЭГЧИЙН САЛБАРЫНХААР харуулна — сервер зарлагыг
+  // яг энэ салбарын нөөцөөс хасдаг тул өөр салбарын бараа сонгуулахгүй.
+  const { data: productsPage } = useProducts({ limit: 300, branch_id: branchId ?? undefined });
   const { data: customersPage } = useCustomers({ q: "", active_only: true, limit: 200 });
   const expenseCategories = useExpenseCategories();
 
@@ -400,7 +402,12 @@ export function AttendantShiftPage() {
     () =>
       (productsPage?.items ?? [])
         .filter((product) => product.is_active)
-        .map((product) => ({ value: product.id, label: `${product.name_mn} · ${formatMNT(product.price)}` })),
+        .map((product) => ({
+          value: product.id,
+          label: `${product.name_mn} · ${formatMNT(product.price)}`,
+          hint: `Үлдэгдэл: ${Number(product.stock_qty).toLocaleString("mn-MN")} ${product.unit}`,
+          disabled: Number(product.stock_qty) <= 0,
+        })),
     [productsPage],
   );
   const products = useMemo(() => productsPage?.items ?? [], [productsPage]);
