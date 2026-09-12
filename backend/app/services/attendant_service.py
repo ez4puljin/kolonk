@@ -34,7 +34,16 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.enums import CashAccount, ItemType, PaymentMethod, ReadingType, SaleType, ShiftStatus
+from app.enums import (
+    CashAccount,
+    ContractStatus,
+    CustomerType,
+    ItemType,
+    PaymentMethod,
+    ReadingType,
+    SaleType,
+    ShiftStatus,
+)
 from app.models.branch import Branch
 from app.models.fuel import Fuel, Pump, PumpNozzle, Tank, TotalizerReading
 from app.models.partner import Contract, Customer
@@ -339,6 +348,111 @@ class _SegmentSlots:
         return list(taken.items())
 
 
+async def _next_contract_no(db: AsyncSession, prefix: str) -> str:
+    """``ЗЭ-20260912-01`` маягийн давхардахгүй гэрээний дугаар."""
+    pattern = f"{prefix}-%"
+    count = await db.scalar(
+        select(func.count()).select_from(Contract).where(Contract.contract_no.like(pattern))
+    )
+    seq = int(count or 0) + 1
+    while True:
+        candidate = f"{prefix}-{seq:02d}"
+        clash = await db.scalar(
+            select(func.count()).select_from(Contract).where(Contract.contract_no == candidate)
+        )
+        if not clash:
+            return candidate
+        seq += 1
+
+
+async def _contract_for_new_customer(
+    db: AsyncSession,
+    user: User,
+    payload: Any,
+    cache: dict[tuple[str, str], Contract],
+) -> Contract:
+    """Хаалтын үед шинэ харилцагч + гэрээ үүсгэнэ (эсвэл байгааг нь олно).
+
+    * Нэг хаалтад нэг харилцагчийг олон мөрөнд оруулсан бол нэг л гэрээ.
+    * Утас (эсвэл регистр) бүртгэлтэй идэвхтэй харилцагчтай таарвал шинээр
+      үүсгэхгүй — түүний идэвхтэй гэрээг ашиглана, гэрээгүй бол нээнэ.
+    """
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Шинэ харилцагчийн нэр хоосон байж болохгүй")
+    last_name = (payload.last_name or "").strip() or None
+    phone = (payload.phone or "").strip() or None
+    register_no = (payload.register_no or "").strip() or None
+    key = (name.lower(), phone or register_no or "")
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+
+    customer: Customer | None = None
+    if register_no:
+        customer = await db.scalar(
+            select(Customer).where(Customer.register_no == register_no, Customer.is_active.is_(True))
+        )
+    if customer is None and phone:
+        customer = await db.scalar(
+            select(Customer).where(Customer.phone == phone, Customer.is_active.is_(True))
+        )
+
+    created_customer = customer is None
+    if customer is None:
+        customer = Customer(
+            last_name=last_name,
+            name=name,
+            register_no=register_no,
+            phone=phone,
+            credit_limit=q2(_d(payload.credit_limit)),
+            type=str(CustomerType.INDIVIDUAL if last_name or not register_no else CustomerType.B2B),
+            is_active=True,
+        )
+        db.add(customer)
+        await db.flush()
+        await audit(
+            db,
+            user_id=user.id,
+            action="customer.create",
+            entity_type="customer",
+            entity_id=customer.id,
+            after={"name": name, "phone": phone, "source": "daily_close"},
+        )
+
+    contract = None
+    if not created_customer:
+        contract = await db.scalar(
+            select(Contract)
+            .where(Contract.customer_id == customer.id, Contract.status == str(ContractStatus.ACTIVE))
+            .order_by(Contract.created_at)
+        )
+    if contract is None:
+        today = datetime.now(STATION_TZ).date()
+        contract = Contract(
+            customer_id=customer.id,
+            contract_no=await _next_contract_no(db, f"ЗЭ-{today:%Y%m%d}"),
+            credit_limit=q2(_d(payload.credit_limit)),
+            balance=ZERO,
+            price_discount_per_l=ZERO,
+            billing_day=1,
+            status=str(ContractStatus.ACTIVE),
+        )
+        db.add(contract)
+        await db.flush()
+        await audit(
+            db,
+            user_id=user.id,
+            action="contract.create",
+            entity_type="contract",
+            entity_id=contract.id,
+            after={"contract_no": contract.contract_no, "customer_id": str(customer.id), "source": "daily_close"},
+        )
+
+    cache[key] = contract
+    return contract
+
+
 async def _create_credit_sales(
     db: AsyncSession,
     user: User,
@@ -364,10 +478,19 @@ async def _create_credit_sales(
     }
     base_prices = await _load_contract_prices(db, shift, fuel_ids)
 
+    #: Энэ хаалтад шинээр нээсэн гэрээнүүд — лимитийг зээлийн дүнгээр өсгөнө.
+    opened: dict[uuid.UUID, Contract] = {}
+    new_by_key: dict[tuple[str, str], Contract] = {}
+
     for line in credit_lines or []:
-        contract = await db.scalar(select(Contract).where(Contract.id == line.contract_id))
-        if contract is None:
-            raise HTTPException(status_code=404, detail="Гэрээ олдсонгүй")
+        new_customer = getattr(line, "new_customer", None)
+        if new_customer is not None:
+            contract = await _contract_for_new_customer(db, user, new_customer, new_by_key)
+            opened[contract.id] = contract
+        else:
+            contract = await db.scalar(select(Contract).where(Contract.id == line.contract_id))
+            if contract is None:
+                raise HTTPException(status_code=404, detail="Гэрээ олдсонгүй")
         discount = q2(_d(contract.price_discount_per_l))
 
         items: list[SaleItemIn] = []
@@ -425,6 +548,17 @@ async def _create_credit_sales(
 
         if not items:
             continue
+
+        # Шинэ гэрээний лимит: хаалтын үед өгсөн зээлээ багтаана (хэрэглэгч
+        # илүү лимит заасан бол түүнийг хадгална).
+        if contract.id in opened:
+            needed = q2(_d(contract.balance) + line_total)
+            if q2(_d(contract.credit_limit)) < needed:
+                contract.credit_limit = needed
+                customer = await db.scalar(select(Customer).where(Customer.id == contract.customer_id))
+                if customer is not None and q2(_d(customer.credit_limit)) < needed:
+                    customer.credit_limit = needed
+            await db.flush()
 
         payload = SaleCreate(
             sale_type=SaleType.MIXED if len({i.item_type for i in items}) > 1 else (

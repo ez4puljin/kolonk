@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ZERO = Decimal("0.00")
 
@@ -233,11 +233,36 @@ class CreditItemIn(BaseModel):
     amount: Decimal | None = Field(default=None, gt=0)
 
 
+class NewCreditCustomerIn(BaseModel):
+    """Хаалтын үед шинээр үүсгэх харилцагч — гэрээ автоматаар нээгдэнэ.
+
+    Утас нь бүртгэлтэй харилцагчтай таарвал шинээр үүсгэхгүй, түүний идэвхтэй
+    гэрээг ашиглана (давхар бүртгэлээс сэргийлнэ).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=128)
+    last_name: str | None = Field(default=None, max_length=64)
+    phone: str | None = Field(default=None, max_length=32)
+    register_no: str | None = Field(default=None, max_length=32)
+    #: Зээлийн хязгаар — хоосон/0 бол энэ хаалтын зээлийн дүнгээр тогтооно.
+    credit_limit: Decimal = Field(default=ZERO, ge=0)
+
+
 class CreditLineIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    contract_id: uuid.UUID
+    #: Байгаа гэрээ — эсвэл ``new_customer``-ийн аль нэг нь заавал.
+    contract_id: uuid.UUID | None = None
+    new_customer: NewCreditCustomerIn | None = None
     items: list[CreditItemIn] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _one_target(self) -> "CreditLineIn":
+        if (self.contract_id is None) == (self.new_customer is None):
+            raise ValueError("Гэрээ сонгох эсвэл шинэ харилцагч оруулах — аль нэгийг нь")
+        return self
 
 
 class OilLineIn(BaseModel):

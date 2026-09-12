@@ -2470,8 +2470,18 @@ export interface CreditItemInput {
   amount?: MoneyStr | null;
 }
 
+export interface NewCreditCustomerInput {
+  name: string;
+  last_name?: string | null;
+  phone?: string | null;
+  register_no?: string | null;
+  credit_limit?: MoneyStr;
+}
+
 export interface CreditLineInput {
-  contract_id: UUID;
+  /** Байгаа гэрээ — эсвэл new_customer (хаалтын үед харилцагч + гэрээ үүснэ). */
+  contract_id?: UUID;
+  new_customer?: NewCreditCustomerInput;
   items: CreditItemInput[];
 }
 

@@ -329,9 +329,15 @@ interface OilRow extends OilLineInput {
   key: number;
 }
 
+/** Харилцагчийн сонголтод «шинэ харилцагч» гэсэн тусгай утга. */
+const NEW_CUSTOMER = "__new__";
+
 interface CreditRow {
   key: number;
+  /** Гэрээний ID эсвэл NEW_CUSTOMER. */
   contract_id: string;
+  new_name: string;
+  new_phone: string;
   fuel_id: string;
   mode: "liters" | "amount";
   value: string;
@@ -719,9 +725,20 @@ export function AttendantShiftPage() {
     setCloseError(null);
 
     const creditLines: CreditLineInput[] = creditRows
-      .filter((row) => row.contract_id !== "")
+      .filter(
+        (row) =>
+          row.contract_id !== "" &&
+          (row.contract_id !== NEW_CUSTOMER || row.new_name.trim() !== ""),
+      )
       .map((row) => ({
-        contract_id: row.contract_id,
+        ...(row.contract_id === NEW_CUSTOMER
+          ? {
+              new_customer: {
+                name: row.new_name.trim(),
+                phone: row.new_phone.trim() === "" ? null : row.new_phone.trim(),
+              },
+            }
+          : { contract_id: row.contract_id }),
         items: [
           ...(row.fuel_id !== "" && dToQty(row.value) > 0
             ? [
@@ -1414,7 +1431,10 @@ export function AttendantShiftPage() {
                       <PickerField
                         label={t.nav.customers}
                         value={row.contract_id}
-                        options={contractOptions}
+                        options={[
+                          { value: NEW_CUSTOMER, label: `+ ${t.partners.newCustomer}` },
+                          ...contractOptions,
+                        ]}
                         onChange={(value) => patch({ contract_id: value })}
                         className="min-w-[16rem] flex-1"
                       />
@@ -1428,6 +1448,27 @@ export function AttendantShiftPage() {
                         <Trash2 className="h-5 w-5" />
                       </button>
                     </div>
+                    {row.contract_id === NEW_CUSTOMER ? (
+                      <div className="flex flex-col gap-2 rounded-lg border border-dashed border-line-strong bg-white p-2">
+                        <span className="text-xs text-ink-soft">{t.attendant.creditNewCustomerHint}</span>
+                        <div className="flex flex-wrap items-end gap-2">
+                          <TextField
+                            label={t.attendant.creditCustomerName}
+                            value={row.new_name}
+                            onChange={(value) => patch({ new_name: value })}
+                            maxLength={128}
+                            className="min-w-[12rem] flex-1"
+                          />
+                          <TextField
+                            label={t.attendant.creditCustomerPhone}
+                            value={row.new_phone}
+                            onChange={(value) => patch({ new_phone: value })}
+                            maxLength={32}
+                            className="min-w-[9rem]"
+                          />
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="flex flex-wrap items-end gap-2">
                       <PickerField
                         label={t.sales.fuel}
@@ -1493,6 +1534,8 @@ export function AttendantShiftPage() {
                     {
                       key: nextKey(),
                       contract_id: "",
+                      new_name: "",
+                      new_phone: "",
                       fuel_id: fuelOptions[0]?.value ?? "",
                       mode: "liters",
                       value: "",
