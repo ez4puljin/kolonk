@@ -197,8 +197,12 @@ async def list_pumps(
     _user: User = Depends(require_permission("pumps.view", "pumps.manage")),
 ) -> PumpListOut:
     # Салбартай хэрэглэгч (түгээгч) зөвхөн өөрийн салбарын түгээгүүрийг харна —
-    # хүсэлтэд өөр салбар заасан ч үл хэрэгснэ.
-    scope_branch = getattr(_user, "branch_id", None) or branch_id
+    # хүсэлтэд өөр салбар заасан ч үл хэрэгснэ. Салбаргүй хэрэглэгч (нягтлан,
+    # админ) тодорхой салбар заагаагүй бол нэвтрэхдээ сонгосон АЖЛЫН салбараа
+    # харна («Бүх салбар» сонгосон бол бүгдийг).
+    scope_branch = (
+        getattr(_user, "branch_id", None) or branch_id or getattr(_user, "active_branch_id", None)
+    )
 
     stmt = _pump_query()
     if active_only:

@@ -113,8 +113,12 @@ async def list_tanks(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(require_permission("tanks.view", "tanks.manage")),
 ) -> TankListOut:
-    # Салбартай хэрэглэгч зөвхөн өөрийн салбарын савыг харна.
-    scope_branch = getattr(_user, "branch_id", None) or branch_id
+    # Салбартай хэрэглэгч зөвхөн өөрийн салбарын савыг харна. Салбаргүй
+    # хэрэглэгч тодорхой салбар заагаагүй бол нэвтрэхдээ сонгосон ажлын
+    # салбараа («Бүх салбар» бол бүгдийг).
+    scope_branch = (
+        getattr(_user, "branch_id", None) or branch_id or getattr(_user, "active_branch_id", None)
+    )
 
     stmt = select(Tank).options(selectinload(Tank.fuel))
     if fuel_id is not None:

@@ -224,7 +224,10 @@ export function LoginPage() {
           {t.auth.noBranches}
         </div>
       ) : (
-        <div className="scroll-touch grid min-h-0 gap-3 overflow-y-auto sm:grid-cols-2 sm:gap-4 xl:grid-cols-3">
+        <div className="scroll-touch grid min-h-0 gap-3 overflow-y-auto sm:grid-cols-2 sm:gap-4 2xl:grid-cols-3">
+          {/* Салбарын карт — нэвтрэх дэлгэцийн ГОЛ удирдлага тул том. Салбар
+              цөөн үед 3 багана картыг хэт нарийсгаж нэрийг тасалдаг байсан:
+              2 багана (маш өргөн дэлгэцэд 3), нэр тасрахгүй 2 мөрөнд орно. */}
           {branches.map((item) => {
             const last = item.id === lastBranchId;
             return (
@@ -233,18 +236,18 @@ export function LoginPage() {
                 type="button"
                 onClick={() => pickBranch(item)}
                 className={[
-                  "group relative flex min-h-24 flex-col gap-2.5 overflow-hidden rounded-2xl border bg-brand-800/70 p-4 text-left transition-all duration-150 hover:bg-brand-800 active:bg-brand-700 sm:min-h-32 sm:p-5 sm:hover:-translate-y-0.5",
+                  "group relative flex min-h-28 flex-col gap-3 overflow-hidden rounded-2xl border bg-brand-800/70 p-4 text-left transition-all duration-150 hover:bg-brand-800 active:bg-brand-700 sm:min-h-36 sm:p-5 sm:hover:-translate-y-0.5",
                   last ? "border-action/70 shadow-lg shadow-action/20" : "border-brand-700 hover:border-brand-600",
                 ].join(" ")}
               >
                 <span className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-500 to-emerald-500" aria-hidden="true" />
                 <div className="flex items-start gap-3">
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-action text-white shadow-md shadow-action/30">
-                    <Building2 className="h-5 w-5" />
+                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-action text-white shadow-md shadow-action/30">
+                    <Building2 className="h-6 w-6" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-2">
-                      <span className="truncate text-lg font-bold text-white">{item.name}</span>
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="line-clamp-2 text-xl leading-tight font-bold text-white">{item.name}</span>
                       <span className="num shrink-0 rounded-md bg-brand-700 px-1.5 py-0.5 text-[11px] font-bold text-slate-300">
                         {item.code}
                       </span>

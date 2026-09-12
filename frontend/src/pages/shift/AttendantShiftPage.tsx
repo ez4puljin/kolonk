@@ -370,7 +370,13 @@ export function AttendantShiftPage() {
   const currentUserId = useAuthStore((state) => state.user?.id ?? null);
 
   const { data: current, isLoading: shiftLoading } = useCurrentShift();
-  const { data: pumpsPage, isLoading: pumpsLoading } = usePumps({ active_only: true });
+  // Хошууг АЖЛЫН САЛБАРААР шүүнэ. Сервер түгээгчийн харьяа салбараар өөрөө
+  // шүүдэг ч салбар сонгож нэвтэрсэн нягтланд бүх салбарын хошуу ирж, нээлтийн
+  // милийн маягтад нөгөө салбарын хошуу давхар гардаг байв.
+  const { data: pumpsPage, isLoading: pumpsLoading } = usePumps({
+    active_only: true,
+    branch_id: branchId ?? undefined,
+  });
   // Бараа, үнэ, үлдэгдлийг ТҮГЭЭГЧИЙН САЛБАРЫНХААР харуулна — сервер зарлагыг
   // яг энэ салбарын нөөцөөс хасдаг тул өөр салбарын бараа сонгуулахгүй.
   const { data: productsPage } = useProducts({ limit: 300, branch_id: branchId ?? undefined });

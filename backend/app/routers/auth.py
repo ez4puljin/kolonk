@@ -212,7 +212,9 @@ async def login(
             own = await db.get(Branch, user.branch_id)
             raise HTTPException(
                 status_code=422,
-                detail=f"{user.full_name} нь {own.name if own else 'өөр'} салбарт харьяалагддаг — тэр салбараас нэвтэрнэ үү",
+                # Салбарын нэрэнд ихэвчлэн «салбар» гэдэг үг орсон байдаг тул
+                # «... салбар салбарт» гэж давхардуулахгүй.
+                detail=f"{user.full_name} нь «{own.name if own else 'өөр салбар'}»-т харьяалагддаг — тэр салбараас нэвтэрнэ үү",
             )
     elif payload.branch_id is not None:
         await _active_branch_or_422(db, payload.branch_id)
