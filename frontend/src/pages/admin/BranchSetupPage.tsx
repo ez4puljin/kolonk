@@ -1129,7 +1129,7 @@ export function BranchSetupPage() {
       />
 
       <div className="no-print">
-        <Button variant="ghost" size="md" onClick={() => navigate("/branches")}>
+        <Button variant="ghost" size="md" onClick={() => navigate("/admin/branches")}>
           {t.common.back}
         </Button>
       </div>

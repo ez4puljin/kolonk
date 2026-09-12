@@ -74,15 +74,38 @@ export interface UserTile {
   username: string;
   role_code: string;
   role_name_mn: string;
-  /** Түгээгчийн харьяа салбар (нэвтрэхэд автоматаар сонгогдоно). */
+  /**
+   * АЖЛЫН салбар: түгээгчийн харьяа салбар, эсвэл салбаргүй хэрэглэгчийн
+   * нэвтрэхдээ сонгосон салбар. Салбар сонгоогүй админд null.
+   */
   branch: UserBranch | null;
-  /** True бол бүх салбарыг харна (менежер, эзэн). */
+  /** True бол салбар санд хатуу заагдсан (түгээгч) — толгойноос солигдохгүй. */
+  branch_locked: boolean;
+  /** True бол бүх салбарыг харна (нягтлан, админ). */
   all_branches: boolean;
+}
+
+/** Нэвтрэх дэлгэцийн салбарын хайрцаг — нэвтрэлт шаардахгүй. */
+export interface LoginBranch {
+  id: UUID;
+  code: string;
+  name: string;
+  address: string | null;
+  /** Одоо ээлж нээлттэй бол нээсэн хүний нэр. */
+  open_shift_by: string | null;
+  staff_count: number;
 }
 
 export interface LoginRequest {
   user_id: UUID;
   pin: string;
+  /** Нэвтрэхдээ сонгосон салбар (админд заавал биш). */
+  branch_id?: UUID | null;
+}
+
+/** Ажлын салбар солих — null бол бүх салбар. */
+export interface SwitchBranchRequest {
+  branch_id: UUID | null;
 }
 
 export interface LoginResponse {

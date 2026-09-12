@@ -1,16 +1,36 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../client";
-import type { CurrentShift, HealthResponse, LoginRequest, LoginResponse, MeResponse, UserTile } from "../types";
+import type {
+  CurrentShift,
+  HealthResponse,
+  LoginBranch,
+  LoginRequest,
+  LoginResponse,
+  MeResponse,
+  SwitchBranchRequest,
+  UserTile,
+} from "../types";
 import { useAuthStore } from "../../stores/auth";
 import { useShiftStore } from "../../stores/shift";
 
 export const authKeys = {
   all: ["auth"] as const,
   tiles: () => ["auth", "tiles"] as const,
+  branches: () => ["auth", "branches"] as const,
   me: () => ["auth", "me"] as const,
   health: () => ["auth", "health"] as const,
 };
+
+/** Нэвтрэх дэлгэцийн салбарын хайрцгууд — нэвтрэлт шаардахгүй. */
+export function useLoginBranches() {
+  return useQuery({
+    queryKey: authKeys.branches(),
+    queryFn: () => api.get<LoginBranch[]>("/api/auth/branches", { anonymous: true }),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+}
 
 /** Нэвтрэх дэлгэцийн хэрэглэгчийн плиткууд — нэвтрэлт шаардахгүй. */
 export function useLoginTiles() {
@@ -72,6 +92,28 @@ export function useLoginMutation() {
       api.post<LoginResponse>("/api/auth/login", payload, { anonymous: true, silent: true }),
     onSuccess: (data) => {
       login(data);
+      void queryClient.invalidateQueries();
+    },
+  });
+}
+
+/**
+ * Ажлын салбараа солих (нягтлан, админ).
+ *
+ * Салбар токенд байдаг тул сервер ШИНЭ токен буцаана — нэвтрэлтийн адил
+ * store-д бичээд бүх асуулгыг хүчингүй болгоно: ээлж, самбар, тайлан бүгд
+ * шинэ салбараар дахин ачаалагдана.
+ */
+export function useSwitchBranchMutation() {
+  const queryClient = useQueryClient();
+  const login = useAuthStore((state) => state.login);
+  const clearShift = useShiftStore((state) => state.clear);
+
+  return useMutation({
+    mutationFn: (payload: SwitchBranchRequest) => api.post<LoginResponse>("/api/auth/branch", payload),
+    onSuccess: (data) => {
+      login(data);
+      clearShift();
       void queryClient.invalidateQueries();
     },
   });

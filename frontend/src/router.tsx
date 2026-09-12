@@ -1,7 +1,8 @@
 import { Suspense, lazy, type ComponentType, type ReactNode } from "react";
-import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { PowerOff, ShieldAlert } from "lucide-react";
 
+import { AdminShell } from "./components/layout/AdminShell";
 import { AppShell } from "./components/layout/AppShell";
 import { Button } from "./components/ui/Button";
 import { Spinner } from "./components/ui/Spinner";
@@ -131,6 +132,7 @@ const BranchSetupPage = lazyPage("BranchSetupPage");
 const AuditPage = lazyPage("AuditPage");
 const SettingsPage = lazyPage("SettingsPage");
 const BackupPage = lazyPage("BackupPage");
+const AdminHomePage = lazyPage("AdminHomePage");
 
 // --- Хамгаалалт -----------------------------------------------------------
 
@@ -205,6 +207,12 @@ function PosDisabled() {
 function HomeRedirect() {
   const roleCode = useAuthStore((state) => state.user?.role_code ?? null);
   return <Navigate to={homeForRole(roleCode)} replace />;
+}
+
+/** Хуучин `/branches/:branchId` линкийг админ панел руу параметртэй нь чиглүүлнэ. */
+function RedirectBranchSetup() {
+  const { branchId = "" } = useParams();
+  return <Navigate to={`/admin/branches/${branchId}`} replace />;
 }
 
 function RouteFallback() {
@@ -603,9 +611,33 @@ export function AppRoutes() {
             }
           />
 
-          {/* Удирдлага */}
+          {/* Удирдлага — Админ панел руу нүүсэн. Хуучин хадгалсан линкүүд
+              тийш чиглэнэ (доорх /admin бүлэг). */}
+          <Route path="/branches" element={<Navigate to="/admin/branches" replace />} />
+          <Route path="/branches/:branchId" element={<RedirectBranchSetup />} />
+          <Route path="/users" element={<Navigate to="/admin/users" replace />} />
+          <Route path="/audit" element={<Navigate to="/admin/audit" replace />} />
+          <Route path="/settings" element={<Navigate to="/admin/settings" replace />} />
+          <Route path="/backup" element={<Navigate to="/admin/backup" replace />} />
+
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
+
+        {/* Админ панел — ажлын системээс тусдаа бүрхүүл (AdminShell).
+            Салбар, хэрэглэгч, тохиргоо, аудит, нөөцлөлт зөвхөн энд. */}
+        <Route
+          path="/admin"
+          element={
+            <RequireAuth>
+              <RequirePermission code={["settings.manage", "users.manage"]}>
+                <AdminShell />
+              </RequirePermission>
+            </RequireAuth>
+          }
+        >
+          <Route index element={<AdminHomePage />} />
           <Route
-            path="/branches"
+            path="branches"
             element={
               <RequirePermission code="settings.manage">
                 <BranchesPage />
@@ -613,7 +645,7 @@ export function AppRoutes() {
             }
           />
           <Route
-            path="/branches/:branchId"
+            path="branches/:branchId"
             element={
               <RequirePermission code="settings.manage">
                 <BranchSetupPage />
@@ -621,7 +653,7 @@ export function AppRoutes() {
             }
           />
           <Route
-            path="/users"
+            path="users"
             element={
               <RequirePermission code="users.manage">
                 <UsersPage />
@@ -629,7 +661,7 @@ export function AppRoutes() {
             }
           />
           <Route
-            path="/audit"
+            path="audit"
             element={
               <RequirePermission code="audit.view">
                 <AuditPage />
@@ -637,7 +669,7 @@ export function AppRoutes() {
             }
           />
           <Route
-            path="/settings"
+            path="settings"
             element={
               <RequirePermission code="settings.manage">
                 <SettingsPage />
@@ -645,14 +677,13 @@ export function AppRoutes() {
             }
           />
           <Route
-            path="/backup"
+            path="backup"
             element={
               <RequirePermission code="backup.manage">
                 <BackupPage />
               </RequirePermission>
             }
           />
-
           <Route path="*" element={<NotFoundPage />} />
         </Route>
 

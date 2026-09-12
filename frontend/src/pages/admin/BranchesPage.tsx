@@ -134,7 +134,7 @@ export function BranchesPage() {
           icon={<Settings2 />}
           onClick={(event) => {
             event.stopPropagation();
-            navigate(`/branches/${r.id}`);
+            navigate(`/admin/branches/${r.id}`);
           }}
         >
           {t.branches.setup}

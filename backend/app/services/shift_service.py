@@ -321,12 +321,13 @@ async def get_open_shift(db: AsyncSession, branch_id: uuid.UUID | None = None) -
 async def open_shift_for_user(db: AsyncSession, user: User | None) -> Shift | None:
     """Хэрэглэгчийн салбарын нээлттэй ээлж.
 
-    Салбарт харьяалагдсан хүн (түгээгч, салбарын менежер) зөвхөн өөрийн
-    салбарынхыг хардаг. Бүх салбарын эрхтэй хүн (эзэн, төв менежер) хамгийн
-    сүүлд нээгдсэнийг — хяналтын зорилгоор.
+    Салбарт харьяалагдсан хүн (түгээгч) болон нэвтрэхдээ салбар сонгосон
+    хүн (нягтлан) зөвхөн тэр салбарынхыг хардаг. Салбар сонгоогүй админ
+    хамгийн сүүлд нээгдсэнийг — хяналтын зорилгоор.
     """
-    branch_id = getattr(user, "branch_id", None) if user is not None else None
-    return await get_open_shift(db, branch_id)
+    from app.services.branch_service import effective_branch_id
+
+    return await get_open_shift(db, effective_branch_id(user))
 
 
 async def get_shift(db: AsyncSession, shift_id: uuid.UUID) -> Shift:
@@ -339,16 +340,19 @@ async def get_shift(db: AsyncSession, shift_id: uuid.UUID) -> Shift:
 async def _branch_for_shift(db: AsyncSession, user: User | None):
     """Ээлжийн салбар.
 
-    1. Түгээгч салбартаа харьяалагддаг — түүнийг шууд авна (нэвтрэхэд
-       автоматаар сонгогдсон салбар).
-    2. Харьяалалгүй (менежер, эзэн) бөгөөд идэвхтэй салбар ганц бол түүнийг.
-    3. Олон салбартай үед харьяалалгүй хүн ээлж нээхэд салбар тодорхойгүй тул
-       алдаа буцаана — буруу салбарт бичигдэхээс сэргийлнэ.
+    1. Түгээгч салбартаа харьяалагддаг — түүнийг шууд авна.
+    2. Салбаргүй хүн (нягтлан, админ) нэвтрэхдээ салбар сонгосон бол тэр
+       салбар (токены ``bid`` claim → ``active_branch_id``).
+    3. Салбар сонгоогүй бөгөөд идэвхтэй салбар ганц бол түүнийг.
+    4. Олон салбартай үед салбар тодорхойгүй тул алдаа буцаана — буруу
+       салбарт бичигдэхээс сэргийлнэ.
     """
     from app.models.branch import Branch
+    from app.services.branch_service import effective_branch_id
 
-    if user is not None and getattr(user, "branch_id", None):
-        return user.branch_id
+    working = effective_branch_id(user)
+    if working is not None:
+        return working
 
     rows = (await db.scalars(select(Branch).where(Branch.is_active.is_(True)))).all()
     if len(rows) == 1:
@@ -357,7 +361,7 @@ async def _branch_for_shift(db: AsyncSession, user: User | None):
         return None
     raise HTTPException(
         status_code=422,
-        detail="Олон салбартай тул ээлж нээхэд салбартай хэрэглэгчээр нэвтэрнэ үү",
+        detail="Олон салбартай тул толгой хэсгээс салбараа сонгоод ээлж нээнэ үү",
     )
 
 

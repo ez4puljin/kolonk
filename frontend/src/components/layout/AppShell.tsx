@@ -1,7 +1,6 @@
 import { Suspense, useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
-  Archive,
   BookOpen,
   Boxes,
   Building2,
@@ -22,8 +21,6 @@ import {
   Package,
   Receipt,
   Scale,
-  ScrollText,
-  Settings,
   ShoppingCart,
   Store,
   TrendingUp,
@@ -168,18 +165,9 @@ const NAV: readonly NavSection[] = [
       },
     ],
   },
-  {
-    key: "admin",
-    accent: "bg-rose-500",
-    title: t.nav.sections.admin,
-    items: [
-      { to: "/branches", label: t.nav.branches, icon: Building2, permissions: ["settings.manage"] },
-      { to: "/users", label: t.nav.users, icon: UserCog, permissions: ["users.manage"] },
-      { to: "/audit", label: t.nav.audit, icon: ScrollText, permissions: ["audit.view"] },
-      { to: "/settings", label: t.nav.settings, icon: Settings, permissions: ["settings.manage"] },
-      { to: "/backup", label: t.nav.backup, icon: Archive, permissions: ["backup.manage"] },
-    ],
-  },
+  // «Удирдлага» хэсэг энд БАЙХГҮЙ: салбар, хэрэглэгч, тохиргоо, аудит,
+  // нөөцлөлт тусдаа Админ панелд (/admin, AdminShell) байрлана. Толгойн
+  // хэсгийн «Админ панел» товчоор тийш шилжинэ.
 ];
 
 /** Гар утасны доод самбарт хамгийн их хэрэглэгддэг 5 очих газар. */

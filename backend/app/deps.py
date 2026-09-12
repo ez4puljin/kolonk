@@ -33,9 +33,18 @@ async def get_current_user(
     try:
         payload = decode_token(token)
         user_id = uuid.UUID(payload["sub"])
+        # Нэвтрэхдээ сонгосон ажлын салбар — салбаргүй хэрэглэгчид (нягтлан,
+        # админ) л энэ claim-тай. Буруу утга бол токенийг бүхэлд нь хүчингүйд
+        # тооцно — хагас дутуу сесс үлдээхгүй.
+        raw_bid = payload.get("bid")
+        active_branch_id = uuid.UUID(raw_bid) if raw_bid else None
     except Exception as exc:  # noqa: BLE001
         raise CredentialsError from exc
-    return await load_user(db, user_id)
+    user = await load_user(db, user_id)
+    # Санд хадгалагдахгүй, зөвхөн энэ хүсэлтийн туршид амьдрах шинж.
+    # `branch_service.effective_branch_id` үүнийг user.branch_id-ийн дараа харна.
+    user.active_branch_id = active_branch_id  # type: ignore[attr-defined]
+    return user
 
 
 def user_permissions(user: User) -> set[str]:

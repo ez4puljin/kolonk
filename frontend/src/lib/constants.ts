@@ -219,11 +219,13 @@ export const ROLE_META: Record<string, { label: string; color: string; chip: str
  *
  * Түгээгч ЭЭЛЖИН дээрээ бууна — ээлжээ нээхээс өмнө касс ашиглах
  * боломжгүй бөгөөд ПОС унтраалттай станцад касс огт нээгддэггүй.
+ * Админ салбаргүй тусдаа нэвтэрч АДМИН ПАНЕЛ дээр бууна — салбарын
+ * тохиргоо, хэрэглэгч, систем тэнд; ажлын систем рүү толгойноос шилжинэ.
  */
 export const ROLE_HOME: Record<string, string> = {
   cashier: "/shift",
   manager: "/dashboard",
-  owner: "/owner",
+  owner: "/admin",
 };
 
 export function homeForRole(roleCode: string | null | undefined): string {

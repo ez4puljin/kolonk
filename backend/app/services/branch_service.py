@@ -16,6 +16,24 @@ from app.models.branch import Branch
 from app.models.user import User
 
 
+def effective_branch_id(user: User | None) -> uuid.UUID | None:
+    """Хэрэглэгчийн АЖЛЫН салбар.
+
+    1. Түгээгч салбартаа харьяалагддаг (``user.branch_id``) — үргэлж түүнийг.
+    2. Салбаргүй хэрэглэгч (нягтлан, админ) нэвтрэхдээ салбар сонгосон бол
+       тэр салбар — токены ``bid`` claim-аас ``deps.get_current_user``
+       ``active_branch_id`` шинжид тавьдаг.
+    3. Аль нь ч байхгүй бол ``None`` — дуудагч үндсэн салбар руу унана эсвэл
+       бүх салбарыг хардаг.
+    """
+    if user is None:
+        return None
+    own = getattr(user, "branch_id", None)
+    if own is not None:
+        return own
+    return getattr(user, "active_branch_id", None)
+
+
 async def main_branch_id(db: AsyncSession) -> uuid.UUID | None:
     """Үндсэн салбарын id — хамгийн анх үүсгэсэн идэвхтэй салбар.
 
@@ -34,9 +52,10 @@ async def main_branch_id(db: AsyncSession) -> uuid.UUID | None:
 async def resolve_branch_id(
     db: AsyncSession, user: User | None = None, branch_id: uuid.UUID | None = None
 ) -> uuid.UUID | None:
-    """Салбарыг дарааллаар шийднэ: заасан салбар → хэрэглэгчийн салбар → үндсэн."""
+    """Салбарыг дарааллаар шийднэ: заасан салбар → хэрэглэгчийн ажлын салбар → үндсэн."""
     if branch_id is not None:
         return branch_id
-    if user is not None and getattr(user, "branch_id", None) is not None:
-        return user.branch_id
+    working = effective_branch_id(user)
+    if working is not None:
+        return working
     return await main_branch_id(db)
