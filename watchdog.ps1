@@ -41,8 +41,23 @@ function Test-Engine {
 if (-not (Test-Engine)) {
     Write-Log 'Docker engine хариу өгөхгүй байна — Docker Desktop асааж байна.'
 
-    $exe = 'C:\Program Files\Docker\Docker\Docker Desktop.exe'
-    if (-not (Test-Path $exe)) { Write-Log "ЗОГСЛОО: $exe олдсонгүй."; exit 1 }
+    # Machine-wide ба per-user (админ эрхгүй суулгасан) байрлалууд + registry.
+    # Урьд нь зөвхөн Program Files-ийг шалгадаг байсан тул %LOCALAPPDATA%-д
+    # суусан Docker-той станц дээр watchdog "олдсонгүй" гээд юу ч хийдэггүй байв.
+    $roots = @(
+        "$env:ProgramFiles\Docker\Docker",
+        "$env:LOCALAPPDATA\Programs\DockerDesktop",
+        "$env:LOCALAPPDATA\Programs\Docker\Docker",
+        "$env:LOCALAPPDATA\Docker"
+    )
+    foreach ($rk in 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Docker Desktop',
+                   'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Docker Desktop') {
+        $loc = (Get-ItemProperty $rk -ErrorAction SilentlyContinue).InstallLocation
+        if ($loc) { $roots = @($loc) + $roots }
+    }
+    $exe = $roots | ForEach-Object { Join-Path $_ 'Docker Desktop.exe' } |
+        Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $exe) { Write-Log 'ЗОГСЛОО: Docker Desktop.exe олдсонгүй (Program Files / LocalAppData / registry).'; exit 1 }
 
     # com.docker.service нь privileged туслах — эхлээд түүнийг босгоно.
     $svc = Get-Service -Name 'com.docker.service' -ErrorAction SilentlyContinue
@@ -70,7 +85,13 @@ if (-not (Test-Engine)) {
 
 # --- 2. Контейнерууд бүрэн эсэхийг шалгах --------------------------------
 $expected = @('kolonk-db-1','kolonk-redis-1','kolonk-api-prod-1',
-              'kolonk-worker-1','kolonk-nginx-1','kolonk-cloudflared-1')
+              'kolonk-worker-1','kolonk-nginx-1')
+# cloudflared зөвхөн .env-д TUNNEL_TOKEN байгаа станцад л ажилладаг. Токенгүй
+# станцад түүнийг "дутуу" гэж тооцвол 5 минут тутам дэмий сэргээх гэж оролдоно.
+$envFile = Join-Path $Root '.env'
+if ((Test-Path $envFile) -and ((Get-Content $envFile) -match '^TUNNEL_TOKEN=eyJ')) {
+    $expected += 'kolonk-cloudflared-1'
+}
 
 $running = @(& docker ps --format '{{.Names}}' 2>$null)
 $missing = @($expected | Where-Object { $running -notcontains $_ })

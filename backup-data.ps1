@@ -47,7 +47,10 @@ if ($dockerDb) {
     $dbUser = $Matches[1]; $dbPass = $Matches[2]
     $dbHost = $Matches[3]; $dbPort = $Matches[4]; $dbName = $Matches[5]
 
-    $pgDump = "C:\Program Files\PostgreSQL\17\bin\pg_dump.exe"
+    # PostgreSQL 17 эсвэл 18 — аль суусныг олно (урьд нь 17-г хатуу заадаг байв).
+    . (Join-Path $PSScriptRoot "pg-locate.ps1")
+    $pgBin  = Find-PgBin
+    $pgDump = if ($pgBin) { Join-Path $pgBin "pg_dump.exe" } else { "" }
     if (Test-Path $pgDump) {
         # pg_dump кирилл замыг ойлгодоггүй тул түр (ASCII) зам руу бичээд зөөнө.
         $tmpDump = Join-Path $env:TEMP "kolonk-transfer.dump"

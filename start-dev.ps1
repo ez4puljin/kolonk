@@ -20,7 +20,10 @@ param(
 # болж скриптийг зогсоодог тул "Continue" болгож, гарцын кодыг өөрсдөө шалгана.
 $ErrorActionPreference = "Continue"
 $Root     = $PSScriptRoot
-$PgBin    = "C:\Program Files\PostgreSQL\17\bin"
+# PostgreSQL 17 эсвэл 18 — аль суусныг олно (урьд нь 17-г хатуу заадаг байсан
+# тул 18-тай машин дээр "олдсонгүй" гээд унадаг байв). KOLONK_PGBIN-ээр заах боломжтой.
+. (Join-Path $Root "pg-locate.ps1")
+$PgBin    = Find-PgBin
 $PgData   = "$env:LOCALAPPDATA\kolonk-devdb"
 $PgLog    = "$env:LOCALAPPDATA\kolonk-devdb.log"
 $PgPort   = 5434
@@ -145,8 +148,8 @@ if ($Stop) {
 
 # ── 1. PostgreSQL ──────────────────────────────────────────────────────────
 Write-Step "PostgreSQL ($PgPort)"
-if (-not (Test-Path $PgBin)) {
-    Write-Warn "PostgreSQL 17 олдсонгүй: $PgBin"
+if (-not $PgBin -or -not (Test-Path $PgBin)) {
+    Write-Warn "PostgreSQL олдсонгүй (C:\Program Files\PostgreSQL\<17|18>\bin). Суулгах: install.bat -NoDocker"
     exit 1
 }
 if (-not (Test-Path $PgData)) {

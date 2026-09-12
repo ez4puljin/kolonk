@@ -32,8 +32,10 @@
 
 ## 2. Docker-гүй компьютер дээр холбох
 
-`install-nodocker.bat` аль хэдийн cloudflared-ийг суулгасан байгаа
-(эсвэл гараар: `winget install Cloudflare.cloudflared`).
+`install.bat -NoDocker` аль хэдийн cloudflared-ийг суулгаж, **«Cloudflare
+Tunnel холбох уу?»** гэж асуухад токеноо өгсөн бол доорх үйлчилгээг өөрөө
+суулгасан байгаа — энэ хэсэг зөвхөн тэр үед алгассан бол хэрэгтэй.
+(cloudflared гараар: `winget install Cloudflare.cloudflared`.)
 
 **Админ эрхтэй** PowerShell/CMD нээгээд:
 
@@ -57,6 +59,10 @@ sc query cloudflared
 
 ## 3. Docker-той компьютер дээр холбох
 
+`install.bat` (Docker горим) суулгалтын явцад **«Cloudflare Tunnel холбох
+уу?»** гэж асууж, токеныг `.env`-д өөрөө бичдэг — тэр үед алгассан бол л
+доорхыг гараар хийнэ.
+
 `.env` файлд токеноо бичнэ:
 
 ```
@@ -77,7 +83,7 @@ docker compose --profile prod --profile tunnel up -d
 
 | Шинж тэмдэг | Шалтгаан / шийдэл |
 |---|---|
-| `error code: 1033` (HTTP 530) | Tunnel холбогдоогүй — cloudflared үйлчилгээ асаалттай эсэхийг шалга (`sc query cloudflared`) |
+| `error code: 1033` (HTTP 530) | Tunnel холбогдоогүй. Docker-гүй станц: cloudflared үйлчилгээ асаалттай эсэхийг шалга (`sc query cloudflared`). Docker станц: Docker engine унтарсан байх магадлалтай — `install.bat`-ын бүртгэсэн watchdog 5 минутын дотор өөрөө сэргээнэ (`logs\watchdog.log` үз); сэргээгүй бол ихэвчлэн **5433 портыг Windows-ийн PostgreSQL үйлчилгээ эзэлсэн** тул `db` контейнер асахгүй байдаг — `install.bat -DryRun -Docker` эзэмшигчийг нэрлэж, шийдлийг харуулна |
 | HTTP 502 | Tunnel холбогдсон ч ард нь систем унтарсан — startup.bat ажиллуулах; Docker дээр бол cloudflared зөв сүлжээнд байгаа эсэхийг шалга |
 | Токен мартагдсан | Zero Trust → Tunnels → тухайн tunnel → Edit → токеныг дахин хуулж болно |
 | Нэг tunnel-ийг 2 компьютерт хэрэглэж болох уу? | Болно (олон connector), гэхдээ станц бүр ӨӨРИЙН tunnel + өөрийн subdomain-тай байх нь оношилгоонд хялбар |
