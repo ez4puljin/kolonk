@@ -3,6 +3,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, Sequence, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -54,15 +55,27 @@ class FuelShipment(UUIDPKMixin, TimestampMixin, Base):
     outflows: Mapped[list["FuelShipmentOutflow"]] = relationship(
         back_populates="shipment", cascade="all, delete-orphan", lazy="selectin"
     )
+    goods: Mapped[list["FuelShipmentGoods"]] = relationship(
+        back_populates="shipment", cascade="all, delete-orphan", lazy="selectin"
+    )
+    #: Үүсгэх үедээ оруулсан хуваарилалтын төлөвлөгөө — бүртгэхэд автоматаар
+    #: буулгагдана. Хэлбэр: {"fuel": [{"fuel_id", "tank_id", "liters"}],
+    #: "goods": [{"product_id", "branch_id", "qty"}]}.
+    plan: Mapped[dict | None] = mapped_column(JSONB)
 
 
 class FuelShipmentItem(UUIDPKMixin, TimestampMixin, Base):
-    """Ачилтын нэг түлш: хэдэн литр, ямар нэгж үнээр ачигдсан бэ."""
+    """Ачилтын нэг түлш: хэдэн литр, ямар нэгж үнээр, ХЭНЭЭС ачигдсан бэ."""
 
     __tablename__ = "fuel_shipment_items"
 
     shipment_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("fuel_shipments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    #: Мөрийн нийлүүлэгч — хоосон бол ачилтын толгойн (үндсэн) нийлүүлэгч.
+    #: Нэг машин олон нийлүүлэгчээс ачдаг тул өглөг нийлүүлэгч тус бүрээр үүснэ.
+    supplier_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("suppliers.id"), index=True
     )
     fuel_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("fuels.id"), nullable=False)
     liters: Mapped[Decimal] = mapped_column(Liters, nullable=False)
@@ -73,6 +86,32 @@ class FuelShipmentItem(UUIDPKMixin, TimestampMixin, Base):
 
     shipment: Mapped[FuelShipment] = relationship(back_populates="items")
     fuel: Mapped["Fuel"] = relationship(lazy="selectin")  # noqa: F821
+
+
+class FuelShipmentGoods(UUIDPKMixin, TimestampMixin, Base):
+    """Ачилтын нэг бараа: хэдэн ширхэг, ямар нэгж өртгөөр, хэнээс.
+
+    Бүртгэхэд «Замд яваа бараа» (1304) дансанд орж, салбарт буухад тухайн
+    салбарын худалдан авалт (``Purchase.shipment_id``) болж 1302 руу шилжинэ.
+    """
+
+    __tablename__ = "fuel_shipment_goods"
+
+    shipment_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("fuel_shipments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    supplier_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("suppliers.id"), index=True
+    )
+    product_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("products.id"), nullable=False)
+    qty: Mapped[Decimal] = mapped_column(Liters, nullable=False)
+    unit_cost: Mapped[Decimal] = mapped_column(UnitCost, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Money, nullable=False, default=Decimal("0"))
+    #: Тээвэр хуваарилсны дараах нэгж өртөг — салбарын нөөцөд энэ өртгөөр орно.
+    landed_unit_cost: Mapped[Decimal] = mapped_column(UnitCost, nullable=False, default=Decimal("0"))
+
+    shipment: Mapped[FuelShipment] = relationship(back_populates="goods")
+    product: Mapped["Product"] = relationship(lazy="selectin")  # noqa: F821
 
 
 class FuelShipmentOutflow(UUIDPKMixin, TimestampMixin, Base):
@@ -150,6 +189,12 @@ class Purchase(UUIDPKMixin, TimestampMixin, Base):
 
     number: Mapped[int] = mapped_column(
         Integer, purchase_number_seq, server_default=purchase_number_seq.next_value(), nullable=False, index=True
+    )
+    #: Ачилтаас буусан бараа бол эх ачилт нь (``FuelReceipt.shipment_id``-ийн
+    #: адил); хоосон = шууд худалдан авалт. Ачилтын баримт өглөг, НӨАТ-гүй —
+    #: тэдгээр нь ачилт дээрээ бүртгэгдсэн.
+    shipment_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("fuel_shipments.id"), index=True
     )
     #: Бараа аль салбарын нөөцөд орох вэ (хоосон бол үндсэн салбар).
     branch_id: Mapped[uuid.UUID | None] = mapped_column(

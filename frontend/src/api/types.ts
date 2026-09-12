@@ -2646,11 +2646,30 @@ export interface ReceiveResult {
 export type ShipmentStatus = "draft" | "posted" | "closed";
 export type ShipmentOutflowKind = "sale" | "loss";
 
+/** Түлшний мөрийн хуваарилалт — аль салбарын саванд хэдэн литр. */
+export interface ShipmentFuelAllocation {
+  tank_id: UUID;
+  tank_name: string | null;
+  branch_id: UUID | null;
+  branch_name: string | null;
+  liters: LitersStr;
+}
+
+/** Барааны мөрийн хуваарилалт — аль салбарт хэдэн ширхэг. */
+export interface ShipmentGoodsAllocation {
+  branch_id: UUID;
+  branch_name: string | null;
+  qty: string;
+}
+
 export interface ShipmentItem {
   id: UUID;
   fuel_id: UUID;
   fuel_name: string | null;
   fuel_code: string | null;
+  /** Мөрийн жинхэнэ нийлүүлэгч (заагаагүй бол ачилтын үндсэн нийлүүлэгч). */
+  supplier_id: UUID | null;
+  supplier_name: string | null;
   liters: LitersStr;
   unit_cost: MoneyStr;
   amount: MoneyStr;
@@ -2658,6 +2677,54 @@ export interface ShipmentItem {
   delivered_l: LitersStr;
   outflow_l: LitersStr;
   remaining_l: LitersStr;
+  allocations: ShipmentFuelAllocation[];
+}
+
+export interface ShipmentGoods {
+  id: UUID;
+  product_id: UUID;
+  product_name: string | null;
+  product_sku: string | null;
+  unit: string | null;
+  supplier_id: UUID | null;
+  supplier_name: string | null;
+  qty: string;
+  unit_cost: MoneyStr;
+  amount: MoneyStr;
+  landed_unit_cost: MoneyStr;
+  delivered_qty: string;
+  remaining_qty: string;
+  allocations: ShipmentGoodsAllocation[];
+}
+
+/** Нийлүүлэгч тус бүрийн өглөг — ачилт олон нийлүүлэгчтэй. */
+export interface ShipmentSupplier {
+  supplier_id: UUID;
+  supplier_name: string | null;
+  /** Үндсэн нийлүүлэгч — тээврийн зардал түүнд. */
+  is_main: boolean;
+  subtotal: MoneyStr;
+  vat_amount: MoneyStr;
+  total_gross: MoneyStr;
+  ap_invoice_id: UUID | null;
+  amount_paid: MoneyStr;
+  invoice_status: string | null;
+}
+
+/** Ачилтаас салбарт буусан бараа — худалдан авалтын мөр. */
+export interface ShipmentGoodsDeliveryRow {
+  id: UUID;
+  purchase_id: UUID;
+  number: number | null;
+  receipt_date: IsoDate;
+  branch_id: UUID | null;
+  branch_name: string | null;
+  product_id: UUID;
+  product_name: string | null;
+  unit: string | null;
+  qty: string;
+  unit_cost: MoneyStr;
+  amount: MoneyStr;
 }
 
 export interface ShipmentDeliveryRow {
@@ -2717,22 +2784,52 @@ export interface FuelShipment {
   note: string | null;
   created_at: IsoDateTime | null;
   items: ShipmentItem[];
+  goods: ShipmentGoods[];
+  /** Нийлүүлэгч тус бүрийн өглөг (үндсэн эхэнд). */
+  suppliers: ShipmentSupplier[];
+  supplier_count: number;
   total_liters: LitersStr;
   remaining_liters: LitersStr;
+  total_goods_qty: string;
+  remaining_goods_qty: string;
 }
 
 export interface FuelShipmentDetail extends FuelShipment {
   deliveries: ShipmentDeliveryRow[];
+  goods_deliveries: ShipmentGoodsDeliveryRow[];
   outflows: ShipmentOutflow[];
+}
+
+export interface ShipmentFuelAllocationCreate {
+  tank_id: UUID;
+  liters: LitersStr;
+}
+
+export interface ShipmentGoodsAllocationCreate {
+  branch_id: UUID;
+  qty: string;
 }
 
 export interface ShipmentItemCreate {
   fuel_id: UUID;
+  /** Хоосон бол ачилтын үндсэн нийлүүлэгч. */
+  supplier_id?: UUID | null;
   liters: LitersStr;
   unit_cost: MoneyStr;
+  /** Салбар бүрийн саванд буулгах төлөвлөгөө (Σ ≤ liters). */
+  allocations?: ShipmentFuelAllocationCreate[];
+}
+
+export interface ShipmentGoodsCreate {
+  product_id: UUID;
+  supplier_id?: UUID | null;
+  qty: string;
+  unit_cost: MoneyStr;
+  allocations?: ShipmentGoodsAllocationCreate[];
 }
 
 export interface FuelShipmentCreate {
+  /** Үндсэн нийлүүлэгч — тээвэр ба нийлүүлэгч заагаагүй мөрүүд түүнд. */
   supplier_id: UUID;
   vehicle_no: string;
   driver_name?: string | null;
@@ -2741,11 +2838,27 @@ export interface FuelShipmentCreate {
   freight_cost?: MoneyStr;
   note?: string | null;
   items: ShipmentItemCreate[];
+  goods?: ShipmentGoodsCreate[];
 }
 
 export interface ShipmentDeliverRequest {
   tank_id: UUID;
   liters: LitersStr;
+  receipt_date?: IsoDate | null;
+  note?: string | null;
+}
+
+/** Нэг зогсолтоор олон саванд буулгах. */
+export interface ShipmentDeliverManyRequest {
+  allocations: ShipmentFuelAllocationCreate[];
+  receipt_date?: IsoDate | null;
+  note?: string | null;
+}
+
+/** Нэг салбарт бараа буулгах. */
+export interface ShipmentDeliverGoodsRequest {
+  branch_id: UUID;
+  lines: { product_id: UUID; qty: string }[];
   receipt_date?: IsoDate | null;
   note?: string | null;
 }

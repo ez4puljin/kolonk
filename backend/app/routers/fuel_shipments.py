@@ -1,12 +1,14 @@
-"""Түлшний ачилтын API — машинаар татсан түлшийг салбаруудад түгээх.
+"""Түлшний ачилтын API — машинаар татсан түлш, барааг салбаруудад түгээх.
 
-Урсгал: ноорог → бүртгэх (өглөг нээгдэнэ) → салбаруудад буулгах →
-үлдэгдлийг шууд зарах/хорогдолд бичих → хаах.
+Урсгал: ноорог (олон нийлүүлэгч, түлш + бараа, хуваарилалтын төлөвлөгөө)
+→ бүртгэх (нийлүүлэгч бүрд өглөг, төлөвлөгөө буулгагдана) → үлдэгдлийг
+салбаруудад буулгах → шууд зарах/хорогдолд бичих → хаах.
 """
 
 from __future__ import annotations
 
 import uuid
+from collections import defaultdict
 from datetime import date
 from decimal import Decimal
 
@@ -16,27 +18,45 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import require_permission
-from app.enums import DocStatus, ShipmentStatus
+from app.enums import DocStatus, InvoiceStatus, ShipmentStatus
 from app.models.accounting import ApInvoice
 from app.models.branch import Branch
 from app.models.fuel import Fuel, Tank
 from app.models.partner import Supplier
-from app.models.procurement import FuelReceipt, FuelShipment, FuelShipmentItem
+from app.models.procurement import (
+    FuelReceipt,
+    FuelShipment,
+    FuelShipmentGoods,
+    FuelShipmentItem,
+    FuelShipmentOutflow,
+    Purchase,
+    PurchaseItem,
+)
+from app.models.product import Product
 from app.models.user import User
-from app.money import q2, q3
+from app.money import q2, q3, q6
 from app.schemas.shipment import (
     OUTFLOW_KIND_NAMES_MN,
     SHIPMENT_STATUS_NAMES_MN,
+    FuelAllocationOut,
     FuelShipmentCreate,
     FuelShipmentDetailOut,
     FuelShipmentListOut,
     FuelShipmentOut,
     FuelShipmentUpdate,
+    GoodsAllocationOut,
+    ShipmentDeliverGoodsIn,
     ShipmentDeliverIn,
+    ShipmentDeliverManyIn,
     ShipmentDeliveryRow,
+    ShipmentGoodsDeliveryRow,
+    ShipmentGoodsIn,
+    ShipmentGoodsOut,
+    ShipmentItemIn,
     ShipmentItemOut,
     ShipmentOutflowIn,
     ShipmentOutflowOut,
+    ShipmentSupplierOut,
 )
 from app.services import shipment_service
 from app.services.audit_service import audit
@@ -50,9 +70,9 @@ def _client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
 
 
-def _number(shipment: FuelShipment) -> int | None:
+def _number(doc: FuelShipment | FuelReceipt | Purchase) -> int | None:
     try:
-        return shipment.number
+        return doc.number
     except Exception:  # noqa: BLE001
         return None
 
@@ -68,13 +88,103 @@ async def _fuel_map(db: AsyncSession) -> dict[uuid.UUID, Fuel]:
     return {f.id: f for f in (await db.scalars(select(Fuel))).all()}
 
 
-async def _invoice_info(db: AsyncSession, shipment: FuelShipment) -> tuple[Decimal, str | None]:
-    if shipment.ap_invoice_id is None:
+async def _supplier_names(db: AsyncSession, ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    if not ids:
+        return {}
+    return dict((await db.execute(select(Supplier.id, Supplier.name).where(Supplier.id.in_(ids)))).all())
+
+
+async def _branch_names(db: AsyncSession) -> dict[uuid.UUID, str]:
+    return dict((await db.execute(select(Branch.id, Branch.name))).all())
+
+
+# --------------------------------------------------------------------------- #
+# Гаралт
+# --------------------------------------------------------------------------- #
+async def _supplier_rows(db: AsyncSession, shipment: FuelShipment) -> list[ShipmentSupplierOut]:
+    """Нийлүүлэгч тус бүрийн дүн + (бүртгэсэн бол) нэхэмжлэхийн төлөв."""
+    totals = shipment_service.supplier_totals(shipment)
+    names = await _supplier_names(db, {b.supplier_id for b in totals})
+    invoices: dict[uuid.UUID, ApInvoice] = {}
+    if str(shipment.status) != str(ShipmentStatus.DRAFT):
+        rows = (
+            await db.scalars(
+                select(ApInvoice).where(
+                    ApInvoice.source_type == "fuel_shipment", ApInvoice.source_id == shipment.id
+                )
+            )
+        ).all()
+        invoices = {inv.supplier_id: inv for inv in rows}
+    out: list[ShipmentSupplierOut] = []
+    for bucket in totals:
+        inv = invoices.get(bucket.supplier_id)
+        out.append(
+            ShipmentSupplierOut(
+                supplier_id=bucket.supplier_id,
+                supplier_name=names.get(bucket.supplier_id),
+                is_main=bucket.is_main,
+                subtotal=bucket.subtotal,
+                vat_amount=bucket.vat_amount,
+                total_gross=bucket.total_gross,
+                ap_invoice_id=inv.id if inv else None,
+                amount_paid=q2(inv.amount_paid or ZERO) if inv else ZERO,
+                invoice_status=str(inv.status) if inv else None,
+            )
+        )
+    return out
+
+
+def _aggregate_invoice_status(rows: list[ShipmentSupplierOut]) -> tuple[Decimal, str | None]:
+    """Бүх нийлүүлэгчийн төлсөн нийт ба нэгдсэн төлөв: paid / partial / open."""
+    with_invoice = [r for r in rows if r.invoice_status is not None]
+    if not with_invoice:
         return ZERO, None
-    invoice = await db.scalar(select(ApInvoice).where(ApInvoice.id == shipment.ap_invoice_id))
-    if invoice is None:
-        return ZERO, None
-    return q2(invoice.amount_paid or ZERO), str(invoice.status)
+    paid = q2(sum((r.amount_paid for r in with_invoice), ZERO))
+    statuses = {r.invoice_status for r in with_invoice}
+    if statuses == {str(InvoiceStatus.PAID)}:
+        status = str(InvoiceStatus.PAID)
+    elif paid > ZERO or str(InvoiceStatus.PARTIAL) in statuses:
+        status = str(InvoiceStatus.PARTIAL)
+    else:
+        status = str(InvoiceStatus.OPEN)
+    return paid, status
+
+
+async def _plan_out(
+    db: AsyncSession, shipment: FuelShipment
+) -> tuple[dict[uuid.UUID, list[FuelAllocationOut]], dict[uuid.UUID, list[GoodsAllocationOut]]]:
+    """Ноорог дээрх хуваарилалтын төлөвлөгөө — мөр бүрээр, нэртэй."""
+    plan = shipment.plan or {}
+    fuel_plan = plan.get("fuel") or []
+    goods_plan = plan.get("goods") or []
+    fuel_alloc: dict[uuid.UUID, list[FuelAllocationOut]] = defaultdict(list)
+    goods_alloc: dict[uuid.UUID, list[GoodsAllocationOut]] = defaultdict(list)
+    if not fuel_plan and not goods_plan:
+        return fuel_alloc, goods_alloc
+    branches = await _branch_names(db)
+    if fuel_plan:
+        tank_ids = {uuid.UUID(a["tank_id"]) for a in fuel_plan}
+        tanks = {t.id: t for t in (await db.scalars(select(Tank).where(Tank.id.in_(tank_ids)))).all()}
+        for a in fuel_plan:
+            tank = tanks.get(uuid.UUID(a["tank_id"]))
+            fuel_alloc[uuid.UUID(a["fuel_id"])].append(
+                FuelAllocationOut(
+                    tank_id=uuid.UUID(a["tank_id"]),
+                    tank_name=tank.name if tank else None,
+                    branch_id=tank.branch_id if tank else None,
+                    branch_name=branches.get(tank.branch_id) if tank and tank.branch_id else None,
+                    liters=q3(Decimal(a["liters"])),
+                )
+            )
+    for a in goods_plan:
+        goods_alloc[uuid.UUID(a["product_id"])].append(
+            GoodsAllocationOut(
+                branch_id=uuid.UUID(a["branch_id"]),
+                branch_name=branches.get(uuid.UUID(a["branch_id"])),
+                qty=q3(Decimal(a["qty"])),
+            )
+        )
+    return fuel_alloc, goods_alloc
 
 
 async def _to_out(
@@ -85,8 +195,9 @@ async def _to_out(
     with_remaining: bool = True,
 ) -> FuelShipmentOut:
     fuels = await _fuel_map(db)
-    remaining = (
-        await shipment_service.remaining_by_fuel(db, shipment) if with_remaining else {}
+    remaining = await shipment_service.remaining_by_fuel(db, shipment) if with_remaining else {}
+    remaining_goods = (
+        await shipment_service.remaining_goods_by_product(db, shipment) if with_remaining else {}
     )
 
     # Түлш бүрийн буусан/гарсан литр (дэлгэрэнгүй мөрөнд).
@@ -104,10 +215,6 @@ async def _to_out(
         ).all()
         delivered = {fuel_id: q3(liters) for fuel_id, liters in rows}
 
-    # Шууд query — шинэхэн flush хийсэн объектын relationship async дээр
-    # lazy-load хийж унадаг тул найдвартай замаар уншина.
-    from app.models.procurement import FuelShipmentOutflow
-
     outflow_l: dict[uuid.UUID, Decimal] = {}
     outflow_rows = (
         await db.execute(
@@ -119,12 +226,20 @@ async def _to_out(
     for fuel_id, liters in outflow_rows:
         outflow_l[fuel_id] = q3(outflow_l.get(fuel_id, ZERO) + Decimal(liters))
 
+    line_suppliers = {shipment.supplier_id} | {
+        s for s in (l.supplier_id for l in [*shipment.items, *shipment.goods]) if s is not None
+    }
+    supplier_names = await _supplier_names(db, line_suppliers)
+    fuel_alloc, goods_alloc = await _plan_out(db, shipment)
+
     items = [
         ShipmentItemOut(
             id=item.id,
             fuel_id=item.fuel_id,
             fuel_name=fuels[item.fuel_id].name_mn if item.fuel_id in fuels else None,
             fuel_code=fuels[item.fuel_id].code if item.fuel_id in fuels else None,
+            supplier_id=shipment_service.effective_supplier(shipment, item),
+            supplier_name=supplier_names.get(shipment_service.effective_supplier(shipment, item)),
             liters=q3(item.liters or ZERO),
             unit_cost=Decimal(item.unit_cost or ZERO),
             amount=q2(item.amount or ZERO),
@@ -132,18 +247,51 @@ async def _to_out(
             delivered_l=delivered.get(item.fuel_id, ZERO),
             outflow_l=outflow_l.get(item.fuel_id, ZERO),
             remaining_l=remaining.get(item.fuel_id, ZERO),
+            allocations=fuel_alloc.get(item.fuel_id, []),
         )
         for item in shipment.items
     ]
 
-    if supplier_name is None:
-        supplier_name = await db.scalar(
-            select(Supplier.name).where(Supplier.id == shipment.supplier_id)
-        )
+    goods_out: list[ShipmentGoodsOut] = []
+    if shipment.goods:
+        products = {
+            p.id: p
+            for p in (
+                await db.scalars(select(Product).where(Product.id.in_({g.product_id for g in shipment.goods})))
+            ).all()
+        }
+        for line in shipment.goods:
+            product = products.get(line.product_id)
+            qty = q3(line.qty or ZERO)
+            left = remaining_goods.get(line.product_id, qty if not with_remaining else ZERO)
+            goods_out.append(
+                ShipmentGoodsOut(
+                    id=line.id,
+                    product_id=line.product_id,
+                    product_name=product.name_mn if product else None,
+                    product_sku=product.sku if product else None,
+                    unit=product.unit if product else None,
+                    supplier_id=shipment_service.effective_supplier(shipment, line),
+                    supplier_name=supplier_names.get(shipment_service.effective_supplier(shipment, line)),
+                    qty=qty,
+                    unit_cost=Decimal(line.unit_cost or ZERO),
+                    amount=q2(line.amount or ZERO),
+                    landed_unit_cost=Decimal(line.landed_unit_cost or ZERO),
+                    delivered_qty=q3(qty - left) if with_remaining else ZERO,
+                    remaining_qty=left if with_remaining else qty,
+                    allocations=goods_alloc.get(line.product_id, []),
+                )
+            )
 
-    amount_paid, invoice_status = await _invoice_info(db, shipment)
+    if supplier_name is None:
+        supplier_name = supplier_names.get(shipment.supplier_id)
+
+    suppliers = await _supplier_rows(db, shipment)
+    amount_paid, invoice_status = _aggregate_invoice_status(suppliers)
     total_liters = q3(sum((Decimal(i.liters or ZERO) for i in shipment.items), ZERO))
     remaining_liters = q3(sum(remaining.values(), ZERO)) if with_remaining else ZERO
+    total_goods = q3(sum((Decimal(g.qty or ZERO) for g in shipment.goods), ZERO))
+    remaining_goods_qty = q3(sum(remaining_goods.values(), ZERO)) if with_remaining else ZERO
 
     return FuelShipmentOut(
         id=shipment.id,
@@ -168,8 +316,13 @@ async def _to_out(
         note=shipment.note,
         created_at=shipment.created_at,
         items=items,
+        goods=goods_out,
+        suppliers=suppliers,
+        supplier_count=len(suppliers),
         total_liters=total_liters,
         remaining_liters=remaining_liters,
+        total_goods_qty=total_goods,
+        remaining_goods_qty=remaining_goods_qty,
     )
 
 
@@ -183,10 +336,94 @@ def _snapshot(shipment: FuelShipment) -> dict:
         "total_gross": str(shipment.total_gross),
         "status": str(shipment.status),
         "items": [
-            {"fuel_id": str(i.fuel_id), "liters": str(i.liters), "unit_cost": str(i.unit_cost)}
+            {
+                "fuel_id": str(i.fuel_id),
+                "supplier_id": str(i.supplier_id) if i.supplier_id else None,
+                "liters": str(i.liters),
+                "unit_cost": str(i.unit_cost),
+            }
             for i in shipment.items
         ],
+        "goods": [
+            {
+                "product_id": str(g.product_id),
+                "supplier_id": str(g.supplier_id) if g.supplier_id else None,
+                "qty": str(g.qty),
+                "unit_cost": str(g.unit_cost),
+            }
+            for g in shipment.goods
+        ],
+        "plan": shipment.plan,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Оролт шалгах
+# --------------------------------------------------------------------------- #
+async def _validate_lines(
+    db: AsyncSession, items: list[ShipmentItemIn], goods: list[ShipmentGoodsIn]
+) -> tuple[list[FuelShipmentItem], list[FuelShipmentGoods]]:
+    if not items and not goods:
+        raise HTTPException(status_code=422, detail="Ачилтад дор хаяж нэг түлш эсвэл бараа хэрэгтэй")
+
+    supplier_ids = {s for s in (l.supplier_id for l in [*items, *goods]) if s is not None}
+    if supplier_ids:
+        found = set((await db.scalars(select(Supplier.id).where(Supplier.id.in_(supplier_ids)))).all())
+        if found != supplier_ids:
+            raise HTTPException(status_code=404, detail="Мөрийн нийлүүлэгч олдсонгүй")
+
+    fuels = await _fuel_map(db)
+    seen_fuel: set[uuid.UUID] = set()
+    for item in items:
+        if item.fuel_id not in fuels:
+            raise HTTPException(status_code=404, detail="Түлш олдсонгүй")
+        if item.fuel_id in seen_fuel:
+            raise HTTPException(status_code=422, detail="Нэг түлш давхардаж байна — мөрийг нэгтгэнэ үү")
+        seen_fuel.add(item.fuel_id)
+        if sum((q3(a.liters) for a in item.allocations), ZERO) > q3(item.liters):
+            raise HTTPException(
+                status_code=422,
+                detail=f"{fuels[item.fuel_id].name_mn}: хуваарилалт ачсан литрээс их байна",
+            )
+
+    if goods:
+        product_ids = {g.product_id for g in goods}
+        products = {
+            p.id: p for p in (await db.scalars(select(Product).where(Product.id.in_(product_ids)))).all()
+        }
+        if len(products) != len(product_ids):
+            raise HTTPException(status_code=404, detail="Бараа олдсонгүй")
+        seen_product: set[uuid.UUID] = set()
+        for line in goods:
+            if line.product_id in seen_product:
+                raise HTTPException(status_code=422, detail="Нэг бараа давхардаж байна — мөрийг нэгтгэнэ үү")
+            seen_product.add(line.product_id)
+            if sum((q3(a.qty) for a in line.allocations), ZERO) > q3(line.qty):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"{products[line.product_id].name_mn}: хуваарилалт ачсан тооноос их байна",
+                )
+
+    return (
+        [
+            FuelShipmentItem(
+                fuel_id=item.fuel_id,
+                supplier_id=item.supplier_id,
+                liters=q3(item.liters),
+                unit_cost=q6(item.unit_cost),
+            )
+            for item in items
+        ],
+        [
+            FuelShipmentGoods(
+                product_id=line.product_id,
+                supplier_id=line.supplier_id,
+                qty=q3(line.qty),
+                unit_cost=q6(line.unit_cost),
+            )
+            for line in goods
+        ],
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -207,7 +444,14 @@ async def list_shipments(
     if status is not None:
         conditions.append(FuelShipment.status == str(status))
     if supplier_id is not None:
-        conditions.append(FuelShipment.supplier_id == supplier_id)
+        # Үндсэн эсвэл аль нэг мөрийн нийлүүлэгч.
+        item_match = select(FuelShipmentItem.shipment_id).where(FuelShipmentItem.supplier_id == supplier_id)
+        goods_match = select(FuelShipmentGoods.shipment_id).where(FuelShipmentGoods.supplier_id == supplier_id)
+        conditions.append(
+            (FuelShipment.supplier_id == supplier_id)
+            | FuelShipment.id.in_(item_match)
+            | FuelShipment.id.in_(goods_match)
+        )
     if date_from is not None:
         conditions.append(FuelShipment.shipment_date >= date_from)
     if date_to is not None:
@@ -238,7 +482,7 @@ async def get_shipment(
     shipment = await _load_shipment(db, shipment_id)
     base = await _to_out(db, shipment)
 
-    # Түгээлтүүд — салбар, савны нэртэй.
+    # Түлшний түгээлтүүд — салбар, савны нэртэй.
     delivery_rows = (
         await db.execute(
             select(FuelReceipt, Branch.name, Tank.name, Fuel.name_mn, Fuel.code)
@@ -249,28 +493,39 @@ async def get_shipment(
             .order_by(FuelReceipt.receipt_date, FuelReceipt.created_at)
         )
     ).all()
-    deliveries = [
-        ShipmentDeliveryRow(
-            id=receipt.id,
-            number=receipt.number,
-            receipt_date=receipt.receipt_date,
-            branch_id=receipt.branch_id,
-            branch_name=branch_name,
-            tank_id=receipt.tank_id,
-            tank_name=tank_name,
-            fuel_name=fuel_name,
-            fuel_code=fuel_code,
-            liters=q3(receipt.liters or ZERO),
-            unit_cost=Decimal(receipt.unit_cost or ZERO),
-            subtotal=q2(receipt.subtotal or ZERO),
+    deliveries = [_delivery_row(receipt, branch_name, tank_name, fuel_name, fuel_code) for receipt, branch_name, tank_name, fuel_name, fuel_code in delivery_rows]
+
+    # Барааны түгээлтүүд — худалдан авалтын мөр бүрээр.
+    goods_rows = (
+        await db.execute(
+            select(PurchaseItem, Purchase, Branch.name, Product.name_mn, Product.unit)
+            .join(Purchase, Purchase.id == PurchaseItem.purchase_id)
+            .join(Product, Product.id == PurchaseItem.product_id)
+            .outerjoin(Branch, Branch.id == Purchase.branch_id)
+            .where(Purchase.shipment_id == shipment.id, Purchase.status == str(DocStatus.POSTED))
+            .order_by(Purchase.purchase_date, Purchase.created_at, PurchaseItem.created_at)
         )
-        for receipt, branch_name, tank_name, fuel_name, fuel_code in delivery_rows
+    ).all()
+    goods_deliveries = [
+        ShipmentGoodsDeliveryRow(
+            id=item.id,
+            purchase_id=purchase.id,
+            number=_number(purchase),
+            receipt_date=purchase.purchase_date,
+            branch_id=purchase.branch_id,
+            branch_name=branch_name,
+            product_id=item.product_id,
+            product_name=product_name,
+            unit=unit,
+            qty=q3(item.qty or ZERO),
+            unit_cost=Decimal(item.unit_cost or ZERO),
+            amount=q2(item.amount or ZERO),
+        )
+        for item, purchase, branch_name, product_name, unit in goods_rows
     ]
 
     fuels = await _fuel_map(db)
-    branch_names = {
-        b.id: b.name for b in (await db.scalars(select(Branch))).all()
-    }
+    branch_names = await _branch_names(db)
     outflows = [
         ShipmentOutflowOut(
             id=out.id,
@@ -294,8 +549,45 @@ async def get_shipment(
     ]
 
     return FuelShipmentDetailOut(
-        **base.model_dump(), deliveries=deliveries, outflows=outflows
+        **base.model_dump(), deliveries=deliveries, goods_deliveries=goods_deliveries, outflows=outflows
     )
+
+
+def _delivery_row(
+    receipt: FuelReceipt,
+    branch_name: str | None,
+    tank_name: str | None,
+    fuel_name: str | None,
+    fuel_code: str | None,
+) -> ShipmentDeliveryRow:
+    return ShipmentDeliveryRow(
+        id=receipt.id,
+        number=_number(receipt),
+        receipt_date=receipt.receipt_date,
+        branch_id=receipt.branch_id,
+        branch_name=branch_name,
+        tank_id=receipt.tank_id,
+        tank_name=tank_name,
+        fuel_name=fuel_name,
+        fuel_code=fuel_code,
+        liters=q3(receipt.liters or ZERO),
+        unit_cost=Decimal(receipt.unit_cost or ZERO),
+        subtotal=q2(receipt.subtotal or ZERO),
+    )
+
+
+async def _delivery_row_for(db: AsyncSession, receipt: FuelReceipt) -> ShipmentDeliveryRow:
+    row = (
+        await db.execute(
+            select(Branch.name, Tank.name, Fuel.name_mn, Fuel.code)
+            .select_from(Tank)
+            .join(Fuel, Fuel.id == Tank.fuel_id)
+            .outerjoin(Branch, Branch.id == Tank.branch_id)
+            .where(Tank.id == receipt.tank_id)
+        )
+    ).first()
+    branch_name, tank_name, fuel_name, fuel_code = row if row else (None, None, None, None)
+    return _delivery_row(receipt, branch_name, tank_name, fuel_name, fuel_code)
 
 
 # --------------------------------------------------------------------------- #
@@ -312,14 +604,7 @@ async def create_shipment(
     if supplier is None:
         raise HTTPException(status_code=404, detail="Нийлүүлэгч олдсонгүй")
 
-    fuels = await _fuel_map(db)
-    seen: set[uuid.UUID] = set()
-    for item in payload.items:
-        if item.fuel_id not in fuels:
-            raise HTTPException(status_code=404, detail="Түлш олдсонгүй")
-        if item.fuel_id in seen:
-            raise HTTPException(status_code=422, detail="Нэг түлш давхардаж байна — мөрийг нэгтгэнэ үү")
-        seen.add(item.fuel_id)
+    items, goods = await _validate_lines(db, payload.items, payload.goods)
 
     shipment = FuelShipment(
         supplier_id=supplier.id,
@@ -330,14 +615,16 @@ async def create_shipment(
         freight_cost=q2(payload.freight_cost),
         status=str(ShipmentStatus.DRAFT),
         note=(payload.note or "").strip() or None,
+        plan=shipment_service.plan_from_payload(payload.items, payload.goods),
     )
-    shipment.items = [
-        FuelShipmentItem(fuel_id=item.fuel_id, liters=q3(item.liters), unit_cost=item.unit_cost)
-        for item in payload.items
-    ]
+    shipment.items = items
+    shipment.goods = goods
     shipment_service.recalculate(shipment)
     db.add(shipment)
     await db.flush()
+    # Төлөвлөгөө сав/салбартай таарч байгааг үүсгэх үедээ шалгана — бүртгэхэд
+    # биш, оруулж байгаа хүнд тэр дороо мэдэгдэнэ.
+    await shipment_service.validate_plan(db, shipment)
 
     await audit(
         db,
@@ -384,24 +671,23 @@ async def update_shipment(
     if "note" in changes:
         shipment.note = (changes["note"] or "").strip() or None
 
-    if payload.items is not None:
-        if not payload.items:
-            raise HTTPException(status_code=422, detail="Ачилтад дор хаяж нэг түлш хэрэгтэй")
-        fuels = await _fuel_map(db)
-        seen: set[uuid.UUID] = set()
-        for item in payload.items:
-            if item.fuel_id not in fuels:
-                raise HTTPException(status_code=404, detail="Түлш олдсонгүй")
-            if item.fuel_id in seen:
-                raise HTTPException(status_code=422, detail="Нэг түлш давхардаж байна — мөрийг нэгтгэнэ үү")
-            seen.add(item.fuel_id)
-        shipment.items = [
-            FuelShipmentItem(fuel_id=item.fuel_id, liters=q3(item.liters), unit_cost=item.unit_cost)
-            for item in payload.items
+    if payload.items is not None or payload.goods is not None:
+        new_items = payload.items if payload.items is not None else [
+            ShipmentItemIn(fuel_id=i.fuel_id, supplier_id=i.supplier_id, liters=i.liters, unit_cost=i.unit_cost)
+            for i in shipment.items
         ]
+        new_goods = payload.goods if payload.goods is not None else [
+            ShipmentGoodsIn(product_id=g.product_id, supplier_id=g.supplier_id, qty=g.qty, unit_cost=g.unit_cost)
+            for g in shipment.goods
+        ]
+        items, goods = await _validate_lines(db, new_items, new_goods)
+        shipment.items = items
+        shipment.goods = goods
+        shipment.plan = shipment_service.plan_from_payload(new_items, new_goods)
 
     shipment_service.recalculate(shipment)
     await db.flush()
+    await shipment_service.validate_plan(db, shipment)
 
     await audit(
         db,
@@ -451,7 +737,8 @@ async def post_shipment(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_permission("shipments.manage")),
 ) -> FuelShipmentOut:
-    """Ноорог ачилтыг бүртгэнэ: өглөг + 1303 бичилт."""
+    """Ноорог ачилтыг бүртгэнэ: нийлүүлэгч бүрд өглөг + 1303/1304 бичилт,
+    хуваарилалтын төлөвлөгөө буулгагдана."""
     shipment = await _load_shipment(db, shipment_id)
     await shipment_service.post_shipment(db, user, shipment)
     return await _to_out(db, shipment)
@@ -464,7 +751,7 @@ async def deliver(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_permission("shipments.manage")),
 ) -> ShipmentDeliveryRow:
-    """Машинаас салбарын саванд буулгана."""
+    """Машинаас нэг саванд буулгана."""
     shipment = await _load_shipment(db, shipment_id)
     receipt = await shipment_service.deliver(
         db,
@@ -475,37 +762,81 @@ async def deliver(
         receipt_date=payload.receipt_date,
         note=payload.note,
     )
-    row = (
-        await db.execute(
-            select(Branch.name, Tank.name, Fuel.name_mn, Fuel.code)
-            .select_from(Tank)
-            .join(Fuel, Fuel.id == Tank.fuel_id)
-            .outerjoin(Branch, Branch.id == Tank.branch_id)
-            .where(Tank.id == receipt.tank_id)
-        )
-    ).first()
-    branch_name, tank_name, fuel_name, fuel_code = row if row else (None, None, None, None)
-    return ShipmentDeliveryRow(
-        id=receipt.id,
-        number=_numberish(receipt),
-        receipt_date=receipt.receipt_date,
-        branch_id=receipt.branch_id,
-        branch_name=branch_name,
-        tank_id=receipt.tank_id,
-        tank_name=tank_name,
-        fuel_name=fuel_name,
-        fuel_code=fuel_code,
-        liters=q3(receipt.liters or ZERO),
-        unit_cost=Decimal(receipt.unit_cost or ZERO),
-        subtotal=q2(receipt.subtotal or ZERO),
+    return await _delivery_row_for(db, receipt)
+
+
+@router.post(
+    "/fuel-shipments/{shipment_id}/deliver-many",
+    response_model=list[ShipmentDeliveryRow],
+    status_code=201,
+)
+async def deliver_many(
+    shipment_id: uuid.UUID,
+    payload: ShipmentDeliverManyIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shipments.manage")),
+) -> list[ShipmentDeliveryRow]:
+    """Нэг зогсолтоор олон саванд буулгана — салбар бүрийн саванд өөр хэмжээгээр."""
+    shipment = await _load_shipment(db, shipment_id)
+    receipts = await shipment_service.deliver_many(
+        db,
+        user,
+        shipment,
+        allocations=[(a.tank_id, a.liters) for a in payload.allocations],
+        receipt_date=payload.receipt_date,
+        note=payload.note,
     )
+    return [await _delivery_row_for(db, r) for r in receipts]
 
 
-def _numberish(receipt: FuelReceipt) -> int | None:
-    try:
-        return receipt.number
-    except Exception:  # noqa: BLE001
-        return None
+@router.post(
+    "/fuel-shipments/{shipment_id}/deliver-goods",
+    response_model=list[ShipmentGoodsDeliveryRow],
+    status_code=201,
+)
+async def deliver_goods(
+    shipment_id: uuid.UUID,
+    payload: ShipmentDeliverGoodsIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shipments.manage")),
+) -> list[ShipmentGoodsDeliveryRow]:
+    """Машинаас нэг салбарт бараа буулгана — салбарын нөөцөд орж, тооцоонд өр үүснэ."""
+    shipment = await _load_shipment(db, shipment_id)
+    purchases = await shipment_service.deliver_goods(
+        db,
+        user,
+        shipment,
+        branch_id=payload.branch_id,
+        lines=[(l.product_id, l.qty) for l in payload.lines],
+        receipt_date=payload.receipt_date,
+        note=payload.note,
+    )
+    branch_name = await db.scalar(select(Branch.name).where(Branch.id == payload.branch_id))
+    product_ids = {i.product_id for p in purchases for i in p.items}
+    products = {
+        p.id: p for p in (await db.scalars(select(Product).where(Product.id.in_(product_ids)))).all()
+    }
+    rows: list[ShipmentGoodsDeliveryRow] = []
+    for purchase in purchases:
+        for item in purchase.items:
+            product = products.get(item.product_id)
+            rows.append(
+                ShipmentGoodsDeliveryRow(
+                    id=item.id,
+                    purchase_id=purchase.id,
+                    number=_number(purchase),
+                    receipt_date=purchase.purchase_date,
+                    branch_id=purchase.branch_id,
+                    branch_name=branch_name,
+                    product_id=item.product_id,
+                    product_name=product.name_mn if product else None,
+                    unit=product.unit if product else None,
+                    qty=q3(item.qty or ZERO),
+                    unit_cost=Decimal(item.unit_cost or ZERO),
+                    amount=q2(item.amount or ZERO),
+                )
+            )
+    return rows
 
 
 @router.post("/fuel-shipments/{shipment_id}/outflow", response_model=ShipmentOutflowOut, status_code=201)
@@ -562,7 +893,7 @@ async def close_shipment(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_permission("shipments.manage")),
 ) -> FuelShipmentOut:
-    """Бүх литр тэглэгдсэн ачилтыг хаана."""
+    """Бүх литр, ширхэг тэглэгдсэн ачилтыг хаана."""
     shipment = await _load_shipment(db, shipment_id)
     await shipment_service.close_shipment(db, user, shipment)
     return await _to_out(db, shipment)

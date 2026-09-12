@@ -620,24 +620,28 @@ def build_settlement_lines(method: str, amount: Decimal) -> list[LineSpec]:
 # --------------------------------------------------------------------------- #
 # SHIPMENT_POSTED / SHIPMENT_DELIVERY / SHIPMENT_SALE / SHIPMENT_LOSS
 # --------------------------------------------------------------------------- #
-def build_shipment_lines(shipment: Any, items: Iterable[Any]) -> list[LineSpec]:
-    """Ачилтын бүртгэл: Дт 1303 (түлш бүрээр, тээвэртэй), Дт 1402, Кт 2101.
+def build_shipment_lines(shipment: Any, totals: Iterable[Any]) -> list[LineSpec]:
+    """Ачилтын бүртгэл: Дт 1303 (түлш бүрээр), Дт 1304 (бараа бүрээр) — тээвэртэй
+    landed өртгөөр; дараа нь НИЙЛҮҮЛЭГЧ ТУС БҮРД Дт 1402, Кт 2101.
 
-    Түлш машин дээр байгаа тул 1301 биш «Замд яваа түлш» (1303) дансанд орно.
-    Салбарт буулгах бүрд 1303 → 1301 шилжинэ (``build_shipment_delivery_lines``).
+    Түлш машин дээр байгаа тул 1301 биш «Замд яваа түлш» (1303), бараа «Замд
+    яваа бараа» (1304) дансанд орно.  Салбарт буулгах бүрд 1303 → 1301,
+    1304 → 1302 шилжинэ.  ``totals`` — ``shipment_service.supplier_totals``:
+    нийлүүлэгч бүрийн subtotal (үндсэнд тээвэртэй), vat_amount, total_gross;
+    Σ subtotal == shipment.subtotal тул дебит, кредит яг тэнцэнэ.
     """
-    items = list(items)
-    supplier_id = getattr(shipment, "supplier_id", None)
+    main_supplier = getattr(shipment, "supplier_id", None)
     number = getattr(shipment, "number", None)
     vehicle = getattr(shipment, "vehicle_no", "") or ""
     memo = f"Ачилт{f' №{number}' if number else ''} — {vehicle}".strip(" —")
 
+    def line_supplier(line: Any) -> Any:
+        return getattr(line, "supplier_id", None) or main_supplier
+
     lines: list[LineSpec] = []
     landed_total = ZERO
-    for item in items:
-        liters = _d(getattr(item, "liters", ZERO))
-        landed = _d(getattr(item, "landed_unit_cost", ZERO))
-        amount = _m(liters * landed)
+    for item in getattr(shipment, "items", []) or []:
+        amount = _m(_d(getattr(item, "liters", ZERO)) * _d(getattr(item, "landed_unit_cost", ZERO)))
         if amount == 0:
             continue
         landed_total = q2(landed_total + amount)
@@ -646,14 +650,27 @@ def build_shipment_lines(shipment: Any, items: Iterable[Any]) -> list[LineSpec]:
                 account_code=ACC.FUEL_IN_TRANSIT,
                 debit=amount,
                 memo=memo,
-                dims=Dims(fuel_id=getattr(item, "fuel_id", None), supplier_id=supplier_id),
+                dims=Dims(fuel_id=getattr(item, "fuel_id", None), supplier_id=line_supplier(item)),
+            )
+        )
+    for goods in getattr(shipment, "goods", []) or []:
+        amount = _m(_d(getattr(goods, "qty", ZERO)) * _d(getattr(goods, "landed_unit_cost", ZERO)))
+        if amount == 0:
+            continue
+        landed_total = q2(landed_total + amount)
+        lines.append(
+            LineSpec(
+                account_code=ACC.GOODS_IN_TRANSIT,
+                debit=amount,
+                memo=f"{memo} (бараа)",
+                dims=Dims(supplier_id=line_supplier(goods)),
             )
         )
     if not lines:
         return []
 
     # Тээврийн хуваарилалтын дугуйллын зөрүүг эхний мөрөнд шингээнэ —
-    # ингэснээр Дт 1303 == subtotal (литр·өртөг + тээвэр) яг тэнцэнэ.
+    # ингэснээр Σ дебит == subtotal (тоо·өртөг + тээвэр) яг тэнцэнэ.
     subtotal = _m(getattr(shipment, "subtotal", ZERO))
     drift = q2(subtotal - landed_total)
     if drift != 0:
@@ -665,24 +682,30 @@ def build_shipment_lines(shipment: Any, items: Iterable[Any]) -> list[LineSpec]:
             dims=first.dims,
         )
 
-    vat = _m(getattr(shipment, "vat_amount", ZERO))
-    if vat != 0:
+    # Нийлүүлэгч бүрийн НӨАТ ба өглөг — машин олон нийлүүлэгчээс ачдаг.
+    for bucket in totals:
+        supplier_id = getattr(bucket, "supplier_id", None)
+        vat = _m(getattr(bucket, "vat_amount", ZERO))
+        gross = _m(getattr(bucket, "total_gross", ZERO))
+        if gross == 0:
+            continue
+        if vat != 0:
+            lines.append(
+                LineSpec(
+                    account_code=ACC.VAT_INPUT,
+                    debit=vat,
+                    memo="Орох НӨАТ",
+                    dims=Dims(supplier_id=supplier_id),
+                )
+            )
         lines.append(
             LineSpec(
-                account_code=ACC.VAT_INPUT,
-                debit=vat,
-                memo="Орох НӨАТ",
+                account_code=ACC.AP_SUPPLIER,
+                credit=gross,
+                memo=memo,
                 dims=Dims(supplier_id=supplier_id),
             )
         )
-    lines.append(
-        LineSpec(
-            account_code=ACC.AP_SUPPLIER,
-            credit=q2(subtotal + vat),
-            memo=memo,
-            dims=Dims(supplier_id=supplier_id),
-        )
-    )
     return lines
 
 
@@ -714,6 +737,34 @@ def build_shipment_delivery_lines(receipt: Any) -> list[LineSpec]:
             credit=amount,
             memo=memo,
             dims=Dims(fuel_id=fuel_id),
+        ),
+    ]
+
+
+def build_shipment_goods_delivery_lines(purchase: Any) -> list[LineSpec]:
+    """Ачилтаас салбарт бараа буулгах: Дт 1302 (салбар), Кт 1304.
+
+    Өглөг, НӨАТ ачилт дээрээ бүртгэгдсэн тул энд зөвхөн нөөц шилжинэ.
+    ``purchase.subtotal`` = Σ тоо × ачилтын landed нэгж өртөг.
+    """
+    amount = _m(getattr(purchase, "subtotal", ZERO))
+    if amount == 0:
+        return []
+    number = getattr(purchase, "number", None)
+    memo = f"Ачилтаас бараа буулгалт{f' №{number}' if number else ''}"
+    supplier_id = getattr(purchase, "supplier_id", None)
+    return [
+        LineSpec(
+            account_code=ACC.INV_GOODS,
+            debit=amount,
+            memo=memo,
+            dims=Dims(supplier_id=supplier_id, branch_id=getattr(purchase, "branch_id", None)),
+        ),
+        LineSpec(
+            account_code=ACC.GOODS_IN_TRANSIT,
+            credit=amount,
+            memo=memo,
+            dims=Dims(supplier_id=supplier_id),
         ),
     ]
 

@@ -10,8 +10,11 @@ import type {
   SettlementBalance,
   SettlementEntry,
   SettlementPaymentCreate,
+  ShipmentDeliverGoodsRequest,
+  ShipmentDeliverManyRequest,
   ShipmentDeliverRequest,
   ShipmentDeliveryRow,
+  ShipmentGoodsDeliveryRow,
   ShipmentOutflow,
   ShipmentOutflowRequest,
   UUID,
@@ -98,13 +101,24 @@ export function useDeleteShipmentMutation() {
   });
 }
 
+/** Буулгалтын дараа шинэчлэгдэх бүх зүйл: сав, нөөц, худалдан авалт, тооцоо. */
+function invalidateAfterDelivery(queryClient: ReturnType<typeof useQueryClient>): void {
+  void queryClient.invalidateQueries({ queryKey: shipmentKeys.all });
+  void queryClient.invalidateQueries({ queryKey: ["fuel-receipts"] });
+  void queryClient.invalidateQueries({ queryKey: ["tanks"] });
+  void queryClient.invalidateQueries({ queryKey: ["products"] });
+  void queryClient.invalidateQueries({ queryKey: ["inventory"] });
+  void queryClient.invalidateQueries({ queryKey: ["purchases"] });
+  void queryClient.invalidateQueries({ queryKey: shipmentKeys.settlements });
+}
+
 export function usePostShipmentMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: UUID) => api.post<FuelShipment>(`/api/fuel-shipments/${id}/post`),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: shipmentKeys.all });
-    },
+    // Бүртгэхэд хуваарилалтын төлөвлөгөө тэр дороо буулгагддаг тул сав,
+    // нөөц ч өөрчлөгдөнө.
+    onSuccess: () => invalidateAfterDelivery(queryClient),
   });
 }
 
@@ -113,12 +127,27 @@ export function useShipmentDeliverMutation() {
   return useMutation({
     mutationFn: ({ id, payload }: { id: UUID; payload: ShipmentDeliverRequest }) =>
       api.post<ShipmentDeliveryRow>(`/api/fuel-shipments/${id}/deliver`, payload),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: shipmentKeys.all });
-      void queryClient.invalidateQueries({ queryKey: ["fuel-receipts"] });
-      void queryClient.invalidateQueries({ queryKey: ["tanks"] });
-      void queryClient.invalidateQueries({ queryKey: shipmentKeys.settlements });
-    },
+    onSuccess: () => invalidateAfterDelivery(queryClient),
+  });
+}
+
+/** Нэг зогсолтоор олон саванд — салбар бүрийн саванд өөр хэмжээгээр. */
+export function useShipmentDeliverManyMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: UUID; payload: ShipmentDeliverManyRequest }) =>
+      api.post<ShipmentDeliveryRow[]>(`/api/fuel-shipments/${id}/deliver-many`, payload),
+    onSuccess: () => invalidateAfterDelivery(queryClient),
+  });
+}
+
+/** Нэг салбарт бараа буулгах. */
+export function useShipmentDeliverGoodsMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: UUID; payload: ShipmentDeliverGoodsRequest }) =>
+      api.post<ShipmentGoodsDeliveryRow[]>(`/api/fuel-shipments/${id}/deliver-goods`, payload),
+    onSuccess: () => invalidateAfterDelivery(queryClient),
   });
 }
 
