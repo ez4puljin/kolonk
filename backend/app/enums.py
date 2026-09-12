@@ -189,6 +189,10 @@ class SourceType(StrEnum):
     FUEL_SHIPMENT = "fuel_shipment"
     SHIPMENT_OUTFLOW = "shipment_outflow"
     BRANCH_SETTLEMENT = "branch_settlement"
+    #: Нөөцийн залруулга, салбар хоорондын шилжүүлэг (inventory_transactions).
+    INVENTORY_TX = "inventory_tx"
+    #: Банкны дансны эхний үлдэгдэл.
+    BANK_ACCOUNT = "bank_account"
 
 
 class EventType(StrEnum):
@@ -217,6 +221,12 @@ class EventType(StrEnum):
     #: Ачилтаас салбарт буусан бараа: Дт 1302 (салбар), Кт 1304.
     SHIPMENT_GOODS_DELIVERY = "SHIPMENT_GOODS_DELIVERY"
     BRANCH_SETTLEMENT_PAID = "BRANCH_SETTLEMENT_PAID"
+    #: Тооллогын зөрүү / хорогдол: Дт 5901 (эсвэл Кт 4903) ↔ 1302 (салбар).
+    INVENTORY_ADJUSTED = "INVENTORY_ADJUSTED"
+    #: Салбар хоорондын барааны шилжүүлэг: Дт 1302 (авсан) / Кт 1302 (өгсөн).
+    INVENTORY_TRANSFERRED = "INVENTORY_TRANSFERRED"
+    #: Банкны дансны эхний үлдэгдэл: Дт 1110 (данс) / Кт 3101.
+    BANK_OPENING_POSTED = "BANK_OPENING_POSTED"
 
 
 class PresetType(StrEnum):

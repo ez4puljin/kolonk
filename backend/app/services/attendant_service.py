@@ -445,8 +445,35 @@ async def _create_credit_sales(
     return total, sale_ids
 
 
+async def _default_transfer_account(db: AsyncSession, branch_id: uuid.UUID | None) -> uuid.UUID | None:
+    """Шилжүүлгийн орлого АЛЬ банкны дансанд орсон бэ — санхүүгийн хэмжүүр.
+
+    Түгээгч хаалт дээр данс сонгоогүй бол салбарын харилцах данс, тэр ч
+    байхгүй бол шимтгэлийн анхдагч данс. Урьд нь 1110 дансны мөр
+    ``dim_bank_account_id``-гүй үлдэж, банкны данс бүрийн үлдэгдэл буруу
+    гардаг байв.
+    """
+    from app.models.bank import BankAccount
+    from app.services import bank_service
+
+    if branch_id is not None:
+        account = await db.scalar(
+            select(BankAccount)
+            .where(BankAccount.branch_id == branch_id, BankAccount.is_active.is_(True))
+            .order_by(BankAccount.sort_order)
+            .limit(1)
+        )
+        if account is not None:
+            return account.id
+    fallback = await bank_service.fee_default_account(db)
+    return fallback.id if fallback else None
+
+
 def _noncash_payments(
-    total: Decimal, card_amount: Decimal, transfer_amount: Decimal
+    total: Decimal,
+    card_amount: Decimal,
+    transfer_amount: Decimal,
+    bank_account_id: uuid.UUID | None = None,
 ) -> tuple[list[PaymentIn], Decimal, Decimal]:
     """Өдрийн борлуулалтын төлбөрийг 3 сувагт хуваана.
 
@@ -460,7 +487,12 @@ def _noncash_payments(
         payments.append(PaymentIn(method=PaymentMethod.CARD, amount=card, ref_no="SETTLEMENT"))
     if transfer > ZERO:
         payments.append(
-            PaymentIn(method=PaymentMethod.TRANSFER, amount=transfer, ref_no="TRANSFER")
+            PaymentIn(
+                method=PaymentMethod.TRANSFER,
+                amount=transfer,
+                ref_no="TRANSFER",
+                bank_account_id=bank_account_id,
+            )
         )
     cash = q2(total - card - transfer)
     if cash > ZERO:
@@ -475,6 +507,7 @@ async def _create_oil_sale(
     *,
     card_amount: Decimal,
     transfer_amount: Decimal = ZERO,
+    transfer_bank_account_id: uuid.UUID | None = None,
 ) -> tuple[Decimal, Decimal, Decimal, uuid.UUID | None]:
     """Тос, барааны өдрийн борлуулалт — нэг Sale (карт/шилжүүлэг + бэлэн үлдэгдэл).
 
@@ -501,7 +534,9 @@ async def _create_oil_sale(
     if total <= ZERO:
         return ZERO, ZERO, ZERO, None
 
-    payments, card, transfer = _noncash_payments(total, card_amount, transfer_amount)
+    payments, card, transfer = _noncash_payments(
+        total, card_amount, transfer_amount, transfer_bank_account_id
+    )
 
     sale = await sale_service.create_sale(
         db, user, SaleCreate(sale_type=SaleType.STORE, items=items, payments=payments)
@@ -516,6 +551,7 @@ async def _create_fuel_sale(
     *,
     card_amount: Decimal,
     transfer_amount: Decimal = ZERO,
+    transfer_bank_account_id: uuid.UUID | None = None,
 ) -> tuple[Decimal, Decimal, Decimal, uuid.UUID | None]:
     """Нэгдсэн түлшний борлуулалт — сегмент бүрийн ҮЛДЭГДЭЛ нэг мөр.
 
@@ -549,7 +585,9 @@ async def _create_fuel_sale(
     if total <= ZERO:
         return ZERO, ZERO, ZERO, None
 
-    payments, card, transfer = _noncash_payments(total, card_amount, transfer_amount)
+    payments, card, transfer = _noncash_payments(
+        total, card_amount, transfer_amount, transfer_bank_account_id
+    )
 
     sale = await sale_service.create_sale(
         db, user, SaleCreate(sale_type=SaleType.FUEL, items=items, payments=payments)
@@ -606,9 +644,20 @@ async def daily_close(
         db, user, shift, payload.credit_lines, slots
     )
 
+    # Шилжүүлгийн орлого аль банкны дансанд орсон бэ — түгээгч сонгоогүй бол
+    # салбарын харилцах данс (эсвэл шимтгэлийн анхдагч данс).
+    transfer_account = payload.transfer_bank_account_id or await _default_transfer_account(
+        db, shift.branch_id
+    )
+
     # --- 2. Нэгдсэн түлшний борлуулалт (карт/шилжүүлэг эхлээд түлшинд) ---
     fuel_total, fuel_card, fuel_transfer, fuel_sale_id = await _create_fuel_sale(
-        db, user, slots, card_amount=settlement_total, transfer_amount=transfer_total
+        db,
+        user,
+        slots,
+        card_amount=settlement_total,
+        transfer_amount=transfer_total,
+        transfer_bank_account_id=transfer_account,
     )
 
     # --- 3. Тос, барааны борлуулалт (үлдсэн карт/шилжүүлгээр) ---
@@ -620,6 +669,7 @@ async def daily_close(
         payload.oil_lines,
         card_amount=card_left,
         transfer_amount=transfer_left,
+        transfer_bank_account_id=transfer_account,
     )
     card_left = q2(card_left - oil_card)
     transfer_left = q2(transfer_left - oil_transfer)

@@ -45,6 +45,8 @@ class JournalLineOut(BaseModel):
     dim_tank_id: uuid.UUID | None = None
     dim_customer_id: uuid.UUID | None = None
     dim_supplier_id: uuid.UUID | None = None
+    dim_bank_account_id: uuid.UUID | None = None
+    dim_branch_id: uuid.UUID | None = None
 
 
 class JournalEntryOut(BaseModel):
@@ -300,6 +302,9 @@ class ApPaymentIn(BaseModel):
     ap_invoice_id: uuid.UUID
     amount: Decimal = Field(gt=0)
     paid_from: str = Field(default="bank", description="bank эсвэл cash")
+    #: Банкнаас төлсөн бол аль данснаас; хоосон бол шимтгэлийн анхдагч данс.
+    #: Данс бүрийн үлдэгдэл 1110-ийн хэмжүүрээр бодогддог тул заавал бичигдэнэ.
+    bank_account_id: uuid.UUID | None = None
     payment_date: date
     note: str | None = None
 

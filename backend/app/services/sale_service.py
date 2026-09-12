@@ -209,6 +209,8 @@ class ResolvedTender:
     change: Decimal | None = None
     ref_no: str | None = None
     contract: Contract | None = None
+    #: Шилжүүлэг/картын орлого орсон банкны данс — журналын 1110 хэмжүүр.
+    bank_account_id: uuid.UUID | None = None
 
 
 def _get(source: Any, key: str, default: Any = None) -> Any:
@@ -512,7 +514,12 @@ async def _resolve_payments(
         method = str(_get(raw, "method", PaymentMethod.CASH))
         if method not in PAYMENT_METHOD_MN:
             raise HTTPException(status_code=422, detail="Тодорхойгүй төлбөрийн хэрэгсэл")
-        tender = ResolvedTender(method=method, amount=amount, ref_no=_clean(_get(raw, "ref_no")))
+        tender = ResolvedTender(
+            method=method,
+            amount=amount,
+            ref_no=_clean(_get(raw, "ref_no")),
+            bank_account_id=_uuid(_get(raw, "bank_account_id")),
+        )
 
         if method == str(PaymentMethod.CASH):
             received = _get(raw, "received")
@@ -704,6 +711,7 @@ async def create_sale(db: AsyncSession, user: User, payload: Any) -> Sale:
             received=tender.received,
             change_given=tender.change,
             ref_no=tender.ref_no,
+            bank_account_id=tender.bank_account_id,
         )
         if tender.contract is not None:
             tender.contract.balance = q2(to_decimal(tender.contract.balance) + tender.amount)

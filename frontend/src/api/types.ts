@@ -1816,6 +1816,8 @@ export interface JournalLine {
   dim_tank_id: UUID | null;
   dim_customer_id: UUID | null;
   dim_supplier_id: UUID | null;
+  dim_bank_account_id?: UUID | null;
+  dim_branch_id?: UUID | null;
 }
 
 export interface JournalEntry {
@@ -2003,6 +2005,8 @@ export interface ApPaymentCreate {
   ap_invoice_id: UUID;
   amount: MoneyStr;
   paid_from: CashAccount;
+  /** Банкнаас төлсөн бол аль данснаас; хоосон бол шимтгэлийн анхдагч данс. */
+  bank_account_id?: UUID | null;
   payment_date: IsoDate;
   note?: string | null;
 }

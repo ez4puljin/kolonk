@@ -56,6 +56,9 @@ class PaymentIn(BaseModel):
     contract_id: uuid.UUID | None = None
     received: Decimal | None = Field(default=None, ge=0, description="Бэлнээр авсан мөнгө")
     ref_no: str | None = Field(default=None, max_length=64)
+    #: Шилжүүлэг/картын орлого аль банкны дансанд орсон бэ — 1110 дансны
+    #: мөрийн хэмжүүр; банкны данс бүрийн үлдэгдэл үүгээр бодогдоно.
+    bank_account_id: uuid.UUID | None = None
 
 
 class SaleCreate(BaseModel):

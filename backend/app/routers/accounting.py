@@ -36,7 +36,7 @@ from app.schemas.accounting import (
     SettlementOut,
     TrialBalanceOut,
 )
-from app.services import statement_service
+from app.services import bank_service, statement_service
 from app.services.audit_service import audit
 from app.services.outbox_service import emit
 from app.services.posting import Dims, LineSpec, UnbalancedEntryError, posting
@@ -411,11 +411,25 @@ async def create_ap_payment(
 
     before = {"amount_paid": str(q2(invoice.amount_paid)), "status": invoice.status}
 
+    # Банкнаас төлсөн бол аль данснаас — 1110-ийн мөрийн хэмжүүр болж данс
+    # бүрийн үлдэгдэл зөв гарна.  Заагаагүй бол шимтгэлийн анхдагч данс.
+    bank_account_id: uuid.UUID | None = None
+    if paid_from == str(CashAccount.BANK):
+        if payload.bank_account_id is not None:
+            account = await bank_service.get_account(db, payload.bank_account_id)
+            if not account.is_active:
+                raise HTTPException(status_code=422, detail="Идэвхгүй данснаас төлбөр хийх боломжгүй")
+            bank_account_id = account.id
+        else:
+            default = await bank_service.fee_default_account(db)
+            bank_account_id = default.id if default is not None else None
+
     payment = ApPayment(
         ap_invoice_id=invoice.id,
         supplier_id=invoice.supplier_id,
         amount=amount,
         paid_from=paid_from,
+        bank_account_id=bank_account_id,
         payment_date=payload.payment_date,
         note=payload.note,
         created_by=user.id,

@@ -11,6 +11,7 @@ import { FileText, Wallet } from "lucide-react";
 
 import { errorMessage } from "../../api/client";
 import { useApInvoices, useCreateApPaymentMutation } from "../../api/queries/accounting";
+import { useBankAccounts } from "../../api/queries/bank";
 import { useArInvoices, useContractStatement, useCreateArPaymentMutation } from "../../api/queries/partners";
 import type { ApInvoice, ArInvoice, CashAccount, StatementRow, UUID } from "../../api/types";
 import { BarChart, type BarDatum } from "../../components/charts/BarChart";
@@ -134,10 +135,28 @@ function ApPaymentModal({ invoice, onClose }: { invoice: ApInvoice | null; onClo
   const toastSuccess = useUiStore((state) => state.toastSuccess);
   const mutation = useCreateApPaymentMutation();
 
+  const bankAccounts = useBankAccounts({ active_only: true });
+
   const [amount, setAmount] = useState("0.00");
   const [paidFrom, setPaidFrom] = useState<CashAccount>("bank");
+  const [bankAccountId, setBankAccountId] = useState<UUID | "">("");
   const [paymentDate, setPaymentDate] = useState(todayInput);
   const [note, setNote] = useState("");
+
+  const accountOptions = useMemo(
+    () =>
+      (bankAccounts.data?.items ?? []).map((account) => ({
+        value: account.id,
+        label: `${account.bank_name} · ${account.account_number}`,
+      })),
+    [bankAccounts.data],
+  );
+  // Анхдагч: шимтгэлийн үндсэн данс, байхгүй бол эхний данс.
+  const defaultAccountId = useMemo(() => {
+    const items = bankAccounts.data?.items ?? [];
+    return items.find((account) => account.is_fee_default)?.id ?? items[0]?.id ?? "";
+  }, [bankAccounts.data]);
+  const effectiveAccountId = bankAccountId === "" ? defaultAccountId : bankAccountId;
 
   const due = invoice?.amount_due ?? "0";
   const valid = !dIsZero(amount) && dCmp(amount, due) <= 0 && dCmp(amount, "0") > 0;
@@ -149,6 +168,7 @@ function ApPaymentModal({ invoice, onClose }: { invoice: ApInvoice | null; onClo
         ap_invoice_id: invoice.id,
         amount,
         paid_from: paidFrom,
+        bank_account_id: paidFrom === "bank" && effectiveAccountId !== "" ? effectiveAccountId : null,
         payment_date: paymentDate,
         note: note.trim() === "" ? null : note.trim(),
       },
@@ -211,6 +231,25 @@ function ApPaymentModal({ invoice, onClose }: { invoice: ApInvoice | null; onClo
           options={CASH_OPTIONS}
           columns={2}
         />
+
+        {paidFrom === "bank" && accountOptions.length > 0 && (
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold tracking-wide text-ink-soft uppercase">
+              {t.bank.accounts}
+            </span>
+            <select
+              value={effectiveAccountId}
+              onChange={(event) => setBankAccountId(event.target.value as UUID)}
+              className="h-12 w-full rounded-xl border border-line-strong bg-white px-3 text-[15px] text-ink focus:border-action focus:outline-none"
+            >
+              {accountOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
         <label className="flex flex-col gap-1">
           <span className="text-xs font-semibold tracking-wide text-ink-soft uppercase">

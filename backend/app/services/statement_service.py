@@ -15,12 +15,27 @@ from typing import Any
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.enums import AccountType
-from app.models.accounting import Account, JournalEntry, JournalLine
+from app.config import settings
+from app.enums import (
+    AccountType,
+    ApprovalStatus,
+    DocStatus,
+    SaleStatus,
+    ShiftStatus,
+    ShipmentOutflowKind,
+    ShipmentStatus,
+    SourceType,
+)
+from app.models.accounting import Account, ApInvoice, JournalEntry, JournalLine
+from app.models.approval import Refund
+from app.models.expense import Expense
 from app.models.fuel import Fuel, Tank
 from app.models.partner import Contract
+from app.models.procurement import FuelReceipt, FuelShipment, FuelShipmentOutflow, Purchase
 from app.models.product import Product
-from app.money import q2
+from app.models.sale import Sale
+from app.models.shift import Shift
+from app.money import q2, vat_from_gross
 from app.services.coa import ACC
 
 ZERO = Decimal("0")
@@ -618,5 +633,165 @@ async def integrity_check(db: AsyncSession) -> list[dict[str, Any]]:
             tolerance=ROUNDING_TOLERANCE,
         )
     )
+
+    # 5. Нийлүүлэгчийн өглөг 2101 ↔ нэхэмжлэхийн үлдэгдэл (кредит хэвийн)
+    ap_open = q2(
+        await db.scalar(
+            select(func.coalesce(func.sum(ApInvoice.amount_gross - ApInvoice.amount_paid), 0))
+        )
+        or 0
+    )
+    checks.append(_check("Нийлүүлэгчийн өглөг (2101)", ap_open, -await _account_balance(db, ACC.AP_SUPPLIER)))
+
+    # Борлуулалтын баримтууд: ноороггүй бүх борлуулалт + машинаас шууд борлуулалт − буцаалт
+    live_sales = Sale.status != str(SaleStatus.DRAFT)
+    sales_row = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(Sale.subtotal), 0).label("subtotal"),
+                func.coalesce(func.sum(Sale.vat_amount), 0).label("vat"),
+                func.coalesce(func.sum(Sale.cogs_total), 0).label("cogs"),
+            ).where(live_sales)
+        )
+    ).one()
+    refund_row = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(Refund.vat_amount), 0).label("vat"),
+                func.coalesce(func.sum(Refund.cogs_amount), 0).label("cogs"),
+            ).where(Refund.status == str(ApprovalStatus.APPROVED), Refund.restock.is_(True))
+        )
+    ).one()
+    refund_vat = q2(
+        await db.scalar(
+            select(func.coalesce(func.sum(Refund.vat_amount), 0)).where(
+                Refund.status == str(ApprovalStatus.APPROVED)
+            )
+        )
+        or 0
+    )
+    outflows = (
+        await db.execute(
+            select(FuelShipmentOutflow.amount, FuelShipmentOutflow.cost_amount).where(
+                FuelShipmentOutflow.kind == str(ShipmentOutflowKind.SALE)
+            )
+        )
+    ).all()
+    ship_vat = ZERO
+    ship_net = ZERO
+    ship_cost = ZERO
+    for gross, cost in outflows:
+        gross = q2(Decimal(gross or 0))
+        vat = vat_from_gross(gross, settings.vat_rate)
+        ship_vat = q2(ship_vat + vat)
+        ship_net = q2(ship_net + (gross - vat))
+        ship_cost = q2(ship_cost + Decimal(cost or 0))
+
+    # 6. Гарах НӨАТ 2201 ↔ борлуулалтын НӨАТ − буцаалтын НӨАТ
+    checks.append(
+        _check(
+            "Гарах НӨАТ (2201) ↔ борлуулалт",
+            q2(q2(sales_row.vat) - refund_vat + ship_vat),
+            -await _account_balance(db, ACC.VAT_OUTPUT),
+        )
+    )
+
+    # 7. Борлуулалтын орлого 4101+4102 ↔ борлуулалтын цэвэр дүн
+    revenue = q2(
+        -await _account_balance(db, ACC.REV_FUEL) - await _account_balance(db, ACC.REV_GOODS)
+    )
+    checks.append(
+        _check("Борлуулалтын орлого (4101+4102)", q2(q2(sales_row.subtotal) + ship_net), revenue)
+    )
+
+    # 8. Борлуулалтын өртөг 5101+5102 ↔ борлуулалтын өртөг − сэргээсэн буцаалт
+    cogs = q2(await _account_balance(db, ACC.COGS_FUEL) + await _account_balance(db, ACC.COGS_GOODS))
+    checks.append(
+        _check(
+            "Борлуулалтын өртөг (5101+5102)",
+            q2(q2(sales_row.cogs) - q2(refund_row.cogs) + ship_cost),
+            cogs,
+        )
+    )
+
+    # 9. Орох НӨАТ 1402 ↔ бүртгэсэн худалдан авалт, ачилт, зардлын НӨАТ
+    #    (ачилтын НӨАТ ачилт бүртгэхэд нэг удаа бичигддэг; түгээлтийн баримтууд НӨАТ-гүй)
+    posted = str(DocStatus.POSTED)
+    input_vat = ZERO
+    for model, live in (
+        (FuelReceipt, FuelReceipt.status == posted),
+        (Purchase, Purchase.status == posted),
+        (Expense, Expense.status == posted),
+        (
+            FuelShipment,
+            FuelShipment.status.in_([str(ShipmentStatus.POSTED), str(ShipmentStatus.CLOSED)]),
+        ),
+    ):
+        value = await db.scalar(select(func.coalesce(func.sum(model.vat_amount), 0)).where(live))
+        input_vat = q2(input_vat + Decimal(value or 0))
+    checks.append(_check("Орох НӨАТ (1402)", input_vat, await _account_balance(db, ACC.VAT_INPUT)))
+
+    # 10. Кассын дутагдал 5902 ↔ хаагдсан ээлжийн сөрөг зөрүү
+    short = await db.scalar(
+        select(func.coalesce(func.sum(-Shift.cash_over_short), 0)).where(
+            Shift.status == str(ShiftStatus.CLOSED), Shift.cash_over_short < 0
+        )
+    )
+    checks.append(
+        _check("Кассын дутагдал (5902)", q2(Decimal(short or 0)), await _account_balance(db, ACC.CASH_SHORT))
+    )
+
+    # 11. Бүртгэсэн баримт бүр журналд байгаа эсэх (тоо = 0 байх ёстой)
+    missing = 0
+    for model, source_type in (
+        (FuelReceipt, SourceType.FUEL_RECEIPT),
+        (Purchase, SourceType.PURCHASE),
+        (Expense, SourceType.EXPENSE),
+    ):
+        posted_ids = select(model.id).where(model.status == posted)
+        entry_ids = select(JournalEntry.source_id).where(JournalEntry.source_type == str(source_type))
+        count = await db.scalar(
+            select(func.count()).select_from(posted_ids.where(model.id.not_in(entry_ids)).subquery())
+        )
+        missing += int(count or 0)
+    sales_missing = await db.scalar(
+        select(func.count())
+        .select_from(Sale)
+        .where(
+            live_sales,
+            Sale.id.not_in(select(JournalEntry.source_id).where(JournalEntry.source_type == str(SourceType.SALE))),
+        )
+    )
+    missing += int(sales_missing or 0)
+    checks.append(_check("Журналгүй бүртгэсэн баримт (тоо)", ZERO, Decimal(missing)))
+
+    # 12. Давхардсан бичилт (нэг баримт, нэг үйл явдал хоёр удаа) — 0 байх ёстой
+    dup_stmt = (
+        select(func.count())
+        .select_from(JournalEntry)
+        .group_by(JournalEntry.source_type, JournalEntry.source_id, JournalEntry.event_type)
+        .having(func.count() > 1)
+    )
+    duplicates = len((await db.execute(dup_stmt)).all())
+    checks.append(_check("Давхардсан журналын бичилт (тоо)", ZERO, Decimal(duplicates)))
+
+    # 13. Харилцах данс 1110-ийн данс заагаагүй мөр — 0 байх ёстой (данс бүрийн үлдэгдэл)
+    unassigned_bank = await db.scalar(
+        select(func.coalesce(func.sum(JournalLine.debit - JournalLine.credit), 0)).where(
+            JournalLine.account_code == ACC.BANK, JournalLine.dim_bank_account_id.is_(None)
+        )
+    )
+    checks.append(_check("Данс заагаагүй банкны хөдөлгөөн (1110)", ZERO, q2(Decimal(unassigned_bank or 0))))
+
+    # 14. Салбар заагаагүй орлогын мөр — 0 байх ёстой (салбарын харьцуулалт)
+    no_branch = await db.scalar(
+        select(func.count())
+        .select_from(JournalLine)
+        .where(
+            JournalLine.account_code.in_([ACC.REV_FUEL, ACC.REV_GOODS]),
+            JournalLine.dim_branch_id.is_(None),
+        )
+    )
+    checks.append(_check("Салбар заагаагүй орлогын мөр (тоо)", ZERO, Decimal(int(no_branch or 0))))
 
     return checks

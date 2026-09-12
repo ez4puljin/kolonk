@@ -20,7 +20,7 @@ from sqlalchemy.orm import selectinload
 from app.config import settings
 from app.database import get_db
 from app.deps import require_permission
-from app.enums import InventoryTxType, ProductSaleMode
+from app.enums import EventType, InventoryTxType, ProductSaleMode, SourceType
 from app.models.branch import Branch
 from app.models.product import (
     InventoryTransaction,
@@ -51,6 +51,11 @@ from app.schemas.product import (
 )
 from app.services import branch_service, inventory_service
 from app.services.audit_service import audit
+from app.services.posting import posting
+from app.services.posting_rules import (
+    build_inventory_adjustment_lines,
+    build_inventory_transfer_lines,
+)
 
 router = APIRouter(prefix="/api", tags=["inventory"])
 
@@ -353,6 +358,20 @@ async def create_adjustment(
     )
     await db.flush()
 
+    # Ерөнхий дэвтэр: дутагдал → Дт 5901 / Кт 1302, илүүдэл → Дт 1302 / Кт 4903.
+    lines = build_inventory_adjustment_lines(tx)
+    if lines:
+        await posting.post(
+            db,
+            event_type=EventType.INVENTORY_ADJUSTED,
+            source_type=SourceType.INVENTORY_TX,
+            source_id=tx.id,
+            entry_date=datetime.now(STATION_TZ).date(),
+            description=f"Нөөцийн залруулга — {product.name_mn} ({q3(qty)})",
+            lines=lines,
+            posted_by=user.id,
+        )
+
     await audit(
         db,
         user_id=user.id,
@@ -412,6 +431,20 @@ async def create_transfer(
         note=note,
     )
     await db.flush()
+
+    # Ерөнхий дэвтэр: 1302-ын салбарын хэмжүүр шилжинэ (нийт дүн өөрчлөгдөхгүй).
+    lines = build_inventory_transfer_lines(tx_out, tx_in)
+    if lines:
+        await posting.post(
+            db,
+            event_type=EventType.INVENTORY_TRANSFERRED,
+            source_type=SourceType.INVENTORY_TX,
+            source_id=tx_out.id,
+            entry_date=datetime.now(STATION_TZ).date(),
+            description=f"Салбар хоорондын шилжүүлэг — {product.name_mn} ({q3(payload.qty)})",
+            lines=lines,
+            posted_by=user.id,
+        )
 
     await audit(
         db,

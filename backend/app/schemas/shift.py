@@ -278,6 +278,9 @@ class DailyCloseIn(BaseModel):
     settlement_novat: Decimal = Field(default=ZERO, ge=0)
     #: Дансаар шилжүүлсэн орлого — картын тооцооны адил бэлэн мөнгийг бууруулна.
     transfer_total: Decimal = Field(default=ZERO, ge=0)
+    #: Шилжүүлэг аль банкны дансанд орсон бэ (хоосон бол салбарын данс, эсвэл
+    #: шимтгэлийн анхдагч данс) — банкны данс бүрийн үлдэгдэл зөв гарахад.
+    transfer_bank_account_id: uuid.UUID | None = None
     oil_lines: list[OilLineIn] = Field(default_factory=list)
     credit_lines: list[CreditLineIn] = Field(default_factory=list)
     ar_payments: list[ArPaymentLineIn] = Field(default_factory=list)

@@ -104,14 +104,17 @@ def build_sale_lines(sale: Any, items: Iterable[Any], payments: Iterable[Any]) -
         amount = _m(getattr(pay, "amount", ZERO))
         if amount == 0:
             continue
-        dims = (
-            Dims(customer_id=customer_id, branch_id=branch_id)
-            if method == str(PaymentMethod.CONTRACT)
-            else Dims(branch_id=branch_id)
-        )
+        tender_account = ACC.tender_account(method)
+        if method == str(PaymentMethod.CONTRACT):
+            dims = Dims(customer_id=customer_id, branch_id=branch_id)
+        elif tender_account == ACC.BANK:
+            # Шилжүүлэг аль банкны дансанд орсон бэ — данс бүрийн үлдэгдэлд.
+            dims = Dims(branch_id=branch_id, bank_account_id=getattr(pay, "bank_account_id", None))
+        else:
+            dims = Dims(branch_id=branch_id)
         lines.append(
             LineSpec(
-                account_code=ACC.tender_account(method),
+                account_code=tender_account,
                 debit=amount,
                 memo=f"Төлбөр — {PAYMENT_METHOD_MN.get(method, method)}",
                 dims=dims,
@@ -473,6 +476,9 @@ def build_ap_payment_lines(payment: Any) -> list[LineSpec]:
         return []
     supplier_id = getattr(payment, "supplier_id", None)
     account = _cash_account(getattr(payment, "paid_from", "bank"))
+    # Банкнаас төлсөн бол АЛЬ данснаас — үгүй бол банкны данс бүрийн үлдэгдэл
+    # тооцогдохгүй, 1110-ийн хөдөлгөөн «холбогдоогүй» гэж үлддэг байв.
+    bank_account_id = getattr(payment, "bank_account_id", None) if account == ACC.BANK else None
     memo = "Нийлүүлэгчид төлсөн"
     return [
         LineSpec(
@@ -481,7 +487,12 @@ def build_ap_payment_lines(payment: Any) -> list[LineSpec]:
             memo=memo,
             dims=Dims(supplier_id=supplier_id),
         ),
-        LineSpec(account_code=account, credit=amount, memo=memo, dims=Dims(supplier_id=supplier_id)),
+        LineSpec(
+            account_code=account,
+            credit=amount,
+            memo=memo,
+            dims=Dims(supplier_id=supplier_id, bank_account_id=bank_account_id),
+        ),
     ]
 
 
@@ -838,6 +849,96 @@ def build_shipment_loss_lines(outflow: Any) -> list[LineSpec]:
             credit=cost,
             memo=memo,
             dims=Dims(fuel_id=fuel_id),
+        ),
+    ]
+
+
+# --------------------------------------------------------------------------- #
+# INVENTORY_ADJUSTED / INVENTORY_TRANSFERRED / BANK_OPENING_POSTED
+# --------------------------------------------------------------------------- #
+def build_inventory_adjustment_lines(tx: Any) -> list[LineSpec]:
+    """Тооллогын зөрүү, гэмтэл, хугацаа дууссан бараа: нөөц ↔ зардал/орлого.
+
+    Урьд нь залруулга зөвхөн үлдэгдлийг өөрчилж журналд ордоггүй байсан тул
+    1302 данс бодит нөөцөөс зөрдөг байв.  ``tx.qty`` тэмдэгтэй: − дутагдал
+    (Дт 5901 бусад зардал, Кт 1302), + илүүдэл (Дт 1302, Кт 4903 бусад орлого).
+    Дүн = |тоо| × тухайн салбарын нэгж өртөг.
+    """
+    qty = _d(getattr(tx, "qty", ZERO))
+    amount = _m(abs(qty) * _d(getattr(tx, "unit_cost", ZERO)))
+    if amount == 0:
+        return []
+    branch_id = getattr(tx, "branch_id", None)
+    memo = (getattr(tx, "note", None) or "Нөөцийн залруулга")[:255]
+    dims = Dims(branch_id=branch_id)
+    if qty < 0:
+        return [
+            LineSpec(account_code=ACC.EXP_OTHER, debit=amount, memo=memo, dims=dims),
+            LineSpec(account_code=ACC.INV_GOODS, credit=amount, memo=memo, dims=dims),
+        ]
+    return [
+        LineSpec(account_code=ACC.INV_GOODS, debit=amount, memo=memo, dims=dims),
+        LineSpec(account_code=ACC.OTHER_INCOME, credit=amount, memo=memo, dims=dims),
+    ]
+
+
+def build_inventory_transfer_lines(tx_out: Any, tx_in: Any) -> list[LineSpec]:
+    """Салбар хоорондын шилжүүлэг: Дт 1302 (авсан салбар), Кт 1302 (өгсөн салбар).
+
+    Нийт 1302 өөрчлөгдөхгүй, зөвхөн салбарын хэмжүүр шилжинэ — салбар бүрийн
+    баланс, нөөцийн үнэлгээ зөв гарна.
+    """
+    qty = abs(_d(getattr(tx_out, "qty", ZERO)))
+    amount = _m(qty * _d(getattr(tx_out, "unit_cost", ZERO)))
+    if amount == 0:
+        return []
+    memo = (getattr(tx_out, "note", None) or "Салбар хоорондын шилжүүлэг")[:255]
+    return [
+        LineSpec(
+            account_code=ACC.INV_GOODS,
+            debit=amount,
+            memo=memo,
+            dims=Dims(branch_id=getattr(tx_in, "branch_id", None)),
+        ),
+        LineSpec(
+            account_code=ACC.INV_GOODS,
+            credit=amount,
+            memo=memo,
+            dims=Dims(branch_id=getattr(tx_out, "branch_id", None)),
+        ),
+    ]
+
+
+def build_bank_opening_lines(account: Any, amount: Decimal) -> list[LineSpec]:
+    """Банкны дансны эхний үлдэгдэл: Дт 1110 (данс), Кт 3101 эзний хөрөнгө.
+
+    ``amount`` сөрөг бол (үлдэгдэл багассан залруулга) буцаж бичигдэнэ.
+    Урьд нь эхний үлдэгдэл зөвхөн дансны картад байж журналд ордоггүй тул
+    баланс, мөнгөн урсгалын тайлан тэр хэмжээгээр дутуу гардаг байв.
+    """
+    value = _m(amount)
+    if value == 0:
+        return []
+    bank_account_id = getattr(account, "id", None)
+    branch_id = getattr(account, "branch_id", None)
+    memo = f"Эхний үлдэгдэл — {getattr(account, 'bank_name', '')} {getattr(account, 'account_number', '')}".strip()
+    if value > 0:
+        return [
+            LineSpec(
+                account_code=ACC.BANK,
+                debit=value,
+                memo=memo,
+                dims=Dims(bank_account_id=bank_account_id, branch_id=branch_id),
+            ),
+            LineSpec(account_code=ACC.OWNER_CAPITAL, credit=value, memo=memo),
+        ]
+    return [
+        LineSpec(account_code=ACC.OWNER_CAPITAL, debit=-value, memo=memo),
+        LineSpec(
+            account_code=ACC.BANK,
+            credit=-value,
+            memo=memo,
+            dims=Dims(bank_account_id=bank_account_id, branch_id=branch_id),
         ),
     ]
 

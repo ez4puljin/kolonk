@@ -83,5 +83,10 @@ class Payment(UUIDPKMixin, TimestampMixin, Base):
     received: Mapped[Decimal | None] = mapped_column(Money)
     change_given: Mapped[Decimal | None] = mapped_column(Money)
     ref_no: Mapped[str | None] = mapped_column(String(64))
+    #: Шилжүүлэг/картын орлого аль банкны дансанд орсон бэ — 1110 дансны
+    #: мөрийн хэмжүүр (банкны данс бүрийн үлдэгдэл).
+    bank_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("bank_accounts.id"), index=True
+    )
 
     sale: Mapped[Sale] = relationship(back_populates="payments")

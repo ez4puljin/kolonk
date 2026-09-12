@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import require_permission
+from app.enums import EventType, SourceType
 from app.models.accounting import JournalLine
 from app.models.bank import BankAccount
 from app.models.partner import Contract, Customer
@@ -39,6 +40,8 @@ from app.schemas.bank import (
 from app.services import bank_service, bank_statement_service, expense_service
 from app.services.audit_service import audit
 from app.services.coa import ACC
+from app.services.posting import posting
+from app.services.posting_rules import build_bank_opening_lines
 
 router = APIRouter(prefix="/api", tags=["bank"])
 
@@ -77,6 +80,38 @@ async def list_bank_accounts(
     )
 
 
+async def _post_opening(
+    db: AsyncSession,
+    account: BankAccount,
+    amount: Decimal,
+    user: User,
+    *,
+    initial: bool,
+    note: str | None = None,
+) -> None:
+    """Эхний үлдэгдлийг ерөнхий дэвтэрт бичнэ: Дт 1110 (данс) / Кт 3101.
+
+    Анхны бичилт ``source_id = данс`` (давхардахгүй); дараагийн залруулга бүр
+    шинэ ``source_id``-тэй — ингэснээр түүх бүрэн үлдэнэ.
+    """
+    lines = build_bank_opening_lines(account, amount)
+    if not lines:
+        return
+    description = f"Банкны дансны эхний үлдэгдэл — {account.bank_name} {account.account_number}"
+    if note:
+        description = f"{description} ({note})"
+    await posting.post(
+        db,
+        event_type=EventType.BANK_OPENING_POSTED,
+        source_type=SourceType.BANK_ACCOUNT,
+        source_id=account.id if initial else uuid.uuid4(),
+        entry_date=date.today(),
+        description=description[:255],
+        lines=lines,
+        posted_by=user.id,
+    )
+
+
 async def _check_number(
     db: AsyncSession, account_number: str, *, exclude: uuid.UUID | None = None
 ) -> None:
@@ -111,6 +146,7 @@ async def create_bank_account(
     await db.flush()
     if account.is_fee_default:
         await bank_service.clear_fee_default(db, keep_id=account.id)
+    await _post_opening(db, account, account.opening_balance, user, initial=True)
 
     await audit(
         db,
@@ -147,7 +183,18 @@ async def update_bank_account(
     if changes.get("currency"):
         account.currency = str(changes["currency"]).strip().upper()
     if changes.get("opening_balance") is not None:
-        account.opening_balance = q2(changes["opening_balance"])
+        new_opening = q2(changes["opening_balance"])
+        # Журналд бичигдсэн эхний үлдэгдэл бол зөрүүг нь нэмэлт бичилтээр залруулна.
+        posted = await bank_service.posted_opening(db, account.id)
+        account.opening_balance = new_opening
+        await _post_opening(
+            db,
+            account,
+            q2(new_opening - posted),
+            user,
+            initial=posted == ZERO,
+            note=f"{posted} → {new_opening}",
+        )
     if "branch_id" in changes:
         account.branch_id = changes["branch_id"]
     if "note" in changes:

@@ -111,6 +111,10 @@ class ApPayment(UUIDPKMixin, TimestampMixin, Base):
     supplier_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("suppliers.id"), nullable=False)
     amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
     paid_from: Mapped[str] = mapped_column(String(16), nullable=False, default="bank")
+    #: Банкнаас төлсөн бол аль данснаас — 1110 дансны мөрийн хэмжүүр.
+    bank_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("bank_accounts.id"), index=True
+    )
     payment_date: Mapped[date] = mapped_column(Date, nullable=False)
     note: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id"))
