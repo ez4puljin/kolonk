@@ -47,11 +47,14 @@ class CustomerCreate(BaseModel):
     credit_limit: Decimal = Field(default=ZERO, ge=0)
     type: CustomerType = CustomerType.B2B
     is_active: bool = True
+    #: Аль салбарын харилцагч вэ (хоосон бол салбаргүй).
+    branch_id: uuid.UUID | None = None
 
 
 class CustomerUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    branch_id: uuid.UUID | None = None
     last_name: str | None = Field(default=None, max_length=64)
     name: str | None = Field(default=None, min_length=1, max_length=128)
     register_no: str | None = Field(default=None, max_length=32)
@@ -67,6 +70,8 @@ class CustomerUpdate(BaseModel):
 
 class CustomerOut(BaseModel):
     id: uuid.UUID
+    branch_id: uuid.UUID | None = None
+    branch_name: str | None = None
     last_name: str | None = None
     name: str
     #: "Овог Нэр" хэлбэрийн дэлгэцийн нэр.

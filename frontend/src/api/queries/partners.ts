@@ -22,6 +22,7 @@ export interface CustomerListParams {
   type?: string;
   province?: string;
   district?: string;
+  branch_id?: UUID;
   created_from?: string;
   created_to?: string;
   active_only?: boolean;

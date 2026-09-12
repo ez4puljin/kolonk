@@ -24,6 +24,10 @@ class Supplier(UUIDPKMixin, TimestampMixin, Base):
 class Customer(UUIDPKMixin, TimestampMixin, Base):
     __tablename__ = "customers"
 
+    #: Аль салбарын харилцагч вэ (мэдээллийн — бүх салбарт зээлээр авч болно).
+    branch_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("branches.id"), index=True
+    )
     #: Иргэний овог (байгууллагад хоосон).
     last_name: Mapped[str | None] = mapped_column(String(64))
     name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)

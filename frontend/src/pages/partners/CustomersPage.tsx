@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { FileDown, FileText, Filter, Paperclip, Pencil, Plus, Trash2, Users, X } from "lucide-react";
 
 import { api, errorMessage } from "../../api/client";
+import { useBranches } from "../../api/queries/branches";
 import {
   useContracts,
   useCreateContractMutation,
@@ -50,6 +51,7 @@ interface CustomerForm {
   email: string;
   province: string;
   district: string;
+  branch_id: string;
   credit_limit: string;
   type: CustomerType;
   is_active: boolean;
@@ -64,6 +66,7 @@ const EMPTY_FORM: CustomerForm = {
   email: "",
   province: "",
   district: "",
+  branch_id: "",
   credit_limit: "",
   type: "b2b",
   is_active: true,
@@ -83,6 +86,7 @@ export function CustomersPage() {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [province, setProvince] = useState("");
   const [district, setDistrict] = useState("");
+  const [branchFilter, setBranchFilter] = useState("");
   const [createdFrom, setCreatedFrom] = useState("");
   const [createdTo, setCreatedTo] = useState("");
   const [offset, setOffset] = useState(0);
@@ -104,13 +108,14 @@ export function CustomersPage() {
 
   const hasFilters =
     query !== "" || typeFilter !== "all" || province !== "" || district !== "" ||
-    createdFrom !== "" || createdTo !== "";
+    branchFilter !== "" || createdFrom !== "" || createdTo !== "";
 
   const clearFilters = (): void => {
     setQuery("");
     setTypeFilter("all");
     setProvince("");
     setDistrict("");
+    setBranchFilter("");
     setCreatedFrom("");
     setCreatedTo("");
     setOffset(0);
@@ -121,11 +126,20 @@ export function CustomersPage() {
     type: typeFilter === "all" ? undefined : typeFilter,
     province: province || undefined,
     district: district || undefined,
+    branch_id: branchFilter || undefined,
     created_from: createdFrom || undefined,
     created_to: createdTo || undefined,
     limit: 500,
   });
   const contractsQuery = useContracts({ limit: 200 });
+  const branchesQuery = useBranches();
+  const branchOptions = useMemo(
+    () =>
+      (branchesQuery.data ?? [])
+        .filter((branch) => branch.is_active)
+        .map((branch) => ({ value: branch.id, label: branch.name })),
+    [branchesQuery.data],
+  );
   const createMutation = useCreateCustomerMutation();
   const updateMutation = useUpdateCustomerMutation();
   const createContractMutation = useCreateContractMutation();
@@ -180,6 +194,7 @@ export function CustomersPage() {
             email: customer.email ?? "",
             province: customer.province ?? "",
             district: customer.district ?? "",
+            branch_id: customer.branch_id ?? "",
             credit_limit: dToNumber(customer.credit_limit) > 0 ? customer.credit_limit : "",
             type: customer.type === "individual" ? "individual" : "b2b",
             is_active: customer.is_active,
@@ -219,6 +234,7 @@ export function CustomersPage() {
       email: form.email.trim() || null,
       province: form.province || null,
       district: form.district || null,
+      branch_id: form.branch_id || null,
       credit_limit: form.credit_limit === "" ? "0" : form.credit_limit,
       type: form.type,
       is_active: form.is_active,
@@ -292,8 +308,14 @@ export function CustomersPage() {
       ),
     },
     {
+      key: "branch",
+      header: t.partners.branch,
+      render: (row) => <span className="text-ink-soft">{row.branch_name ?? "—"}</span>,
+    },
+    {
       key: "location",
       header: t.partners.location,
+      hideOnMobile: true,
       render: (row) => <span className="text-ink-soft">{locationOf(row)}</span>,
     },
     { key: "phone", header: t.partners.phone1, numeric: true, render: (row) => row.phone ?? "—" },
@@ -438,6 +460,15 @@ export function CustomersPage() {
                 setOffset(0);
               }}
               disabled={province === ""}
+            />
+            <PickerField
+              label={t.partners.branch}
+              value={branchFilter}
+              options={[{ value: "", label: t.common.all }, ...branchOptions]}
+              onChange={(next) => {
+                setBranchFilter(next);
+                setOffset(0);
+              }}
             />
             <div className="flex flex-col gap-3">
               <DateField
@@ -682,7 +713,14 @@ export function CustomersPage() {
               onChange={(value) => setForm({ ...form, district: value })}
               disabled={form.province === ""}
             />
+            <PickerField
+              label={t.partners.branch}
+              value={form.branch_id}
+              options={[{ value: "", label: t.partners.noBranch }, ...branchOptions]}
+              onChange={(value) => setForm({ ...form, branch_id: value })}
+            />
           </div>
+          <span className="-mt-2 text-xs text-ink-faint">{t.partners.branchHint}</span>
           <NumberField
             name="customer-credit-limit"
             label={t.partners.creditLimitContract}

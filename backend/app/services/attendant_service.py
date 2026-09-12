@@ -370,6 +370,7 @@ async def _contract_for_new_customer(
     user: User,
     payload: Any,
     cache: dict[tuple[str, str], Contract],
+    branch_id: uuid.UUID | None = None,
 ) -> Contract:
     """Хаалтын үед шинэ харилцагч + гэрээ үүсгэнэ (эсвэл байгааг нь олно).
 
@@ -401,6 +402,7 @@ async def _contract_for_new_customer(
     created_customer = customer is None
     if customer is None:
         customer = Customer(
+            branch_id=branch_id,
             last_name=last_name,
             name=name,
             register_no=register_no,
@@ -478,15 +480,19 @@ async def _create_credit_sales(
     }
     base_prices = await _load_contract_prices(db, shift, fuel_ids)
 
-    #: Энэ хаалтад шинээр нээсэн гэрээнүүд — лимитийг зээлийн дүнгээр өсгөнө.
-    opened: dict[uuid.UUID, Contract] = {}
+    #: Энэ хаалтад шинээр нээсэн гэрээнүүд → лимит автоматаар (True) эсвэл
+    #: түгээгчийн оруулсан лимит (False — хэтэрвэл ердийн лимитийн алдаа).
+    opened: dict[uuid.UUID, bool] = {}
     new_by_key: dict[tuple[str, str], Contract] = {}
 
     for line in credit_lines or []:
         new_customer = getattr(line, "new_customer", None)
         if new_customer is not None:
-            contract = await _contract_for_new_customer(db, user, new_customer, new_by_key)
-            opened[contract.id] = contract
+            contract = await _contract_for_new_customer(
+                db, user, new_customer, new_by_key, branch_id=shift.branch_id
+            )
+            if contract.id not in opened:
+                opened[contract.id] = q2(_d(new_customer.credit_limit)) <= ZERO
         else:
             contract = await db.scalar(select(Contract).where(Contract.id == line.contract_id))
             if contract is None:
@@ -549,9 +555,9 @@ async def _create_credit_sales(
         if not items:
             continue
 
-        # Шинэ гэрээний лимит: хаалтын үед өгсөн зээлээ багтаана (хэрэглэгч
-        # илүү лимит заасан бол түүнийг хадгална).
-        if contract.id in opened:
+        # Шинэ гэрээний лимит: түгээгч лимит оруулаагүй бол хаалтын үед өгсөн
+        # зээлээ багтаана; оруулсан бол түүнийг хадгална (хэтэрвэл 422).
+        if opened.get(contract.id):
             needed = q2(_d(contract.balance) + line_total)
             if q2(_d(contract.credit_limit)) < needed:
                 contract.credit_limit = needed

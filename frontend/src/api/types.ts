@@ -1361,6 +1361,9 @@ export interface ContractBrief {
 
 export interface Customer {
   id: UUID;
+  /** Аль салбарын харилцагч вэ (мэдээллийн). */
+  branch_id: UUID | null;
+  branch_name: string | null;
   /** Овог (иргэнд). */
   last_name: string | null;
   name: string;
@@ -1398,6 +1401,7 @@ export interface CustomerCreate {
   credit_limit?: MoneyStr;
   type?: CustomerType;
   is_active?: boolean;
+  branch_id?: UUID | null;
 }
 
 export type CustomerUpdate = Partial<CustomerCreate>;

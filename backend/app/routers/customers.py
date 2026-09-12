@@ -21,6 +21,7 @@ from app.money import q2
 from app.stationtime import day_end, day_start
 from app.deps import require_permission
 from app.enums import CustomerType
+from app.models.branch import Branch
 from app.models.partner import Contract, Customer
 from app.models.user import User
 from app.schemas.partner import (
@@ -73,12 +74,23 @@ def _loaded_contracts(customer: Customer) -> list[Contract]:
     return list(customer.contracts)
 
 
-def _customer_out(customer: Customer) -> CustomerOut:
+async def _branch_names(db: AsyncSession, customers: list[Customer]) -> dict[uuid.UUID, str]:
+    """Харилцагчдын салбарын нэрс — жагсаалтад нэг л асуулгаар."""
+    ids = {c.branch_id for c in customers if c.branch_id is not None}
+    if not ids:
+        return {}
+    rows = (await db.execute(select(Branch.id, Branch.name).where(Branch.id.in_(ids)))).all()
+    return {row[0]: row[1] for row in rows}
+
+
+def _customer_out(customer: Customer, branch_names: dict[uuid.UUID, str] | None = None) -> CustomerOut:
     full_name = (
         f"{customer.last_name} {customer.name}".strip() if customer.last_name else customer.name
     )
     return CustomerOut(
         id=customer.id,
+        branch_id=customer.branch_id,
+        branch_name=(branch_names or {}).get(customer.branch_id) if customer.branch_id else None,
         last_name=customer.last_name,
         name=customer.name,
         full_name=full_name,
@@ -109,6 +121,7 @@ def _snapshot(customer: Customer) -> dict:
         "email": customer.email,
         "province": customer.province,
         "district": customer.district,
+        "branch_id": str(customer.branch_id) if customer.branch_id else None,
         "credit_limit": str(customer.credit_limit or "0"),
         "contract_file": customer.contract_file,
         "type": str(customer.type),
@@ -129,6 +142,7 @@ async def list_customers(
     type: CustomerType | None = Query(default=None),
     province: str | None = Query(default=None, description="Аймаг/хотоор шүүх"),
     district: str | None = Query(default=None, description="Сум/дүүргээр шүүх"),
+    branch_id: uuid.UUID | None = Query(default=None, description="Салбараар шүүх"),
     created_from: date | None = Query(default=None, description="Үүсгэсэн огноо (эхлэх)"),
     created_to: date | None = Query(default=None, description="Үүсгэсэн огноо (дуусах)"),
     active_only: bool = Query(default=False),
@@ -158,6 +172,8 @@ async def list_customers(
         conditions.append(Customer.province == province.strip())
     if district:
         conditions.append(Customer.district == district.strip())
+    if branch_id is not None:
+        conditions.append(Customer.branch_id == branch_id)
     # Огноог станцын цагийн бүсээр тайлбарлана (CONTRACTS.md §1a).
     if created_from is not None:
         conditions.append(Customer.created_at >= day_start(created_from))
@@ -176,7 +192,8 @@ async def list_customers(
             .offset(offset)
         )
     ).all()
-    return CustomerListOut(items=[_customer_out(row) for row in rows], total=int(total))
+    names = await _branch_names(db, list(rows))
+    return CustomerListOut(items=[_customer_out(row, names) for row in rows], total=int(total))
 
 
 @router.get("/customers/{customer_id}", response_model=CustomerOut)
@@ -185,7 +202,8 @@ async def get_customer(
     db: AsyncSession = Depends(get_db),
     _user: User = CanRead,
 ) -> CustomerOut:
-    return _customer_out(await _load(db, customer_id))
+    customer = await _load(db, customer_id)
+    return _customer_out(customer, await _branch_names(db, [customer]))
 
 
 @router.post("/customers", response_model=CustomerOut, status_code=201)
@@ -208,6 +226,7 @@ async def create_customer(
             raise HTTPException(status_code=422, detail="Ийм регистрийн дугаартай харилцагч бүртгэгдсэн байна")
 
     customer = Customer(
+        branch_id=payload.branch_id,
         last_name=(payload.last_name or "").strip() or None,
         name=name,
         register_no=register_no,
@@ -232,7 +251,7 @@ async def create_customer(
         after=_snapshot(customer),
         ip=_client_ip(request),
     )
-    return _customer_out(customer)
+    return _customer_out(customer, await _branch_names(db, [customer]))
 
 
 @router.patch("/customers/{customer_id}", response_model=CustomerOut)
@@ -267,6 +286,8 @@ async def update_customer(
         customer.register_no = register_no
     if "last_name" in changes:
         customer.last_name = (changes["last_name"] or "").strip() or None
+    if "branch_id" in changes:
+        customer.branch_id = changes["branch_id"]
     if "phone" in changes:
         customer.phone = (changes["phone"] or "").strip() or None
     if "phone2" in changes:
@@ -295,7 +316,7 @@ async def update_customer(
         after=_snapshot(customer),
         ip=_client_ip(request),
     )
-    return _customer_out(customer)
+    return _customer_out(customer, await _branch_names(db, [customer]))
 
 
 @router.delete("/customers/{customer_id}", response_model=OkOut)
@@ -366,7 +387,7 @@ async def upload_contract_file(
         after={"contract_file": filename, "size": len(content)},
         ip=_client_ip(request),
     )
-    return _customer_out(customer)
+    return _customer_out(customer, await _branch_names(db, [customer]))
 
 
 @router.get("/customers/{customer_id}/contract-file")
@@ -416,4 +437,4 @@ async def delete_contract_file(
         after={"contract_file": None},
         ip=_client_ip(request),
     )
-    return _customer_out(customer)
+    return _customer_out(customer, await _branch_names(db, [customer]))
