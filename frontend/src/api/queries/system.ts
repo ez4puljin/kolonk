@@ -8,8 +8,10 @@ import type {
   BackupResult,
   EbarimtQueueRow,
   GdriveConfigInput,
+  GdriveDownloadResult,
   GdriveStatus,
   GdriveUploadResult,
+  UploadsArchive,
   JsonValue,
   OkResponse,
   Paged,
@@ -198,7 +200,28 @@ export function useGdriveUploadMutation() {
 export function useGdriveDownloadMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => api.post<BackupFile>("/api/backups/gdrive/download", {}),
+    mutationFn: () => api.post<GdriveDownloadResult>("/api/backups/gdrive/download", {}),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: systemKeys.backups() });
+    },
+  });
+}
+
+/** Локал зургийн архивын төлөв. */
+export function useUploadsArchive(enabled = true) {
+  return useQuery({
+    queryKey: [...systemKeys.backups(), "uploads"],
+    queryFn: () => api.get<UploadsArchive>("/api/backups/uploads"),
+    enabled,
+  });
+}
+
+/** kolonk-uploads.zip → uploads/ (сэргээх үг шаардана). */
+export function useRestoreUploadsMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (confirm: string) =>
+      api.post<{ files: number; message: string }>("/api/backups/uploads/extract", { confirm }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: systemKeys.backups() });
     },

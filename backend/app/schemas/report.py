@@ -456,6 +456,8 @@ class GdriveStatusOut(BaseModel):
     last_error: str | None = None
     #: Drive дээрх kolonk-latest.dump (холбогдож чадсан бол).
     remote: GdriveRemoteFileOut | None = None
+    #: Drive дээрх kolonk-uploads.zip (ээлжийн зураг).
+    remote_uploads: GdriveRemoteFileOut | None = None
     #: Холболт шалгахад гарсан алдаа (тохируулсан ч хүрч чадахгүй бол).
     check_error: str | None = None
 
@@ -475,4 +477,28 @@ class GdriveUploadOut(BaseModel):
     uploaded: bool
     error: str | None = None
     remote: GdriveRemoteFileOut | None = None
+    remote_uploads: GdriveRemoteFileOut | None = None
+    message: str
+
+
+class GdriveDownloadOut(BaseModel):
+    dump: BackupFileOut
+    #: Drive дээр зургийн архив байсан бол.
+    uploads: BackupFileOut | None = None
+    message: str
+
+
+class UploadsArchiveOut(BaseModel):
+    """Локал kolonk-uploads.zip-ийн төлөв (Автомат нөөцлөлт карт)."""
+
+    filename: str = "kolonk-uploads.zip"
+    exists: bool = False
+    size_bytes: int = 0
+    created_at: datetime | None = None
+    #: uploads/ хавтсан дахь одоогийн файлын тоо.
+    files: int = 0
+
+
+class UploadsRestoreOut(BaseModel):
+    files: int
     message: str

@@ -62,6 +62,15 @@ async def hourly_backup_and_upload(*, force_upload: bool = False) -> dict[str, A
     info = backup_service.backup_info(filename, directory)
     result: dict[str, Any] = {"filename": filename, "size_mb": info["size_mb"], "uploaded": False, "error": None}
 
+    # Ээлжийн зураг, гэрээний PDF — өөрчлөгдсөн үед л дахин архивлана.
+    archive: dict[str, Any] | None = None
+    try:
+        archive = await backup_service.create_uploads_archive(directory=directory, force=force_upload)
+        result["uploads"] = archive
+    except Exception as exc:  # noqa: BLE001 — зураг архивлагдахгүй ч сангийн нөөцлөлт үргэлжилнэ
+        log.exception("Хавсралтын архив үүсгэж чадсангүй")
+        result["uploads_error"] = str(exc)
+
     async with async_session_factory() as db:
         config = await gdrive_service.load_config(db)
         if not config.configured or not (config.enabled or force_upload):
@@ -69,9 +78,19 @@ async def hourly_backup_and_upload(*, force_upload: bool = False) -> dict[str, A
         path = backup_service.resolve_backup(filename, directory)
         try:
             remote = await gdrive_service.upload(config, path, force=force_upload)
-            await gdrive_service.record_result(db, error=None)
             result.update(uploaded=True, remote=remote)
             log.info("Google Drive руу байршууллаа: %s (%s байт)", remote["name"], remote["size_bytes"])
+            if archive:
+                sent = str(await settings_service.get_setting(db, "gdrive_uploads_fingerprint") or "")
+                if force_upload or archive["changed"] or sent != archive["fingerprint"]:
+                    archive_path = backup_service.backup_dir(directory) / backup_service.UPLOADS_ARCHIVE
+                    remote_uploads = await gdrive_service.upload(
+                        config, archive_path, force=True, name=gdrive_service.REMOTE_UPLOADS_NAME
+                    )
+                    await settings_service.set_setting(db, "gdrive_uploads_fingerprint", archive["fingerprint"])
+                    result["remote_uploads"] = remote_uploads
+                    log.info("Зургийн архив Drive руу: %s (%s байт)", remote_uploads["name"], remote_uploads["size_bytes"])
+            await gdrive_service.record_result(db, error=None)
         except HTTPException as exc:
             await gdrive_service.record_result(db, error=str(exc.detail))
             result["error"] = str(exc.detail)

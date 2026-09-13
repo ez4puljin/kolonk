@@ -20,11 +20,14 @@ from app.schemas.report import (
     BackupListOut,
     DeleteResultOut,
     GdriveConfigIn,
+    GdriveDownloadOut,
     GdriveRemoteFileOut,
     GdriveStatusOut,
     GdriveUploadOut,
     RestoreConfirmIn,
     RestoreResultOut,
+    UploadsArchiveOut,
+    UploadsRestoreOut,
 )
 from app.jobs.backup_jobs import hourly_backup_and_upload
 from app.services import backup_service, gdrive_service, settings_service
@@ -232,6 +235,7 @@ async def _gdrive_status(db: AsyncSession, *, probe: bool) -> GdriveStatusOut:
             info = await gdrive_service.check(config)
             out.folder_name = info.get("folder_name")
             out.remote = _remote_out(info.get("remote"))
+            out.remote_uploads = _remote_out(info.get("remote_uploads"))
         except HTTPException as exc:
             out.check_error = str(exc.detail)
     return out
@@ -312,28 +316,87 @@ async def gdrive_upload_now(
         size_mb=result["size_mb"],
         uploaded=True,
         remote=_remote_out(result.get("remote")),
+        remote_uploads=_remote_out(result.get("remote_uploads")),
         message="Google Drive руу байршууллаа",
     )
 
 
-@router.post("/backups/gdrive/download", response_model=BackupFileOut)
+@router.post("/backups/gdrive/download", response_model=GdriveDownloadOut)
 async def gdrive_download_latest(
     request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = CanManage,
-) -> BackupFileOut:
-    """Drive дээрх kolonk-latest.dump-ыг локал хавтас руу татна (дараа нь жагсаалтаас «Сэргээх»)."""
+) -> GdriveDownloadOut:
+    """Drive дээрх kolonk-latest.dump (+ kolonk-uploads.zip байвал)-ыг локал хавтас руу татна.
+
+    Дараа нь жагсаалтаас «Сэргээх», зургийг «Зургуудыг сэргээх» товчоор.
+    """
     config = await gdrive_service.load_config(db)
     directory = await _configured_dir(db)
-    dest = backup_service.backup_dir(directory) / backup_service.LATEST_NAME
-    await gdrive_service.download(config, dest)
+    root = backup_service.backup_dir(directory)
+    await gdrive_service.download(config, root / backup_service.LATEST_NAME)
     info = backup_service.backup_info(backup_service.LATEST_NAME, directory)
+    uploads = await gdrive_service.download(
+        config, root / backup_service.UPLOADS_ARCHIVE, name=gdrive_service.REMOTE_UPLOADS_NAME, optional=True
+    )
+    uploads_info = backup_service.uploads_archive_info(directory) if uploads else None
     await audit(
         db,
         user_id=user.id,
         action="backup.gdrive_download",
         entity_type="backup",
-        after={"filename": info["filename"], "size_mb": info["size_mb"]},
+        after={"filename": info["filename"], "size_mb": info["size_mb"], "uploads": bool(uploads_info)},
         ip=_client_ip(request),
     )
-    return BackupFileOut(**info)
+    return GdriveDownloadOut(
+        dump=BackupFileOut(**info),
+        uploads=BackupFileOut(**uploads_info) if uploads_info else None,
+        message="Drive-аас татлаа — жагсаалтаас сэргээнэ үү",
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Хавсралтын архив (ээлжийн зураг)
+# --------------------------------------------------------------------------- #
+@router.get("/backups/uploads", response_model=UploadsArchiveOut)
+async def get_uploads_archive(
+    db: AsyncSession = Depends(get_db),
+    user: User = CanManage,
+) -> UploadsArchiveOut:
+    directory = await _configured_dir(db)
+    info = backup_service.uploads_archive_info(directory)
+    _fp, count = backup_service.uploads_fingerprint()
+    if info is None:
+        return UploadsArchiveOut(exists=False, files=count)
+    return UploadsArchiveOut(
+        filename=info["filename"], exists=True, size_bytes=info["size_bytes"], created_at=info["created_at"], files=count
+    )
+
+
+@router.post("/backups/uploads/extract", response_model=UploadsRestoreOut)
+async def restore_uploads(
+    payload: RestoreConfirmIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = CanManage,
+) -> UploadsRestoreOut:
+    """kolonk-uploads.zip → uploads/ (байгаа файл дарагдана, бусад нь үлдэнэ).
+
+    Зам нь ``/backups/{filename}/restore``-той мөргөлдөхгүйн тулд «extract».
+    """
+    if (payload.confirm or "").strip().upper() != RESTORE_CONFIRM_WORD:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Сэргээхийг баталгаажуулахын тулд '{RESTORE_CONFIRM_WORD}' гэж бичнэ үү",
+        )
+    directory = await _configured_dir(db)
+    count = await backup_service.restore_uploads_archive(directory)
+    await audit(
+        db,
+        user_id=user.id,
+        action="backup.uploads_restore",
+        entity_type="backup",
+        after={"files": count},
+        ip=_client_ip(request),
+    )
+    return UploadsRestoreOut(files=count, message=f"{count} файл сэргэлээ")

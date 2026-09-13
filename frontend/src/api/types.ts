@@ -2372,6 +2372,8 @@ export interface GdriveStatus {
   last_upload_at: IsoDateTime | null;
   last_error: string | null;
   remote: GdriveRemoteFile | null;
+  /** Drive дээрх kolonk-uploads.zip (ээлжийн зураг). */
+  remote_uploads: GdriveRemoteFile | null;
   /** Тохируулсан ч Drive-д хүрч чадахгүй бол алдааны мессеж. */
   check_error: string | null;
 }
@@ -2389,7 +2391,24 @@ export interface GdriveUploadResult {
   uploaded: boolean;
   error: string | null;
   remote: GdriveRemoteFile | null;
+  remote_uploads: GdriveRemoteFile | null;
   message: string;
+}
+
+export interface GdriveDownloadResult {
+  dump: BackupFile;
+  uploads: BackupFile | null;
+  message: string;
+}
+
+/** Локал kolonk-uploads.zip (ээлжийн зураг, гэрээний PDF архив). */
+export interface UploadsArchive {
+  filename: string;
+  exists: boolean;
+  size_bytes: number;
+  created_at: IsoDateTime | null;
+  /** uploads/ хавтсан дахь одоогийн файлын тоо. */
+  files: number;
 }
 
 export interface HealthResponse {

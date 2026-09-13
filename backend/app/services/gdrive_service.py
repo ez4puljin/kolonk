@@ -36,6 +36,8 @@ log = logging.getLogger("kolonk.gdrive")
 
 #: Drive дээрх ганц нөөцлөлтийн файлын нэр (локал ``backup_service.LATEST_NAME``-тэй ижил).
 REMOTE_NAME = "kolonk-latest.dump"
+#: Ээлжийн зураг, гэрээний PDF зэрэг хавсралтын архив (мөн ганц файл, дарж бичнэ).
+REMOTE_UPLOADS_NAME = "kolonk-uploads.zip"
 
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 CHUNK = 8 * 1024 * 1024
@@ -159,23 +161,28 @@ def _check_sync(service_account: str, folder_id: str) -> dict[str, Any]:
         if folder.get("mimeType") != "application/vnd.google-apps.folder":
             raise HTTPException(status_code=422, detail="Folder ID нь хавтас биш файл заажээ")
         remote = _find_remote(drive, folder_id, REMOTE_NAME)
+        remote_uploads = _find_remote(drive, folder_id, REMOTE_UPLOADS_NAME)
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=422, detail=_http_detail(exc)) from exc
-    return {"folder_name": folder.get("name"), "remote": remote}
+    return {"folder_name": folder.get("name"), "remote": remote, "remote_uploads": remote_uploads}
 
 
-def _upload_sync(service_account: str, folder_id: str, path: Path, *, force: bool) -> dict[str, Any]:
+def _upload_sync(
+    service_account: str, folder_id: str, path: Path, *, force: bool, name: str = REMOTE_NAME
+) -> dict[str, Any]:
     from googleapiclient.http import MediaFileUpload  # noqa: PLC0415
 
     drive = _drive(service_account)
     local_size = path.stat().st_size
     try:
-        existing = _find_remote(drive, folder_id, REMOTE_NAME)
+        existing = _find_remote(drive, folder_id, name)
+        # Хэмжээний хамгаалалт зөвхөн сангийн dump-д — зургийн архив хасагдаж болно.
         if (
             existing
             and not force
+            and name == REMOTE_NAME
             and existing["size_bytes"] >= SHRINK_GUARD_MIN_BYTES
             and local_size < existing["size_bytes"] * SHRINK_GUARD_RATIO
         ):
@@ -194,7 +201,7 @@ def _upload_sync(service_account: str, folder_id: str, path: Path, *, force: boo
             )
         else:
             request = drive.files().create(
-                body={"name": REMOTE_NAME, "parents": [folder_id]},
+                body={"name": name, "parents": [folder_id]},
                 media_body=media,
                 fields="id, size, modifiedTime",
                 supportsAllDrives=True,
@@ -208,20 +215,24 @@ def _upload_sync(service_account: str, folder_id: str, path: Path, *, force: boo
         raise HTTPException(status_code=422, detail=_http_detail(exc)) from exc
     return {
         "id": response["id"],
-        "name": REMOTE_NAME,
+        "name": name,
         "size_bytes": int(response.get("size") or local_size),
         "modified_at": response.get("modifiedTime"),
     }
 
 
-def _download_sync(service_account: str, folder_id: str, dest: Path) -> dict[str, Any]:
+def _download_sync(
+    service_account: str, folder_id: str, dest: Path, *, name: str = REMOTE_NAME, optional: bool = False
+) -> dict[str, Any] | None:
     from googleapiclient.http import MediaIoBaseDownload  # noqa: PLC0415
 
     drive = _drive(service_account)
     try:
-        remote = _find_remote(drive, folder_id, REMOTE_NAME)
+        remote = _find_remote(drive, folder_id, name)
         if remote is None:
-            raise HTTPException(status_code=404, detail=f"Drive хавтсанд {REMOTE_NAME} файл алга")
+            if optional:
+                return None
+            raise HTTPException(status_code=404, detail=f"Drive хавтсанд {name} файл алга")
         part = dest.with_suffix(dest.suffix + ".part")
         with part.open("wb") as handle:
             downloader = MediaIoBaseDownload(
@@ -248,16 +259,24 @@ async def check(config: GdriveConfig) -> dict[str, Any]:
     return await asyncio.to_thread(_check_sync, config.service_account, config.folder_id)
 
 
-async def upload(config: GdriveConfig, path: Path, *, force: bool = False) -> dict[str, Any]:
+async def upload(
+    config: GdriveConfig, path: Path, *, force: bool = False, name: str = REMOTE_NAME
+) -> dict[str, Any]:
     if not config.configured:
         raise HTTPException(status_code=422, detail="Google Drive тохируулаагүй байна")
-    return await asyncio.to_thread(_upload_sync, config.service_account, config.folder_id, path, force=force)
+    return await asyncio.to_thread(
+        _upload_sync, config.service_account, config.folder_id, path, force=force, name=name
+    )
 
 
-async def download(config: GdriveConfig, dest: Path) -> dict[str, Any]:
+async def download(
+    config: GdriveConfig, dest: Path, *, name: str = REMOTE_NAME, optional: bool = False
+) -> dict[str, Any] | None:
     if not config.configured:
         raise HTTPException(status_code=422, detail="Google Drive тохируулаагүй байна")
-    return await asyncio.to_thread(_download_sync, config.service_account, config.folder_id, dest)
+    return await asyncio.to_thread(
+        _download_sync, config.service_account, config.folder_id, dest, name=name, optional=optional
+    )
 
 
 async def record_result(db: AsyncSession, *, error: str | None) -> None:
@@ -280,6 +299,7 @@ def masked_status(config: GdriveConfig) -> dict[str, Any]:
 
 __all__ = [
     "REMOTE_NAME",
+    "REMOTE_UPLOADS_NAME",
     "GdriveConfig",
     "check",
     "download",

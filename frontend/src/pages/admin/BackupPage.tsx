@@ -8,6 +8,7 @@ import {
   Download,
   FolderCog,
   HardDrive,
+  Images,
   RotateCcw,
   Settings2,
   TriangleAlert,
@@ -22,8 +23,10 @@ import {
   useGdriveStatus,
   useGdriveUploadMutation,
   useRestoreBackupMutation,
+  useRestoreUploadsMutation,
   useSaveGdriveMutation,
   useSetBackupDirectoryMutation,
+  useUploadsArchive,
 } from "../../api/queries/system";
 import type { BackupFile } from "../../api/types";
 import { PageHeader } from "../../components/layout/PageHeader";
@@ -78,6 +81,27 @@ export function BackupPage() {
   const gdriveUploadMutation = useGdriveUploadMutation();
   const gdriveDownloadMutation = useGdriveDownloadMutation();
   const gdrive = gdriveQuery.data ?? null;
+
+  // Зургийн архив
+  const uploadsQuery = useUploadsArchive();
+  const uploadsArchive = uploadsQuery.data ?? null;
+  const restoreUploadsMutation = useRestoreUploadsMutation();
+  const [uploadsRestoreOpen, setUploadsRestoreOpen] = useState(false);
+  const [uploadsConfirmWord, setUploadsConfirmWord] = useState("");
+  const [uploadsRestoreError, setUploadsRestoreError] = useState<string | null>(null);
+
+  const submitUploadsRestore = (): void => {
+    if (uploadsConfirmWord.trim().toUpperCase() !== t.admin.restoreWord) return;
+    setUploadsRestoreError(null);
+    restoreUploadsMutation.mutate(t.admin.restoreWord, {
+      onSuccess: (result) => {
+        toastSuccess(`${t.admin.uploadsRestored}: ${result.files} ${t.admin.uploadsFiles}`);
+        setUploadsRestoreOpen(false);
+        setUploadsConfirmWord("");
+      },
+      onError: (error) => setUploadsRestoreError(errorMessage(error)),
+    });
+  };
 
   const openGdriveEditor = (): void => {
     setGdriveEnabled(gdrive?.enabled ?? false);
@@ -334,11 +358,39 @@ export function BackupPage() {
             <Clock className="mt-0.5 h-5 w-5 shrink-0" />
             {t.admin.backupScheduleHint}
           </p>
-          <KeyValue
-            label={t.admin.backupLatest}
-            value={latestRolling ? `${formatDateTime(latestRolling.created_at)} · ${formatBytes(latestRolling.size_bytes)}` : "—"}
-            numeric
-          />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <KeyValue
+              label={t.admin.backupLatest}
+              value={latestRolling ? `${formatDateTime(latestRolling.created_at)} · ${formatBytes(latestRolling.size_bytes)}` : "—"}
+              numeric
+            />
+            <KeyValue
+              label={t.admin.uploadsArchive}
+              value={
+                uploadsArchive?.exists
+                  ? `${formatDateTime(uploadsArchive.created_at)} · ${formatBytes(uploadsArchive.size_bytes)} · ${uploadsArchive.files} ${t.admin.uploadsFiles}`
+                  : `— · ${uploadsArchive?.files ?? 0} ${t.admin.uploadsFiles}`
+              }
+              numeric
+            />
+          </div>
+          <p className="text-sm text-ink-soft">{t.admin.uploadsArchiveHint}</p>
+          {uploadsArchive?.exists ? (
+            <div>
+              <Button
+                variant="secondary"
+                size="md"
+                icon={<Images />}
+                onClick={() => {
+                  setUploadsConfirmWord("");
+                  setUploadsRestoreError(null);
+                  setUploadsRestoreOpen(true);
+                }}
+              >
+                {t.admin.uploadsRestore}
+              </Button>
+            </div>
+          ) : null}
         </div>
       </Card>
 
@@ -388,6 +440,15 @@ export function BackupPage() {
               <KeyValue
                 label={t.admin.gdriveLastUpload}
                 value={gdrive.last_upload_at ? formatDateTime(gdrive.last_upload_at) : "—"}
+                numeric
+              />
+              <KeyValue
+                label={t.admin.gdriveRemoteUploads}
+                value={
+                  gdrive.remote_uploads
+                    ? `${formatBytes(gdrive.remote_uploads.size_bytes)} · ${formatDateTime(gdrive.remote_uploads.modified_at)}`
+                    : "—"
+                }
                 numeric
               />
             </div>
@@ -610,6 +671,51 @@ export function BackupPage() {
           </div>
           {gdriveError ? (
             <p className="rounded-xl bg-danger-soft px-4 py-3 text-sm font-medium text-danger-dark">{gdriveError}</p>
+          ) : null}
+        </div>
+      </Modal>
+
+      <Modal
+        open={uploadsRestoreOpen}
+        onClose={() => setUploadsRestoreOpen(false)}
+        size="md"
+        title={t.admin.uploadsRestore}
+        subtitle={t.admin.uploadsRestoreHint}
+        dismissible={!restoreUploadsMutation.isPending}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              size="md"
+              disabled={restoreUploadsMutation.isPending}
+              onClick={() => setUploadsRestoreOpen(false)}
+            >
+              {t.common.cancel}
+            </Button>
+            <Button
+              variant="warning"
+              size="md"
+              disabled={uploadsConfirmWord.trim().toUpperCase() !== t.admin.restoreWord}
+              loading={restoreUploadsMutation.isPending}
+              onClick={submitUploadsRestore}
+            >
+              {t.admin.uploadsRestore}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <TextField
+            label={t.admin.restoreConfirm}
+            value={uploadsConfirmWord}
+            onChange={setUploadsConfirmWord}
+            placeholder={t.admin.restoreWord}
+            hint={`${t.common.confirm}: ${t.admin.restoreWord}`}
+          />
+          {uploadsRestoreError ? (
+            <p className="rounded-xl bg-danger-soft px-4 py-3 text-sm font-medium text-danger-dark">
+              {uploadsRestoreError}
+            </p>
           ) : null}
         </div>
       </Modal>

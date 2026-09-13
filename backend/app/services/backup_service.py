@@ -13,9 +13,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import re
 import subprocess
+import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import shutil
@@ -33,6 +35,10 @@ BACKUP_SUFFIX = ".dump"
 #: Цаг тутмын «сүүлийн» нөөцлөлт — үргэлж энэ нэг файлыг дарж бичнэ
 #: (хард дүүрэхгүй); Google Drive дээр ч ижил нэртэй ганц файл байна.
 LATEST_NAME = "kolonk-latest.dump"
+#: Хавсралтын архив (ээлжийн зураг, гэрээний PDF) — мөн үргэлж нэг файл.
+UPLOADS_ARCHIVE = "kolonk-uploads.zip"
+#: Хавсралтын хавтас — routers (shift_photos, customer_contracts)-тай ижил харьцангуй зам.
+UPLOADS_DIR = Path("uploads")
 FILENAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 PG_DUMP = "pg_dump"
@@ -334,3 +340,100 @@ def delete_backup(filename: str, directory: str | Path | None = None) -> str:
     except OSError as exc:
         raise HTTPException(status_code=422, detail=f"Файл устгах боломжгүй: {exc}") from exc
     return path.name
+
+
+# --------------------------------------------------------------------------- #
+# Хавсралтын архив (ээлжийн зураг, гэрээний PDF)
+# --------------------------------------------------------------------------- #
+def uploads_fingerprint(root: Path | None = None) -> tuple[str, int]:
+    """Хавсралтын хавтасны (зам, хэмжээ, mtime) хурууны хээ ба файлын тоо.
+
+    Өөрчлөлт байхгүй бол архивыг дахин үүсгэх, Drive руу дахин байршуулах
+    шаардлагагүй — цаг тутам хэдэн зуун МБ илгээхээс сэргийлнэ.
+    """
+    root = root or UPLOADS_DIR
+    digest = hashlib.sha256()
+    count = 0
+    if root.is_dir():
+        for path in sorted(p for p in root.rglob("*") if p.is_file()):
+            stat = path.stat()
+            digest.update(f"{path.relative_to(root).as_posix()}|{stat.st_size}|{int(stat.st_mtime)}\n".encode())
+            count += 1
+    return digest.hexdigest(), count
+
+
+def uploads_archive_info(directory: str | Path | None = None) -> dict[str, Any] | None:
+    path = backup_dir(directory) / UPLOADS_ARCHIVE
+    if not path.is_file():
+        return None
+    stat = path.stat()
+    return {
+        "filename": path.name,
+        "size_bytes": int(stat.st_size),
+        "size_mb": round(stat.st_size / MB, 2),
+        "created_at": datetime.fromtimestamp(stat.st_mtime, tz=UTC),
+    }
+
+
+def _build_uploads_archive(root: Path, dest: Path) -> int:
+    part = dest.with_suffix(dest.suffix + ".part")
+    count = 0
+    # Зураг (JPEG) аль хэдийн шахагдсан тул ZIP_STORED — хурдан, CPU бага.
+    with zipfile.ZipFile(part, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as archive:
+        for path in sorted(p for p in root.rglob("*") if p.is_file()):
+            archive.write(path, path.relative_to(root).as_posix())
+            count += 1
+    os.replace(part, dest)
+    return count
+
+
+async def create_uploads_archive(
+    *, directory: str | Path | None = None, force: bool = False
+) -> dict[str, Any] | None:
+    """``uploads/``-ыг ``kolonk-uploads.zip`` болгоно (хавтас хоосон бол None).
+
+    Хурууны хээ өмнөх архивынхтай ижил бол дахин үүсгэхгүй (``changed=False``).
+    """
+    root = UPLOADS_DIR
+    fingerprint, count = await asyncio.to_thread(uploads_fingerprint, root)
+    if count == 0:
+        return None
+    directory = backup_dir(directory)
+    dest = directory / UPLOADS_ARCHIVE
+    marker = directory / f"{UPLOADS_ARCHIVE}.fp"
+    previous = marker.read_text(encoding="utf-8").strip() if marker.is_file() else ""
+    changed = force or previous != fingerprint or not dest.is_file()
+    if changed:
+        await asyncio.to_thread(_build_uploads_archive, root, dest)
+        marker.write_text(fingerprint, encoding="utf-8")
+    info = uploads_archive_info(directory) or {}
+    return {**info, "files": count, "fingerprint": fingerprint, "changed": changed}
+
+
+def _extract_uploads_archive(archive: Path, root: Path) -> int:
+    root.mkdir(parents=True, exist_ok=True)
+    root_resolved = root.resolve()
+    count = 0
+    with zipfile.ZipFile(archive) as zf:
+        for member in zf.infolist():
+            if member.is_dir():
+                continue
+            target = (root / member.filename).resolve()
+            if root_resolved not in target.parents:  # zip-slip хамгаалалт
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(member) as src, target.open("wb") as dst:
+                shutil.copyfileobj(src, dst)
+            count += 1
+    return count
+
+
+async def restore_uploads_archive(directory: str | Path | None = None) -> int:
+    """``kolonk-uploads.zip``-ийг ``uploads/`` руу задална (байгаа файлыг дарж, бусдыг үлдээнэ)."""
+    archive = backup_dir(directory) / UPLOADS_ARCHIVE
+    if not archive.is_file():
+        raise HTTPException(status_code=404, detail=f"{UPLOADS_ARCHIVE} олдсонгүй — эхлээд Drive-аас татна уу")
+    try:
+        return await asyncio.to_thread(_extract_uploads_archive, archive, UPLOADS_DIR)
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(status_code=422, detail="Архив гэмтэлтэй байна") from exc

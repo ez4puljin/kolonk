@@ -81,6 +81,9 @@ services:
     volumes:
       - ./backend:/code
       - backups:/backups
+      # Ээлжийн зургуудыг цаг тутам kolonk-uploads.zip болгож Drive руу
+      # байршуулахын тулд worker ч prod-ын uploads volume-ыг харна.
+      - uploads:/code/uploads
     env_file: .env
     depends_on:
       db:
