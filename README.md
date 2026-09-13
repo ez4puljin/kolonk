@@ -281,7 +281,12 @@ git pull
 |---|---|
 | `.\reset-db.bat` | Цэвэр seed — бодит ажиллагаанд |
 | `.\reset-db.bat -Demo` | Жишээ салбар, түлш, сав, бараа, хэрэглэгчидтэй — сургалт, туршилтад |
+| `.\reset-db.bat -NoDocker` | Docker-гүй суулгалт: локал PostgreSQL (5434) + `backend\.venv` — `start-dev.ps1 -Stop` → pg_dump → схем → alembic → seed → `start-dev.ps1` |
 | `.\reset-db.bat -Force` | Баталгаажуулалт асуухгүй (скриптээс дуудахад) |
+
+Горимыг өөрөө таньдаг: Docker `db` контейнер ажиллаж байвал Docker, үгүй бол
+`backend\.venv` байвал NoDocker. Docker-гүй горимд нөөцлөлт нь `backups\`-д
+мөн адил үлдэнэ (сэргээх: `pg_restore -h 127.0.0.1 -p 5434 -U kolonk -d kolonk --clean --if-exists backups\before-reset-....dump`).
 
 Хуучин өгөгдөл хэрэгтэй болбол `pg_restore`-оор dump-аас сэргээнэ
 (`docker compose exec -T db pg_restore -U kolonk -d kolonk --clean --if-exists < backups\before-reset-....dump`, cmd дээр).
