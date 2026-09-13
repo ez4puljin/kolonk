@@ -29,6 +29,9 @@ ROUTER_MODULES = [
     "expenses",
     "bank",
     "payroll",
+    # customer_import ЭХЭНД: GET /customers/import-template нь
+    # /customers/{customer_id}-д UUID гэж баригдахгүйн тулд.
+    "customer_import",
     "customers",
     "contracts",
     "sales",
@@ -40,7 +43,6 @@ ROUTER_MODULES = [
     "report_center",
     "branches",
     "branch_opening",
-    "customer_import",
     "dashboards",
     "ebarimt",
     "audit",
