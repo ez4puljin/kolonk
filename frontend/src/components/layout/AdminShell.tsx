@@ -4,7 +4,6 @@ import {
   Archive,
   ArrowLeftRight,
   Building2,
-  Droplets,
   LayoutGrid,
   LogOut,
   Menu,
@@ -44,7 +43,6 @@ interface AdminNavEntry {
 const ADMIN_NAV: readonly AdminNavEntry[] = [
   { to: "/admin", label: t.adminPanel.overview, icon: LayoutGrid, permissions: [], end: true },
   { to: "/admin/branches", label: t.nav.branches, icon: Building2, permissions: ["settings.manage"] },
-  { to: "/admin/fuels", label: t.nav.fuels, icon: Droplets, permissions: ["settings.manage"] },
   { to: "/admin/users", label: t.nav.users, icon: UserCog, permissions: ["users.manage"] },
   { to: "/admin/settings", label: t.nav.settings, icon: Settings, permissions: ["settings.manage"] },
   { to: "/admin/audit", label: t.nav.audit, icon: ScrollText, permissions: ["audit.view"] },

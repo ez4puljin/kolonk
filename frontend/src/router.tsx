@@ -133,7 +133,6 @@ const AuditPage = lazyPage("AuditPage");
 const SettingsPage = lazyPage("SettingsPage");
 const BackupPage = lazyPage("BackupPage");
 const AdminHomePage = lazyPage("AdminHomePage");
-const AdminFuelsPage = lazyPage("AdminFuelsPage");
 
 // --- Хамгаалалт -----------------------------------------------------------
 
@@ -650,14 +649,6 @@ export function AppRoutes() {
             element={
               <RequirePermission code="settings.manage">
                 <BranchSetupPage />
-              </RequirePermission>
-            }
-          />
-          <Route
-            path="fuels"
-            element={
-              <RequirePermission code="settings.manage">
-                <AdminFuelsPage />
               </RequirePermission>
             }
           />
