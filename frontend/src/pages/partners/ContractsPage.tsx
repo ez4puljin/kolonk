@@ -275,10 +275,12 @@ export function ContractsPage() {
         const pct = limit > 0 ? (used / limit) * 100 : 0;
         return (
           <ProgressBar
-            value={pct}
+            value={row.credit_unlimited ? 0 : pct}
             tone={pct >= 90 ? "danger" : pct >= 70 ? "warning" : "success"}
             size="sm"
-            valueLabel={`${formatMNT(row.balance)} / ${formatMNT(row.credit_limit)}`}
+            valueLabel={`${formatMNT(row.balance)} / ${
+              row.credit_unlimited ? t.partners.creditUnlimited : formatMNT(row.credit_limit)
+            }`}
           />
         );
       },
@@ -288,7 +290,11 @@ export function ContractsPage() {
       header: t.partners.creditAvailable,
       align: "right",
       numeric: true,
-      render: (row) => <span className="font-bold">{formatMNT(row.credit_available)}</span>,
+      render: (row) => (
+        <span className="font-bold">
+          {row.credit_unlimited ? t.partners.creditUnlimited : formatMNT(row.credit_available)}
+        </span>
+      ),
     },
     {
       key: "discount",

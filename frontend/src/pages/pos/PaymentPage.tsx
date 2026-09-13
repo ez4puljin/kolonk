@@ -172,7 +172,7 @@ function ContractPicker({
                           {t.partners.creditAvailable}
                         </span>
                         <span className="num block text-lg font-bold text-success-dark">
-                          {formatMNT(contract.credit_available)}
+                          {contract.credit_unlimited ? t.partners.creditUnlimited : formatMNT(contract.credit_available)}
                         </span>
                       </span>
                     </button>
@@ -755,13 +755,15 @@ function ContractCredit({ contractId, amount }: { contractId: string; amount: Mo
   }, [data, contractId]);
 
   if (!contract) return null;
-  const enough = dCmp(contract.credit_available, amount) >= 0;
+  const enough = contract.credit_unlimited || dCmp(contract.credit_available, amount) >= 0;
 
   return (
     <div className="grid grid-cols-2 gap-3">
       <div className="rounded-xl border border-line-strong bg-white px-4 py-2.5">
         <div className="text-xs font-semibold text-ink-soft">{t.partners.creditLimit}</div>
-        <div className="num text-lg font-bold text-ink">{formatMNT(contract.credit_limit)}</div>
+        <div className="num text-lg font-bold text-ink">
+          {contract.credit_unlimited ? t.partners.creditUnlimited : formatMNT(contract.credit_limit)}
+        </div>
       </div>
       <div
         className="rounded-xl border px-4 py-2.5"
@@ -772,7 +774,7 @@ function ContractCredit({ contractId, amount }: { contractId: string; amount: Mo
       >
         <div className="text-xs font-semibold text-ink-soft">{t.partners.creditAvailable}</div>
         <div className={`num text-lg font-bold ${enough ? "text-success-dark" : "text-danger-dark"}`}>
-          {formatMNT(contract.credit_available)}
+          {contract.credit_unlimited ? t.partners.creditUnlimited : formatMNT(contract.credit_available)}
         </div>
       </div>
     </div>

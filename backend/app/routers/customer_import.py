@@ -292,7 +292,7 @@ async def import_customers(
         )
         if contract is None:
             contract = Contract(
-                customer_id=customer.id,
+                customer=customer,
                 contract_no=await _next_contract_no(db, stamp),
                 credit_limit=amount,
                 balance=ZERO,

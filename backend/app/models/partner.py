@@ -41,6 +41,8 @@ class Customer(UUIDPKMixin, TimestampMixin, Base):
     district: Mapped[str | None] = mapped_column(String(64), index=True)
     #: Гэрээнд заасан зээлийн лимит (мэдээллийн — тооцооны лимит гэрээн дээрээ).
     credit_limit: Mapped[Decimal] = mapped_column(Money, nullable=False, default=Decimal("0"))
+    #: Лимитгүй — энэ харилцагчийн бүх гэрээнд зээлийн лимит шалгагдахгүй.
+    credit_unlimited: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     #: Сканнердсан гэрээний PDF файлын нэр (uploads доторх).
     contract_file: Mapped[str | None] = mapped_column(String(255))
     type: Mapped[str] = mapped_column(String(16), nullable=False, default=CustomerType.B2B)

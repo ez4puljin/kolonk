@@ -388,7 +388,7 @@ async def _contract_for_customer(
         return contract
     today = datetime.now(STATION_TZ).date()
     contract = Contract(
-        customer_id=customer.id,
+        customer=customer,
         contract_no=await _next_contract_no(db, f"ЗЭ-{today:%Y%m%d}"),
         credit_limit=q2(_d(customer.credit_limit)),
         balance=ZERO,
@@ -476,7 +476,7 @@ async def _contract_for_new_customer(
     if contract is None:
         today = datetime.now(STATION_TZ).date()
         contract = Contract(
-            customer_id=customer.id,
+            customer=customer,
             contract_no=await _next_contract_no(db, f"ЗЭ-{today:%Y%m%d}"),
             credit_limit=q2(_d(payload.credit_limit)),
             balance=ZERO,

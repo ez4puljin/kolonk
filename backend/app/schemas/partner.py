@@ -26,6 +26,8 @@ class ContractBrief(BaseModel):
     id: uuid.UUID
     contract_no: str
     credit_limit: Decimal = ZERO
+    #: Харилцагч «лимитгүй» бол True — лимит, боломжит үлдэгдэл мэдээллийн.
+    credit_unlimited: bool = False
     balance: Decimal = ZERO
     credit_available: Decimal = ZERO
     price_discount_per_l: Decimal = ZERO
@@ -45,6 +47,8 @@ class CustomerCreate(BaseModel):
     province: str | None = Field(default=None, max_length=64)
     district: str | None = Field(default=None, max_length=64)
     credit_limit: Decimal = Field(default=ZERO, ge=0)
+    #: Лимитгүй — зээлийн лимит шалгахгүй (нягтлан/админ тохируулна).
+    credit_unlimited: bool = False
     type: CustomerType = CustomerType.B2B
     is_active: bool = True
     #: Аль салбарын харилцагч вэ (хоосон бол салбаргүй).
@@ -64,6 +68,7 @@ class CustomerUpdate(BaseModel):
     province: str | None = Field(default=None, max_length=64)
     district: str | None = Field(default=None, max_length=64)
     credit_limit: Decimal | None = Field(default=None, ge=0)
+    credit_unlimited: bool | None = None
     type: CustomerType | None = None
     is_active: bool | None = None
 
@@ -83,6 +88,7 @@ class CustomerOut(BaseModel):
     province: str | None = None
     district: str | None = None
     credit_limit: Decimal = ZERO
+    credit_unlimited: bool = False
     #: Сканнердсан гэрээ хавсаргасан эсэх.
     has_contract_file: bool = False
     type: str
@@ -128,6 +134,7 @@ class ContractOut(BaseModel):
     customer_name: str | None = None
     contract_no: str
     credit_limit: Decimal = ZERO
+    credit_unlimited: bool = False
     balance: Decimal = ZERO
     credit_available: Decimal = ZERO
     price_discount_per_l: Decimal = ZERO

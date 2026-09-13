@@ -54,6 +54,7 @@ interface CustomerForm {
   district: string;
   branch_id: string;
   credit_limit: string;
+  credit_unlimited: boolean;
   type: CustomerType;
   is_active: boolean;
 }
@@ -69,6 +70,7 @@ const EMPTY_FORM: CustomerForm = {
   district: "",
   branch_id: "",
   credit_limit: "",
+  credit_unlimited: false,
   type: "b2b",
   is_active: true,
 };
@@ -202,6 +204,7 @@ export function CustomersPage() {
             district: customer.district ?? "",
             branch_id: customer.branch_id ?? "",
             credit_limit: dToNumber(customer.credit_limit) > 0 ? customer.credit_limit : "",
+            credit_unlimited: customer.credit_unlimited,
             type: customer.type === "individual" ? "individual" : "b2b",
             is_active: customer.is_active,
           }
@@ -242,6 +245,7 @@ export function CustomersPage() {
       district: form.district || null,
       branch_id: form.branch_id || null,
       credit_limit: form.credit_limit === "" ? "0" : form.credit_limit,
+      credit_unlimited: form.credit_unlimited,
       type: form.type,
       is_active: form.is_active,
     };
@@ -344,7 +348,9 @@ export function CustomersPage() {
       align: "right",
       numeric: true,
       render: (row) =>
-        dToNumber(row.credit_limit) > 0 ? (
+        row.credit_unlimited ? (
+          <span className="font-bold text-success-dark">{t.partners.creditUnlimited}</span>
+        ) : dToNumber(row.credit_limit) > 0 ? (
           <span className="font-bold">{formatMNT(row.credit_limit)}</span>
         ) : (
           "—"
@@ -642,7 +648,7 @@ export function CustomersPage() {
                   <KeyValue label={t.common.email} value={selected.email ?? "—"} />
                   <KeyValue
                     label={t.partners.creditLimitContract}
-                    value={formatMNT(selected.credit_limit)}
+                    value={selected.credit_unlimited ? t.partners.creditUnlimited : formatMNT(selected.credit_limit)}
                     numeric
                   />
                   <KeyValue
@@ -693,15 +699,17 @@ export function CustomersPage() {
                             />
                           </div>
                           <ProgressBar
-                            value={pct}
+                            value={contract.credit_unlimited ? 0 : pct}
                             tone={pct >= 90 ? "danger" : pct >= 70 ? "warning" : "success"}
                             label={t.partners.creditLimit}
-                            valueLabel={`${formatMNT(contract.balance)} / ${formatMNT(contract.credit_limit)}`}
+                            valueLabel={`${formatMNT(contract.balance)} / ${
+                              contract.credit_unlimited ? t.partners.creditUnlimited : formatMNT(contract.credit_limit)
+                            }`}
                           />
                           <div className="grid grid-cols-2 gap-3">
                             <KeyValue
                               label={t.partners.creditAvailable}
-                              value={formatMNT(contract.credit_available)}
+                              value={contract.credit_unlimited ? t.partners.creditUnlimited : formatMNT(contract.credit_available)}
                               numeric
                             />
                             <KeyValue
@@ -806,13 +814,22 @@ export function CustomersPage() {
             />
           </div>
           <span className="-mt-2 text-xs text-ink-faint">{t.partners.branchHint}</span>
-          <NumberField
-            name="customer-credit-limit"
-            label={t.partners.creditLimitContract}
-            value={form.credit_limit}
-            onChange={(value) => setForm({ ...form, credit_limit: value })}
-            suffix={t.units.mnt}
+          <ToggleField
+            label={t.partners.creditUnlimited}
+            hint={t.partners.creditUnlimitedHint}
+            value={form.credit_unlimited}
+            onChange={(value) => setForm({ ...form, credit_unlimited: value })}
           />
+          {form.credit_unlimited ? null : (
+            <NumberField
+              name="customer-credit-limit"
+              label={t.partners.creditLimitContract}
+              value={form.credit_limit}
+              onChange={(value) => setForm({ ...form, credit_limit: value })}
+              suffix={t.units.mnt}
+              hint={editing ? t.partners.creditLimitPropagateHint : undefined}
+            />
+          )}
 
           {/* Гэрээний PDF — заавал биш */}
           <div className="flex flex-col gap-2 rounded-xl border border-line bg-surface-alt px-4 py-3">

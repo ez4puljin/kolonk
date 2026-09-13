@@ -133,7 +133,7 @@ async def create_contract(
         raise HTTPException(status_code=422, detail="Ийм дугаартай гэрээ бүртгэгдсэн байна")
 
     contract = Contract(
-        customer_id=customer.id,
+        customer=customer,
         contract_no=contract_no,
         credit_limit=payload.credit_limit,
         balance=Decimal("0.00"),

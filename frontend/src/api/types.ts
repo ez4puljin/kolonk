@@ -1374,6 +1374,8 @@ export interface ContractBrief {
   id: UUID;
   contract_no: string;
   credit_limit: MoneyStr;
+  /** Харилцагч «лимитгүй» — лимит шалгагдахгүй. */
+  credit_unlimited: boolean;
   balance: MoneyStr;
   credit_available: MoneyStr;
   price_discount_per_l: MoneyStr;
@@ -1401,6 +1403,8 @@ export interface Customer {
   district: string | null;
   /** Гэрээнд заасан зээлийн лимит. */
   credit_limit: MoneyStr;
+  /** Лимитгүй — бүх гэрээнд зээлийн лимит шалгагдахгүй. */
+  credit_unlimited: boolean;
   /** Сканнердсан гэрээний PDF хавсаргасан эсэх. */
   has_contract_file: boolean;
   type: CustomerType | string;
@@ -1421,6 +1425,7 @@ export interface CustomerCreate {
   province?: string | null;
   district?: string | null;
   credit_limit?: MoneyStr;
+  credit_unlimited?: boolean;
   type?: CustomerType;
   is_active?: boolean;
   branch_id?: UUID | null;
@@ -1434,6 +1439,7 @@ export interface Contract {
   customer_name: string | null;
   contract_no: string;
   credit_limit: MoneyStr;
+  credit_unlimited: boolean;
   balance: MoneyStr;
   credit_available: MoneyStr;
   price_discount_per_l: MoneyStr;

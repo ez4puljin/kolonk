@@ -99,6 +99,12 @@ def credit_available(contract: Contract) -> Decimal:
     return q2(_dec(contract.credit_limit) - _dec(contract.balance))
 
 
+def is_unlimited(contract: Contract) -> bool:
+    """Харилцагч «лимитгүй» бол гэрээний лимит шалгагдахгүй."""
+    customer = _rel(contract, "customer")
+    return bool(getattr(customer, "credit_unlimited", False))
+
+
 def assert_credit(contract: Contract, amount: Decimal) -> None:
     """``balance + amount <= credit_limit`` эсэхийг шалгана."""
     value = q2(_dec(amount))
@@ -106,6 +112,8 @@ def assert_credit(contract: Contract, amount: Decimal) -> None:
         raise HTTPException(status_code=422, detail="Дүн 0-ээс их байх ёстой")
     if str(contract.status) != str(ContractStatus.ACTIVE):
         raise HTTPException(status_code=422, detail="Гэрээ идэвхгүй байна")
+    if is_unlimited(contract):
+        return
     if q2(_dec(contract.balance) + value) > q2(_dec(contract.credit_limit)):
         raise HTTPException(status_code=422, detail="Гэрээний зээлийн лимит хэтэрсэн байна")
 
@@ -122,6 +130,7 @@ def contract_out(contract: Contract, *, customer_name: str | None = None) -> dic
         "customer_name": name,
         "contract_no": contract.contract_no,
         "credit_limit": q2(_dec(contract.credit_limit)),
+        "credit_unlimited": is_unlimited(contract),
         "balance": q2(_dec(contract.balance)),
         "credit_available": credit_available(contract),
         "price_discount_per_l": q2(_dec(contract.price_discount_per_l)),

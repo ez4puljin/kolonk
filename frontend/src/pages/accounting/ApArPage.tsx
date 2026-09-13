@@ -1120,7 +1120,7 @@ export function ApArPage() {
       align: "right",
       numeric: true,
       hideOnMobile: true,
-      render: (row) => formatMNT(row.limit),
+      render: (row) => (row.customer.credit_unlimited ? t.partners.creditUnlimited : formatMNT(row.limit)),
     },
     {
       key: "balance",

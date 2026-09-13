@@ -540,7 +540,9 @@ async def _resolve_payments(
             if str(contract.status) != str(ContractStatus.ACTIVE):
                 raise HTTPException(status_code=422, detail="Гэрээ идэвхгүй байна")
             used = q2(contract_used.get(contract_id, ZERO) + amount)
-            if not fits_credit_limit(contract.credit_limit, contract.balance, used):
+            # Харилцагч «лимитгүй» бол лимит шалгахгүй (гэрээ идэвхтэй л байхад).
+            unlimited = bool(getattr(getattr(contract, "customer", None), "credit_unlimited", False))
+            if not unlimited and not fits_credit_limit(contract.credit_limit, contract.balance, used):
                 raise HTTPException(status_code=422, detail="Гэрээний зээлийн лимит хэтэрсэн байна")
             contract_used[contract_id] = used
             tender.contract = contract

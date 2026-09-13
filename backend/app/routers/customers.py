@@ -20,7 +20,7 @@ from app.database import get_db
 from app.money import q2
 from app.stationtime import day_end, day_start
 from app.deps import require_permission
-from app.enums import CustomerType
+from app.enums import ContractStatus, CustomerType
 from app.models.branch import Branch
 from app.models.partner import Contract, Customer
 from app.models.user import User
@@ -54,11 +54,13 @@ def _client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
 
 
-def _contract_brief(contract: Contract) -> ContractBrief:
+def _contract_brief(contract: Contract, customer: Customer) -> ContractBrief:
     return ContractBrief(
         id=contract.id,
         contract_no=contract.contract_no,
         credit_limit=contract.credit_limit,
+        # Харилцагчийн жагсаалтад contract.customer ачаалагдаагүй байж болно — шууд эцгээс нь.
+        credit_unlimited=bool(customer.credit_unlimited),
         balance=contract.balance,
         credit_available=credit_available(contract),
         price_discount_per_l=contract.price_discount_per_l,
@@ -101,11 +103,12 @@ def _customer_out(customer: Customer, branch_names: dict[uuid.UUID, str] | None 
         province=customer.province,
         district=customer.district,
         credit_limit=q2(customer.credit_limit or Decimal("0")),
+        credit_unlimited=bool(customer.credit_unlimited),
         has_contract_file=bool(customer.contract_file),
         type=str(customer.type),
         type_name=CUSTOMER_TYPE_MN.get(str(customer.type), str(customer.type)),
         is_active=customer.is_active,
-        contracts=[_contract_brief(c) for c in _loaded_contracts(customer)],
+        contracts=[_contract_brief(c, customer) for c in _loaded_contracts(customer)],
         created_at=customer.created_at,
         updated_at=customer.updated_at,
     )
@@ -123,6 +126,7 @@ def _snapshot(customer: Customer) -> dict:
         "district": customer.district,
         "branch_id": str(customer.branch_id) if customer.branch_id else None,
         "credit_limit": str(customer.credit_limit or "0"),
+        "credit_unlimited": bool(customer.credit_unlimited),
         "contract_file": customer.contract_file,
         "type": str(customer.type),
         "is_active": customer.is_active,
@@ -236,6 +240,7 @@ async def create_customer(
         province=(payload.province or "").strip() or None,
         district=(payload.district or "").strip() or None,
         credit_limit=q2(payload.credit_limit or Decimal("0")),
+        credit_unlimited=bool(payload.credit_unlimited),
         type=str(payload.type),
         is_active=payload.is_active,
     )
@@ -299,7 +304,17 @@ async def update_customer(
     if "district" in changes:
         customer.district = (changes["district"] or "").strip() or None
     if "credit_limit" in changes and changes["credit_limit"] is not None:
-        customer.credit_limit = q2(Decimal(str(changes["credit_limit"])))
+        new_limit = q2(Decimal(str(changes["credit_limit"])))
+        if new_limit != q2(customer.credit_limit or Decimal("0")):
+            customer.credit_limit = new_limit
+            # Тооцооны лимит гэрээн дээрээ — нягтлан/админ харилцагчийн лимитийг
+            # өөрчлөхөд идэвхтэй гэрээнүүд нь дагаж шинэчлэгдэнэ (эс бөгөөс
+            # хаалт дээр «лимит хэтэрсэн» алдаа гарсаар байна).
+            for contract in _loaded_contracts(customer):
+                if str(contract.status) == str(ContractStatus.ACTIVE):
+                    contract.credit_limit = new_limit
+    if "credit_unlimited" in changes and changes["credit_unlimited"] is not None:
+        customer.credit_unlimited = bool(changes["credit_unlimited"])
     if "type" in changes and changes["type"] is not None:
         customer.type = str(changes["type"])
     if "is_active" in changes and changes["is_active"] is not None:
