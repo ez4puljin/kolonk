@@ -70,7 +70,7 @@ async def list_contracts(
     customer_id: uuid.UUID | None = Query(default=None),
     status: ContractStatus | None = Query(default=None),
     search: str | None = Query(default=None, description="Гэрээний дугаар, харилцагчийн нэр"),
-    limit: int = Query(default=50, ge=1, le=200),
+    limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     _user: User = CanRead,

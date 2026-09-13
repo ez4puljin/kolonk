@@ -7,13 +7,26 @@
  */
 
 import { useMemo, useState } from "react";
-import { FileText, Wallet } from "lucide-react";
+import { FileText, Plus, Wallet } from "lucide-react";
 
 import { errorMessage } from "../../api/client";
-import { useApInvoices, useCreateApPaymentMutation } from "../../api/queries/accounting";
+import {
+  useApInvoices,
+  useCreateApInvoiceMutation,
+  useCreateApPaymentMutation,
+} from "../../api/queries/accounting";
 import { useBankAccounts } from "../../api/queries/bank";
-import { useArInvoices, useContractStatement, useCreateArPaymentMutation } from "../../api/queries/partners";
-import type { ApInvoice, ArInvoice, CashAccount, StatementRow, UUID } from "../../api/types";
+import { useExpenseCategories } from "../../api/queries/expenses";
+import {
+  useArInvoices,
+  useContracts,
+  useContractStatement,
+  useCreateArChargeMutation,
+  useCreateArPaymentMutation,
+} from "../../api/queries/partners";
+import { useSuppliers } from "../../api/queries/procurement";
+import type { ApInvoice, ArInvoice, CashAccount, Contract, StatementRow, UUID } from "../../api/types";
+import { PickerField } from "../catalog/_shared";
 import { BarChart, type BarDatum } from "../../components/charts/BarChart";
 import { PageHeader } from "../../components/layout/PageHeader";
 import { Button } from "../../components/ui/Button";
@@ -284,7 +297,15 @@ function ApPaymentModal({ invoice, onClose }: { invoice: ApInvoice | null; onClo
 // Авлага хүлээн авах цонх
 // --------------------------------------------------------------------------
 
-function ArPaymentModal({ invoice, onClose }: { invoice: ArInvoice | null; onClose: () => void }) {
+/** Авлагын төлбөрийн зорилт — нэхэмжлэхтэй эсвэл гэрээний үлдэгдлээс шууд. */
+interface ArPayTarget {
+  contract_id: UUID;
+  invoice_id?: UUID | null;
+  label: string;
+  due: string;
+}
+
+function ArPaymentModal({ target, onClose }: { target: ArPayTarget | null; onClose: () => void }) {
   const toastError = useUiStore((state) => state.toastError);
   const toastSuccess = useUiStore((state) => state.toastSuccess);
   const mutation = useCreateArPaymentMutation();
@@ -294,15 +315,15 @@ function ArPaymentModal({ invoice, onClose }: { invoice: ArInvoice | null; onClo
   const [paymentDate, setPaymentDate] = useState(todayInput);
   const [note, setNote] = useState("");
 
-  const due = invoice?.amount_due ?? "0";
+  const due = target?.due ?? "0";
   const valid = dCmp(amount, "0") > 0;
 
   const submit = (): void => {
-    if (!invoice) return;
+    if (!target) return;
     mutation.mutate(
       {
-        contract_id: invoice.contract_id,
-        ar_invoice_id: invoice.id,
+        contract_id: target.contract_id,
+        ar_invoice_id: target.invoice_id ?? null,
         amount,
         received_to: receivedTo,
         payment_date: paymentDate,
@@ -322,11 +343,11 @@ function ArPaymentModal({ invoice, onClose }: { invoice: ArInvoice | null; onClo
 
   return (
     <Modal
-      open={invoice !== null}
+      open={target !== null}
       onClose={onClose}
       size="md"
       title={t.partners.arPayment}
-      subtitle={invoice ? `${invoice.customer_name ?? ""} · ${invoice.invoice_no}` : undefined}
+      subtitle={target?.label}
       footer={
         <>
           <Button variant="secondary" size="md" onClick={onClose}>
@@ -384,6 +405,276 @@ function ArPaymentModal({ invoice, onClose }: { invoice: ArInvoice | null; onClo
           <span className="text-xs font-semibold tracking-wide text-ink-soft uppercase">
             {t.common.note}
           </span>
+          <input
+            type="text"
+            value={note}
+            maxLength={255}
+            onChange={(event) => setNote(event.target.value)}
+            className="h-12 w-full rounded-xl border border-line-strong bg-white px-3 text-[15px] text-ink focus:border-action focus:outline-none"
+          />
+        </label>
+      </div>
+    </Modal>
+  );
+}
+
+// --------------------------------------------------------------------------
+// Авлага гараар үүсгэх (гэрээнд нэмэх / хасах)
+// --------------------------------------------------------------------------
+
+function ArChargeModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const toastError = useUiStore((state) => state.toastError);
+  const toastSuccess = useUiStore((state) => state.toastSuccess);
+  const mutation = useCreateArChargeMutation();
+  const contractsQuery = useContracts({ limit: 500 });
+
+  const [contractId, setContractId] = useState("");
+  const [amount, setAmount] = useState("0.00");
+  const [negative, setNegative] = useState(false);
+  const [kind, setKind] = useState<"opening" | "income">("opening");
+  const [chargeDate, setChargeDate] = useState(todayInput);
+  const [note, setNote] = useState("");
+
+  const options = useMemo(
+    () =>
+      (contractsQuery.data?.items ?? [])
+        .filter((contract) => contract.status === "active")
+        .map((contract) => ({
+          value: contract.id,
+          label: `${contract.customer_name ?? "—"} · ${contract.contract_no}`,
+          hint: `${t.partners.currentBalance}: ${formatMNT(contract.balance)}`,
+        })),
+    [contractsQuery.data],
+  );
+  const selected = (contractsQuery.data?.items ?? []).find((c) => c.id === contractId) ?? null;
+  const valid = contractId !== "" && dCmp(amount, "0") > 0;
+
+  const submit = (): void => {
+    if (!valid) return;
+    mutation.mutate(
+      {
+        contractId,
+        amount: negative ? `-${amount}` : amount,
+        charge_date: chargeDate,
+        kind,
+        note: note.trim() === "" ? null : note.trim(),
+      },
+      {
+        onSuccess: () => {
+          toastSuccess(t.common.saved);
+          setAmount("0.00");
+          setNote("");
+          onClose();
+        },
+        onError: (error: unknown) => toastError(errorMessage(error)),
+      },
+    );
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="md"
+      title={t.partners.arCharge}
+      subtitle={t.partners.arChargeHint}
+      footer={
+        <>
+          <Button variant="secondary" size="md" onClick={onClose}>
+            {t.common.cancel}
+          </Button>
+          <Button variant="success" size="lg" onClick={submit} disabled={!valid} loading={mutation.isPending}>
+            {t.common.confirm}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <PickerField label={t.partners.contract} value={contractId} options={options} onChange={setContractId} searchable />
+        {selected ? (
+          <div className="flex items-center justify-between rounded-xl bg-surface-alt px-4 py-3">
+            <span className="text-sm font-semibold text-ink-soft">{t.partners.currentBalance}</span>
+            <span className="num text-2xl font-bold text-ink">{formatMNT(selected.balance)}</span>
+          </div>
+        ) : null}
+        <TouchSelect<"add" | "sub">
+          label={t.common.type}
+          value={negative ? "sub" : "add"}
+          onChange={(value) => setNegative(value === "sub")}
+          options={[
+            { value: "add", label: `+ ${t.partners.arCharge}` },
+            { value: "sub", label: `− ${t.partners.arChargeAmountHint}` },
+          ]}
+          columns={2}
+        />
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-semibold tracking-wide text-ink-soft uppercase">{t.common.amount}</span>
+          <MoneyField label={t.common.amount} value={amount} onChange={setAmount} />
+        </div>
+        <TouchSelect<"opening" | "income">
+          label={t.partners.arChargeKind}
+          value={kind}
+          onChange={setKind}
+          options={[
+            { value: "opening", label: t.partners.arChargeOpening },
+            { value: "income", label: t.partners.arChargeIncome },
+          ]}
+          columns={2}
+        />
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold tracking-wide text-ink-soft uppercase">{t.common.date}</span>
+          <input
+            type="date"
+            value={chargeDate}
+            onChange={(event) => setChargeDate(event.target.value)}
+            className="num h-12 w-full rounded-xl border border-line-strong bg-white px-3 text-[15px] text-ink focus:border-action focus:outline-none"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold tracking-wide text-ink-soft uppercase">{t.common.note}</span>
+          <input
+            type="text"
+            value={note}
+            maxLength={255}
+            onChange={(event) => setNote(event.target.value)}
+            className="h-12 w-full rounded-xl border border-line-strong bg-white px-3 text-[15px] text-ink focus:border-action focus:outline-none"
+          />
+        </label>
+      </div>
+    </Modal>
+  );
+}
+
+// --------------------------------------------------------------------------
+// Өглөг гараар үүсгэх (нийлүүлэгчийн нэхэмжлэх)
+// --------------------------------------------------------------------------
+
+function ApInvoiceModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const toastError = useUiStore((state) => state.toastError);
+  const toastSuccess = useUiStore((state) => state.toastSuccess);
+  const mutation = useCreateApInvoiceMutation();
+  const suppliersQuery = useSuppliers({ limit: 200, active_only: true });
+  const categoriesQuery = useExpenseCategories();
+
+  const [supplierId, setSupplierId] = useState("");
+  const [amount, setAmount] = useState("0.00");
+  const [kind, setKind] = useState<"opening" | "expense">("opening");
+  const [accountCode, setAccountCode] = useState("");
+  const [invoiceDate, setInvoiceDate] = useState(todayInput);
+  const [dueDate, setDueDate] = useState("");
+  const [invoiceNo, setInvoiceNo] = useState("");
+  const [note, setNote] = useState("");
+
+  const supplierOptions = useMemo(
+    () =>
+      (suppliersQuery.data?.items ?? []).map((supplier) => ({
+        value: supplier.id,
+        label: supplier.name,
+        hint: supplier.phone ?? undefined,
+      })),
+    [suppliersQuery.data],
+  );
+  const accountOptions = useMemo(
+    () => (categoriesQuery.data ?? []).map((row) => ({ value: row.code, label: `${row.code} · ${row.name_mn}` })),
+    [categoriesQuery.data],
+  );
+  const valid = supplierId !== "" && dCmp(amount, "0") > 0 && (kind === "opening" || accountCode !== "");
+
+  const submit = (): void => {
+    if (!valid) return;
+    mutation.mutate(
+      {
+        supplier_id: supplierId,
+        amount,
+        invoice_date: invoiceDate,
+        due_date: dueDate === "" ? null : dueDate,
+        invoice_no: invoiceNo.trim() === "" ? null : invoiceNo.trim(),
+        kind,
+        expense_account_code: kind === "expense" ? accountCode : null,
+        note: note.trim() === "" ? null : note.trim(),
+      },
+      {
+        onSuccess: () => {
+          toastSuccess(t.common.saved);
+          setAmount("0.00");
+          setInvoiceNo("");
+          setNote("");
+          onClose();
+        },
+        onError: (error: unknown) => toastError(errorMessage(error)),
+      },
+    );
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="md"
+      title={t.procurement.apCreate}
+      subtitle={t.procurement.apCreateHint}
+      footer={
+        <>
+          <Button variant="secondary" size="md" onClick={onClose}>
+            {t.common.cancel}
+          </Button>
+          <Button variant="success" size="lg" onClick={submit} disabled={!valid} loading={mutation.isPending}>
+            {t.common.confirm}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <PickerField label={t.procurement.supplier} value={supplierId} options={supplierOptions} onChange={setSupplierId} searchable />
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-semibold tracking-wide text-ink-soft uppercase">{t.common.amount}</span>
+          <MoneyField label={t.common.amount} value={amount} onChange={setAmount} />
+        </div>
+        <TouchSelect<"opening" | "expense">
+          label={t.procurement.apKind}
+          value={kind}
+          onChange={setKind}
+          options={[
+            { value: "opening", label: t.procurement.apKindOpening },
+            { value: "expense", label: t.procurement.apKindExpense },
+          ]}
+          columns={2}
+        />
+        {kind === "expense" ? (
+          <PickerField label={t.procurement.apKindExpense} value={accountCode} options={accountOptions} onChange={setAccountCode} searchable />
+        ) : null}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold tracking-wide text-ink-soft uppercase">{t.common.date}</span>
+            <input
+              type="date"
+              value={invoiceDate}
+              onChange={(event) => setInvoiceDate(event.target.value)}
+              className="num h-12 w-full rounded-xl border border-line-strong bg-white px-3 text-[15px] text-ink focus:border-action focus:outline-none"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold tracking-wide text-ink-soft uppercase">{t.procurement.dueDate}</span>
+            <input
+              type="date"
+              value={dueDate}
+              onChange={(event) => setDueDate(event.target.value)}
+              className="num h-12 w-full rounded-xl border border-line-strong bg-white px-3 text-[15px] text-ink focus:border-action focus:outline-none"
+            />
+          </label>
+        </div>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold tracking-wide text-ink-soft uppercase">{t.procurement.invoiceNo}</span>
+          <input
+            type="text"
+            value={invoiceNo}
+            maxLength={64}
+            onChange={(event) => setInvoiceNo(event.target.value)}
+            className="h-12 w-full rounded-xl border border-line-strong bg-white px-3 text-[15px] text-ink focus:border-action focus:outline-none"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold tracking-wide text-ink-soft uppercase">{t.common.note}</span>
           <input
             type="text"
             value={note}
@@ -479,11 +770,40 @@ export function ApArPage() {
   const [tab, setTab] = useState<AparTab>("ap");
   const [openOnly, setOpenOnly] = useState(true);
   const [apTarget, setApTarget] = useState<ApInvoice | null>(null);
-  const [arTarget, setArTarget] = useState<ArInvoice | null>(null);
+  const [arTarget, setArTarget] = useState<ArPayTarget | null>(null);
   const [statementContract, setStatementContract] = useState<UUID | null>(null);
+  const [arChargeOpen, setArChargeOpen] = useState(false);
+  const [apCreateOpen, setApCreateOpen] = useState(false);
 
   const apQuery = useApInvoices({ limit: 200 });
   const arQuery = useArInvoices({ limit: 200 });
+  const contractsQuery = useContracts({ limit: 500 });
+
+  /** Гэрээ бүрийн одоогийн үлдэгдэл — нэхэмжлэхгүй авлага ч энд харагдана. */
+  const contractRows = useMemo(() => {
+    const items = (contractsQuery.data?.items ?? []).filter((c) => c.status === "active");
+    const rows = openOnly ? items.filter((c) => dCmp(c.balance, "0") > 0) : items;
+    return [...rows].sort((a, b) => dCmp(b.balance, a.balance));
+  }, [contractsQuery.data, openOnly]);
+  const arBalanceTotal = useMemo(() => dSum(contractRows.map((c) => c.balance)), [contractRows]);
+
+  /** Нийлүүлэгч бүрийн төлөгдөөгүй нэхэмжлэх. */
+  const supplierRows = useMemo(() => {
+    const map = new Map<string, { supplier_id: UUID; name: string; count: number; due: string }>();
+    for (const invoice of apQuery.data?.items ?? []) {
+      if (dCmp(invoice.amount_due, "0") <= 0) continue;
+      const entry = map.get(invoice.supplier_id) ?? {
+        supplier_id: invoice.supplier_id,
+        name: invoice.supplier_name ?? "—",
+        count: 0,
+        due: "0",
+      };
+      entry.count += 1;
+      entry.due = dAdd(entry.due, invoice.amount_due);
+      map.set(invoice.supplier_id, entry);
+    }
+    return [...map.values()].sort((a, b) => dCmp(b.due, a.due));
+  }, [apQuery.data]);
 
   const apRows = useMemo(() => {
     const items = apQuery.data?.items ?? [];
@@ -669,7 +989,14 @@ export function ApArPage() {
               variant="primary"
               size="md"
               icon={<Wallet className="h-5 w-5" />}
-              onClick={() => setArTarget(row)}
+              onClick={() =>
+                setArTarget({
+                  contract_id: row.contract_id,
+                  invoice_id: row.id,
+                  label: `${row.customer_name ?? ""} · ${row.invoice_no}`,
+                  due: row.amount_due,
+                })
+              }
             >
               {t.partners.arPayment}
             </Button>
@@ -679,15 +1006,105 @@ export function ApArPage() {
     },
   ];
 
+  const contractColumns: Column<Contract>[] = [
+    {
+      key: "customer",
+      header: t.partners.customer,
+      primary: true,
+      render: (row) => <span className="font-bold">{row.customer_name ?? "—"}</span>,
+    },
+    { key: "contract", header: t.partners.contractNo, hideOnMobile: true, render: (row) => row.contract_no },
+    {
+      key: "opening",
+      header: t.partners.openingBalance,
+      align: "right",
+      numeric: true,
+      hideOnMobile: true,
+      render: (row) => formatMNT(row.opening_balance),
+    },
+    {
+      key: "limit",
+      header: t.partners.creditLimit,
+      align: "right",
+      numeric: true,
+      hideOnMobile: true,
+      render: (row) => formatMNT(row.credit_limit),
+    },
+    {
+      key: "balance",
+      header: t.partners.currentBalance,
+      align: "right",
+      numeric: true,
+      render: (row) => <span className="font-bold">{formatMNT(row.balance)}</span>,
+    },
+    {
+      key: "action",
+      header: t.common.actions,
+      align: "right",
+      render: (row) => (
+        <span className="flex flex-wrap justify-end gap-2">
+          <Button
+            variant="secondary"
+            size="md"
+            icon={<FileText className="h-5 w-5" />}
+            onClick={() => setStatementContract(row.id)}
+          >
+            {t.partners.statement}
+          </Button>
+          {dCmp(row.balance, "0") > 0 ? (
+            <Button
+              variant="primary"
+              size="md"
+              icon={<Wallet className="h-5 w-5" />}
+              onClick={() =>
+                setArTarget({
+                  contract_id: row.id,
+                  invoice_id: null,
+                  label: `${row.customer_name ?? ""} · ${row.contract_no}`,
+                  due: row.balance,
+                })
+              }
+            >
+              {t.partners.arPayment}
+            </Button>
+          ) : null}
+        </span>
+      ),
+    },
+  ];
+
+  const supplierColumns: Column<(typeof supplierRows)[number]>[] = [
+    { key: "supplier", header: t.procurement.supplier, primary: true, render: (row) => <span className="font-bold">{row.name}</span> },
+    { key: "count", header: t.procurement.invoiceCount, align: "right", numeric: true, render: (row) => row.count },
+    {
+      key: "due",
+      header: t.procurement.amountDue,
+      align: "right",
+      numeric: true,
+      render: (row) => <span className="font-bold">{formatMNT(row.due)}</span>,
+    },
+  ];
+
   return (
     <div className="flex flex-1 flex-col gap-5">
       <PageHeader
         title={t.accounting.apar}
-        subtitle={`${t.common.total}: ${formatMNT(outstanding)}`}
+        subtitle={`${t.common.total}: ${formatMNT(tab === "ar" ? arBalanceTotal : outstanding)}`}
         actions={
-          <Button variant={openOnly ? "primary" : "secondary"} size="md" onClick={() => setOpenOnly((v) => !v)}>
-            {openOnly ? t.status.unpaid : t.common.all}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant={openOnly ? "primary" : "secondary"} size="md" onClick={() => setOpenOnly((v) => !v)}>
+              {openOnly ? t.status.unpaid : t.common.all}
+            </Button>
+            {tab === "ap" ? (
+              <Button variant="success" size="md" icon={<Plus />} onClick={() => setApCreateOpen(true)}>
+                {t.procurement.apCreate}
+              </Button>
+            ) : (
+              <Button variant="success" size="md" icon={<Plus />} onClick={() => setArChargeOpen(true)}>
+                {t.partners.arCharge}
+              </Button>
+            )}
+          </div>
         }
       >
         <TabBar variant="underline" value={tab} onChange={setTab} items={TABS} />
@@ -709,29 +1126,57 @@ export function ApArPage() {
       </Card>
 
       {tab === "ap" ? (
-        <Card title={t.procurement.apInvoices} subtitle={`${apRows.length} ${t.common.rows}`} flush>
-          <DataTable
-            columns={apColumns}
-            rows={apRows}
-            rowKey={(row) => row.id}
-            loading={apQuery.isLoading}
-            emptyTitle={t.reports.noData}
-          />
-        </Card>
+        <>
+          <Card title={t.procurement.apBySupplier} subtitle={t.procurement.apBySupplierHint} flush>
+            <DataTable
+              columns={supplierColumns}
+              rows={supplierRows}
+              rowKey={(row) => row.supplier_id}
+              loading={apQuery.isLoading}
+              emptyTitle={t.reports.noData}
+            />
+          </Card>
+          <Card title={t.procurement.apInvoices} subtitle={`${apRows.length} ${t.common.rows}`} flush>
+            <DataTable
+              columns={apColumns}
+              rows={apRows}
+              rowKey={(row) => row.id}
+              loading={apQuery.isLoading}
+              emptyTitle={t.reports.noData}
+            />
+          </Card>
+        </>
       ) : (
-        <Card title={t.partners.arInvoices} subtitle={`${arRows.length} ${t.common.rows}`} flush>
-          <DataTable
-            columns={arColumns}
-            rows={arRows}
-            rowKey={(row) => row.id}
-            loading={arQuery.isLoading}
-            emptyTitle={t.reports.noData}
-          />
-        </Card>
+        <>
+          <Card
+            title={t.partners.arByCustomer}
+            subtitle={`${t.partners.arByCustomerHint} · ${t.common.total}: ${formatMNT(arBalanceTotal)}`}
+            flush
+          >
+            <DataTable
+              columns={contractColumns}
+              rows={contractRows}
+              rowKey={(row) => row.id}
+              loading={contractsQuery.isLoading}
+              emptyTitle={t.reports.noData}
+            />
+          </Card>
+          <Card title={t.partners.arInvoices} subtitle={`${arRows.length} ${t.common.rows}`} flush>
+            <DataTable
+              columns={arColumns}
+              rows={arRows}
+              rowKey={(row) => row.id}
+              loading={arQuery.isLoading}
+              emptyTitle={t.reports.noData}
+            />
+          </Card>
+        </>
       )}
 
       <ApPaymentModal invoice={apTarget} onClose={() => setApTarget(null)} />
-      <ArPaymentModal invoice={arTarget} onClose={() => setArTarget(null)} />
+      <ArPaymentModal target={arTarget} onClose={() => setArTarget(null)} />
+      <ArChargeModal open={arChargeOpen} onClose={() => setArChargeOpen(false)} />
+      <ApInvoiceModal open={apCreateOpen} onClose={() => setApCreateOpen(false)} />
       <StatementModal contractId={statementContract} onClose={() => setStatementContract(null)} />
     </div>
   );

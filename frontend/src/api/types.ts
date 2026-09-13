@@ -1523,6 +1523,15 @@ export interface ArPaymentCreate {
   note?: string | null;
 }
 
+/** Гэрээнд гараар авлага нэмэх (+) / хасах (−). */
+export interface ArChargeCreate {
+  amount: MoneyStr;
+  charge_date?: IsoDate | null;
+  /** opening — эхний үлдэгдэл/залруулга (3101); income — бусад орлого (4903). */
+  kind: "opening" | "income";
+  note?: string | null;
+}
+
 export interface ArPayment {
   id: UUID;
   ar_invoice_id: UUID | null;
@@ -2038,6 +2047,19 @@ export interface ApInvoice {
   amount_paid: MoneyStr;
   amount_due: MoneyStr;
   status: InvoiceStatus | string;
+}
+
+/** Нийлүүлэгчийн өглөгийн нэхэмжлэх гараар үүсгэх. */
+export interface ApInvoiceCreate {
+  supplier_id: UUID;
+  amount: MoneyStr;
+  invoice_date?: IsoDate | null;
+  due_date?: IsoDate | null;
+  invoice_no?: string | null;
+  /** opening — эхний үлдэгдэл (Дт 3101); expense — зардлын данс (Дт 5xxx). */
+  kind: "opening" | "expense";
+  expense_account_code?: string | null;
+  note?: string | null;
 }
 
 export interface ApPaymentCreate {

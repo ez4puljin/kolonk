@@ -34,6 +34,7 @@ ROUTER_MODULES = [
     "customer_import",
     "customers",
     "contracts",
+    "apar_manual",
     "sales",
     "refunds",
     "price_changes",

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../client";
 import type {
+  ApInvoiceCreate,
   Account,
   ApInvoice,
   ApPaymentCreate,
@@ -160,6 +161,18 @@ export function useApInvoices(params?: ApInvoiceParams) {
   return useQuery({
     queryKey: accountingKeys.apInvoices(params),
     queryFn: () => api.get<Paged<ApInvoice>>("/api/ap-invoices", { params: { ...params } }),
+  });
+}
+
+/** Нийлүүлэгчийн өглөгийн нэхэмжлэх гараар — Кт 2101 / Дт 3101 эсвэл зардлын данс. */
+export function useCreateApInvoiceMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: ApInvoiceCreate) => api.post<ApInvoice>("/api/ap-invoices", payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["ap-invoices"] });
+      void queryClient.invalidateQueries({ queryKey: accountingKeys.all });
+    },
   });
 }
 

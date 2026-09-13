@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../client";
 import type {
+  ArChargeCreate,
   ArInvoice,
   ArPaymentCreate,
   ArPaymentResult,
@@ -220,6 +221,20 @@ export function useGenerateArInvoicesMutation() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: partnerKeys.arInvoices });
       void queryClient.invalidateQueries({ queryKey: partnerKeys.contracts });
+    },
+  });
+}
+
+/** Гэрээнд гараар авлага нэмэх/хасах — Дт 1201 / Кт 3101 эсвэл 4903. */
+export function useCreateArChargeMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ contractId, ...payload }: ArChargeCreate & { contractId: UUID }) =>
+      api.post<Contract>(`/api/contracts/${contractId}/charges`, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: partnerKeys.contracts });
+      void queryClient.invalidateQueries({ queryKey: partnerKeys.customers });
+      void queryClient.invalidateQueries({ queryKey: ["accounting"] });
     },
   });
 }
