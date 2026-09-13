@@ -503,7 +503,8 @@ export function AppRoutes() {
           <Route
             path="/inventory"
             element={
-              <RequirePermission code="inventory.manage">
+              // Түгээгч (products.view) үлдэгдлээ харна; тохируулга, шилжүүлэг inventory.manage.
+              <RequirePermission code={["products.view", "inventory.manage"]}>
                 <InventoryPage />
               </RequirePermission>
             }
