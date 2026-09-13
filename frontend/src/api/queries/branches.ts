@@ -4,6 +4,8 @@ import { api } from "../client";
 import type {
   Branch,
   BranchCreate,
+  BranchOpeningRequest,
+  BranchOpeningResult,
   BranchPaymentMethod,
   BranchUpdate,
   UUID,
@@ -12,6 +14,20 @@ import type {
 export const branchKeys = {
   all: ["branches"] as const,
 };
+
+/** Салбарын эхний үлдэгдэл (сав, миль) — нэг удаа. */
+export function useBranchOpeningMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...payload }: BranchOpeningRequest & { id: UUID }) =>
+      api.post<BranchOpeningResult>(`/api/branches/${id}/opening`, payload),
+    onSuccess: () => {
+      for (const key of [branchKeys.all, ["tanks"], ["pumps"], ["accounting"], ["dashboard"]]) {
+        void queryClient.invalidateQueries({ queryKey: key });
+      }
+    },
+  });
+}
 
 /** Салбарын жагсаалт — нэвтэрсэн бүх хэрэглэгч харна. */
 export function useBranches() {

@@ -10,6 +10,7 @@ import type {
   ContractStatement,
   ContractUpdate,
   Customer,
+  CustomerImportResult,
   CustomerCreate,
   CustomerUpdate,
   Paged,
@@ -79,6 +80,19 @@ export function useUploadContractFileMutation() {
       api.upload<Customer>(`/api/customers/${id}/contract-file`, file),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["customers"] });
+    },
+  });
+}
+
+/** Excel импорт: нэр, утас, авлага, огноо → харилцагч + гэрээ + эхний үлдэгдэл. */
+export function useImportCustomersMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => api.upload<CustomerImportResult>("/api/customers/import", file),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["customers"] });
+      void queryClient.invalidateQueries({ queryKey: ["contracts"] });
+      void queryClient.invalidateQueries({ queryKey: ["accounting"] });
     },
   });
 }

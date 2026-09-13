@@ -39,6 +39,8 @@ ROUTER_MODULES = [
     "inventory_report",
     "report_center",
     "branches",
+    "branch_opening",
+    "customer_import",
     "dashboards",
     "ebarimt",
     "audit",

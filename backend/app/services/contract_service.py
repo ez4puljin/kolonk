@@ -128,6 +128,8 @@ def contract_out(contract: Contract, *, customer_name: str | None = None) -> dic
         "billing_day": int(contract.billing_day or 1),
         "status": str(contract.status),
         "status_name": CONTRACT_STATUS_MN.get(str(contract.status), str(contract.status)),
+        "opening_balance": q2(_dec(getattr(contract, "opening_balance", ZERO))),
+        "opening_date": getattr(contract, "opening_date", None),
         "created_at": contract.created_at,
         "updated_at": contract.updated_at,
     }
@@ -414,7 +416,9 @@ async def statement(
     end = _day_end(date_to) if date_to is not None else None
 
     # --- Эхний үлдэгдэл ---
-    opening = ZERO
+    # Импортоор орж ирсэн эхний үлдэгдэл борлуулалт/төлбөрийн мөрүүдэд байхгүй
+    # тул үргэлж эхний үлдэгдэлд орно (өдрийн хаалт, ПОС-ын өмнөх өр).
+    opening = q2(_dec(getattr(contract, "opening_balance", ZERO)))
     if start is not None:
         sales_before = await db.scalar(
             select(func.coalesce(func.sum(Payment.amount), ZERO))
@@ -433,7 +437,7 @@ async def statement(
                 ArPayment.payment_date < date_from,
             )
         )
-        opening = q2(_dec(sales_before) - _dec(payments_before))
+        opening = q2(opening + _dec(sales_before) - _dec(payments_before))
 
     rows: list[dict[str, Any]] = []
     balance = opening

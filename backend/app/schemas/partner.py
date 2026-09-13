@@ -134,6 +134,9 @@ class ContractOut(BaseModel):
     billing_day: int = 1
     status: str
     status_name: str = ""
+    #: Импортоор орж ирсэн авлагын эхний үлдэгдэл, огноо.
+    opening_balance: Decimal = ZERO
+    opening_date: date | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

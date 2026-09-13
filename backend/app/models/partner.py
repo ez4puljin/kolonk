@@ -1,7 +1,8 @@
 import uuid
+from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Date, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -58,5 +59,9 @@ class Contract(UUIDPKMixin, TimestampMixin, Base):
     price_discount_per_l: Mapped[Decimal] = mapped_column(Money, nullable=False, default=Decimal("0"))
     billing_day: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=ContractStatus.ACTIVE)
+    #: Системд шилжихэд импортоор орж ирсэн авлагын эхний үлдэгдэл (балансад
+    #: багтсан, тооцооны хуулгад «Эхний үлдэгдэл» мөрөөр гарна).
+    opening_balance: Mapped[Decimal] = mapped_column(Money, nullable=False, default=Decimal("0"))
+    opening_date: Mapped[date | None] = mapped_column(Date)
 
     customer: Mapped[Customer] = relationship(back_populates="contracts", lazy="selectin")

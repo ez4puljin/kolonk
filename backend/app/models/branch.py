@@ -5,8 +5,9 @@ v1-д нэг салбар ("Төв салбар") seed-ээр үүсэж, бүх
 """
 
 import uuid
+from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -39,4 +40,12 @@ class Branch(UUIDPKMixin, TimestampMixin, Base):
     #: зураг дээр огноо/цаг тамгална). Бусад зураг галерейгээс сонгож болно.
     mile_photo_camera_only: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False
+    )
+
+    # --- Эхний үлдэгдэл (нэг удаа) ---
+    #: Савны эхний үлдэгдэл, хошууны одоогийн милийг Салбарын тохиргооноос
+    #: оруулсан мөч — бөглөгдсөн бол дахин оруулах боломжгүй.
+    opening_done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    opening_done_by: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id")
     )

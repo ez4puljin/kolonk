@@ -14,6 +14,7 @@ import {
   Database,
   Fuel,
   Gauge,
+  Lock,
   Plus,
   Settings2,
   Trash2,
@@ -41,6 +42,7 @@ import {
 import { useCreateTankMutation, useTanks, useUpdateTankMutation } from "../../api/queries/tanks";
 import { useCreateUserMutation, useRoles, useUsers } from "../../api/queries/users";
 import type { Pump, PumpNozzle, Tank, UUID } from "../../api/types";
+import { BranchOpeningCard } from "../../components/admin/BranchOpeningCard";
 import { FuelsPanel } from "../../components/admin/FuelsPanel";
 import { PageHeader } from "../../components/layout/PageHeader";
 import { Button } from "../../components/ui/Button";
@@ -59,7 +61,7 @@ import { formatLiters, formatMNT } from "../../lib/format";
 import { useUiStore } from "../../stores/ui";
 import { NumberField, PickerField, TextField, ToggleField } from "../catalog/_shared";
 
-type Tab = "general" | "cashiers" | "fuels" | "tanks" | "pumps" | "payments";
+type Tab = "general" | "cashiers" | "fuels" | "tanks" | "pumps" | "payments" | "opening";
 
 /** Талбайн торны хэмжээ — насосыг байрлуулах нүднүүд. */
 const GRID_COLS = 4;
@@ -539,6 +541,11 @@ export function BranchSetupPage() {
               icon: <CreditCard className="h-5 w-5" />,
               badge: paymentRows.filter((row) => payValue(String(row.method), row.is_enabled)).length || null,
             },
+            {
+              value: "opening",
+              label: t.branches.tabOpening,
+              icon: branch.opening_done_at ? <Lock className="h-5 w-5" /> : <Gauge className="h-5 w-5" />,
+            },
           ]}
         />
       </PageHeader>
@@ -647,6 +654,9 @@ export function BranchSetupPage() {
       {/* --- Сав --- */}
       {/* --- Түлш: төрлүүд нийтлэг, үнэ нь энэ салбарынхаар --- */}
       {tab === "fuels" ? <FuelsPanel branchId={branchId as UUID} branchName={branch.name} /> : null}
+
+      {/* --- Эхний үлдэгдэл: сав + миль, нэг удаа --- */}
+      {tab === "opening" ? <BranchOpeningCard branch={branch} tanks={tanks} pumps={pumps} /> : null}
 
       {tab === "tanks" ? (
         <Card

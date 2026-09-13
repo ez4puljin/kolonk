@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { FileDown, FileText, Filter, Paperclip, Pencil, Plus, Trash2, Users, X } from "lucide-react";
+import { FileDown, FileText, FileUp, Filter, Paperclip, Pencil, Plus, Trash2, Users, X } from "lucide-react";
 
 import { api, errorMessage } from "../../api/client";
 import { useBranches } from "../../api/queries/branches";
@@ -9,10 +9,11 @@ import {
   useCreateCustomerMutation,
   useCustomers,
   useDeleteContractFileMutation,
+  useImportCustomersMutation,
   useUpdateCustomerMutation,
   useUploadContractFileMutation,
 } from "../../api/queries/partners";
-import type { Contract, Customer, CustomerType, UUID } from "../../api/types";
+import type { Contract, Customer, CustomerImportResult, CustomerType, UUID } from "../../api/types";
 import { PageHeader } from "../../components/layout/PageHeader";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
@@ -91,6 +92,11 @@ export function CustomersPage() {
   const [createdTo, setCreatedTo] = useState("");
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<Customer | null>(null);
+
+  // Excel импорт: нэр, утас, авлага, огноо.
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+  const importMutation = useImportCustomersMutation();
+  const [importResult, setImportResult] = useState<CustomerImportResult | null>(null);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
@@ -401,11 +407,78 @@ export function CustomersPage() {
       <PageHeader
         title={t.partners.customers}
         actions={
-          <Button variant="primary" size="lg" icon={<Plus />} onClick={() => openForm(null)}>
-            {t.partners.newCustomer}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".xlsx"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (!file) return;
+                importMutation.mutate(file, {
+                  onSuccess: (result) => {
+                    toastSuccess(t.common.saved);
+                    setImportResult(result);
+                  },
+                  onError: (error) => toastError(errorMessage(error)),
+                });
+              }}
+            />
+            <Button
+              variant="secondary"
+              size="lg"
+              icon={<FileUp />}
+              loading={importMutation.isPending}
+              onClick={() => importInputRef.current?.click()}
+            >
+              {t.partners.importExcel}
+            </Button>
+            <Button variant="primary" size="lg" icon={<Plus />} onClick={() => openForm(null)}>
+              {t.partners.newCustomer}
+            </Button>
+          </div>
         }
       />
+
+      {/* Импортын дүн */}
+      <Modal
+        open={importResult !== null}
+        onClose={() => setImportResult(null)}
+        size="md"
+        title={t.partners.importResult}
+        footer={
+          <Button variant="primary" size="md" onClick={() => setImportResult(null)}>
+            {t.common.close}
+          </Button>
+        }
+      >
+        {importResult ? (
+          <div className="flex flex-col gap-3 text-[15px]">
+            <p className="text-xs text-ink-soft">{t.partners.importHint}</p>
+            <KeyValue label={t.partners.importRows} value={String(importResult.rows)} />
+            <KeyValue label={t.partners.importCreated} value={String(importResult.customers_created)} />
+            <KeyValue label={t.partners.importMatched} value={String(importResult.customers_matched)} />
+            <KeyValue label={t.partners.importContracts} value={String(importResult.contracts_created)} />
+            <KeyValue label={t.partners.importReceivable} value={formatMNT(importResult.receivable_total)} />
+            {importResult.errors.length > 0 ? (
+              <div className="rounded-xl border border-danger bg-danger-soft px-4 py-3 text-sm text-danger-dark">
+                <span className="font-bold">
+                  {t.partners.importErrors}: {importResult.errors.length}
+                </span>
+                <ul className="mt-1 list-disc pl-5">
+                  {importResult.errors.slice(0, 30).map((error) => (
+                    <li key={`${error.row}-${error.message}`}>
+                      {error.row}-р {t.partners.importRow}: {error.message}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </Modal>
 
       <div className="grid items-start gap-6 lg:grid-cols-[17rem_minmax(0,1fr)]">
         {/* erxes-маягийн зүүн шүүлтийн самбар */}

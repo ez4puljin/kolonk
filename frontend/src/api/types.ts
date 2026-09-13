@@ -1195,6 +1195,25 @@ export interface Branch {
   require_open_photo: boolean;
   /** Милийн зургийг зөвхөн камераар (огноо/цагийн тамгатай) авах эсэх. */
   mile_photo_camera_only: boolean;
+  /** Эхний үлдэгдэл (сав, миль) нэг удаа оруулсан мөч — бөглөгдсөн бол дахин оруулахгүй. */
+  opening_done_at: IsoDateTime | null;
+  opening_done_by_name: string | null;
+}
+
+/** Салбарын эхний үлдэгдэл — нэг удаа. */
+export interface BranchOpeningRequest {
+  as_of?: IsoDate | null;
+  tanks: { tank_id: UUID; liters: LitersStr; unit_cost: MoneyStr }[];
+  nozzles: { nozzle_id: UUID; totalizer: LitersStr }[];
+}
+
+export interface BranchOpeningResult {
+  branch_id: UUID;
+  opening_done_at: IsoDateTime;
+  tanks_set: number;
+  nozzles_set: number;
+  fuel_value: MoneyStr;
+  journal_entry_id: UUID | null;
 }
 
 /** Салбарт тухайн төлбөрийн хэрэгсэл идэвхтэй эсэх. */
@@ -1421,8 +1440,21 @@ export interface Contract {
   billing_day: number;
   status: ContractStatus | string;
   status_name: string;
+  /** Импортоор орж ирсэн авлагын эхний үлдэгдэл, огноо. */
+  opening_balance: MoneyStr;
+  opening_date: IsoDate | null;
   created_at: IsoDateTime | null;
   updated_at: IsoDateTime | null;
+}
+
+/** Харилцагчийн Excel импортын дүн. */
+export interface CustomerImportResult {
+  rows: number;
+  customers_created: number;
+  customers_matched: number;
+  contracts_created: number;
+  receivable_total: MoneyStr;
+  errors: { row: number; message: string }[];
 }
 
 export interface ContractCreate {

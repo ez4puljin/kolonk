@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
@@ -86,6 +87,9 @@ class BranchOut(BaseModel):
     require_open_photo: bool = True
     #: Милийн зургийг зөвхөн камераар авах (огноо/цагийн тамгатай).
     mile_photo_camera_only: bool = True
+    #: Эхний үлдэгдэл (сав, миль) нэг удаа оруулсан мөч, хэн оруулсан.
+    opening_done_at: datetime | None = None
+    opening_done_by_name: str | None = None
 
 
 def _clean(value: str | None) -> str | None:
@@ -114,6 +118,13 @@ async def _with_counts(db: AsyncSession, rows: list[Branch]) -> list[BranchOut]:
         ).all():
             shifts[bid] = count
 
+    opener_ids = {b.opening_done_by for b in rows if b.opening_done_by is not None}
+    openers: dict[uuid.UUID, str] = {}
+    if opener_ids:
+        openers = dict(
+            (await db.execute(select(User.id, User.full_name).where(User.id.in_(opener_ids)))).all()
+        )
+
     return [
         BranchOut(
             id=b.id,
@@ -128,6 +139,8 @@ async def _with_counts(db: AsyncSession, rows: list[Branch]) -> list[BranchOut]:
             require_open_mile=b.require_open_mile,
             require_open_photo=b.require_open_photo,
             mile_photo_camera_only=b.mile_photo_camera_only,
+            opening_done_at=b.opening_done_at,
+            opening_done_by_name=openers.get(b.opening_done_by) if b.opening_done_by else None,
         )
         for b in rows
     ]
