@@ -22,6 +22,7 @@ from io import BytesIO
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -136,6 +137,63 @@ async def _next_contract_no(db: AsyncSession, prefix: str) -> str:
         if not clash:
             return candidate
         seq += 1
+
+
+XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _build_template() -> bytes:
+    """Импортын загвар: гарчиг + 2 жишээ мөр, тайлбар хуудастай."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Харилцагч"
+    ws.append(["Нэр", "Утас", "Авлага", "Огноо"])
+    ws.append(["Бат-Эрдэнэ", "99112233", 150000, date(2026, 8, 31)])
+    ws.append(["Оюунаа", "88445566", 0, None])
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill("solid", fgColor="DBEAFE")
+    ws.column_dimensions["A"].width = 28
+    ws.column_dimensions["B"].width = 14
+    ws.column_dimensions["C"].width = 14
+    ws.column_dimensions["D"].width = 14
+    ws["D2"].number_format = "yyyy-mm-dd"
+    ws["C2"].number_format = "#,##0"
+
+    notes = wb.create_sheet("Тайлбар")
+    for line in (
+        "A — Нэр: заавал. Овог нэрийг нэг нүдэнд бичиж болно.",
+        "B — Утас: сонголтоор. Ижил утастай мөрүүд нэг харилцагчид нэгтгэгдэнэ;",
+        "    бүртгэлтэй харилцагчтай таарвал шинээр үүсгэхгүй.",
+        "C — Авлага (₮): тухайн харилцагчийн танд төлөх өр. 0 эсвэл хоосон бол зөвхөн харилцагч + гэрээ үүснэ.",
+        "D — Огноо: авлага үүссэн огноо (2026-09-13, 2026.09.13, 13.09.2026 эсвэл Excel огноо). Хоосон бол өнөөдөр.",
+        "",
+        "Эхний «Харилцагч» хуудсыг л уншина; гарчгийн мөрийг устгахгүй байж болно.",
+        "Авлага гэрээний эхний үлдэгдэл болж, журналд Дт 1201 / Кт 3101 бичигдэнэ;",
+        "зээлийн лимит авлагатай тэнцүү тогтоно — дараа нь Харилцагч → Гэрээ хэсгээс засна.",
+    ):
+        notes.append([line])
+    notes.column_dimensions["A"].width = 110
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
+@router.get("/customers/import-template")
+async def import_template(
+    _user: User = Depends(require_permission("contracts.manage")),
+) -> StreamingResponse:
+    """Импортын Excel загвар (нэр, утас, авлага, огноо) татах."""
+    payload = _build_template()
+    return StreamingResponse(
+        BytesIO(payload),
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": "attachment; filename=\"customer-import-template.xlsx\""},
+    )
 
 
 @router.post("/customers/import", response_model=CustomerImportOut, status_code=201)

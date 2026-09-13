@@ -429,6 +429,18 @@ export function CustomersPage() {
             <Button
               variant="secondary"
               size="lg"
+              icon={<FileDown />}
+              onClick={() => {
+                void api
+                  .download("/api/customers/import-template", undefined, "kolonk-customer-import.xlsx")
+                  .catch((error: unknown) => toastError(errorMessage(error)));
+              }}
+            >
+              {t.partners.importTemplate}
+            </Button>
+            <Button
+              variant="secondary"
+              size="lg"
               icon={<FileUp />}
               loading={importMutation.isPending}
               onClick={() => importInputRef.current?.click()}
