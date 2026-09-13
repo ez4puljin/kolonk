@@ -396,23 +396,41 @@ async def seed_bank_accounts(db) -> None:
     from app.models.bank import BankAccount
     from app.models.branch import Branch
 
+    from app.enums import EventType, SourceType
+    from app.services.posting import posting
+    from app.services.posting_rules import build_bank_opening_lines
+
     branch = await db.scalar(select(Branch).order_by(Branch.created_at).limit(1))
     for order, (bank, number, holder, opening, is_fee) in enumerate(BANK_ACCOUNTS):
         exists = await db.scalar(select(BankAccount).where(BankAccount.account_number == number))
         if exists is not None:
             continue
-        db.add(
-            BankAccount(
-                branch_id=branch.id if branch is not None else None,
-                bank_name=bank,
-                account_number=number,
-                holder_name=holder,
-                currency="MNT",
-                opening_balance=q2(Decimal(opening)),
-                is_fee_default=is_fee,
-                sort_order=order,
-            )
+        account = BankAccount(
+            branch_id=branch.id if branch is not None else None,
+            bank_name=bank,
+            account_number=number,
+            holder_name=holder,
+            currency="MNT",
+            opening_balance=q2(Decimal(opening)),
+            is_fee_default=is_fee,
+            sort_order=order,
         )
+        db.add(account)
+        await db.flush()
+        # Эхний үлдэгдэл ерөнхий дэвтэрт: Дт 1110 (данс) / Кт 3101 — баланс,
+        # мөнгөн урсгал, дансны үлдэгдэл бүгд журналаас гарна (router-тай ижил).
+        lines = build_bank_opening_lines(account, account.opening_balance)
+        if lines:
+            await posting.post(
+                db,
+                event_type=EventType.BANK_OPENING_POSTED,
+                source_type=SourceType.BANK_ACCOUNT,
+                source_id=account.id,
+                entry_date=date.today(),
+                description=f"Банкны дансны эхний үлдэгдэл — {bank} {number}",
+                lines=lines,
+                posted_by=None,
+            )
     await db.flush()
     log.info("Харилцах данс бэлэн (%d)", len(BANK_ACCOUNTS))
 

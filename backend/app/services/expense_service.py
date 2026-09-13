@@ -117,14 +117,22 @@ async def create_expense(
         )
 
     # Харилцахаас төлсөн бол аль данснаас гарсныг мэдэх шаардлагатай — эс
-    # бөгөөс дансны үлдэгдэл хөтлөгдөхгүй.  Данс бүртгээгүй бол алгасна.
+    # бөгөөс дансны үлдэгдэл хөтлөгдөхгүй.  Заагаагүй бол шимтгэлийн анхдагч
+    # данс (нийлүүлэгчийн төлбөртэй ижил дүрэм); данс бүртгээгүй бол алгасна.
     if method == "bank" and bank_account_id is not None:
         account_row = await db.get(BankAccount, bank_account_id)
         if account_row is None:
             raise HTTPException(status_code=404, detail="Харилцах данс олдсонгүй")
         if not account_row.is_active:
             raise HTTPException(status_code=422, detail="Харилцах данс идэвхгүй байна")
-    elif method != "bank":
+    elif method == "bank":
+        default_account = await db.scalar(
+            select(BankAccount).where(
+                BankAccount.is_fee_default.is_(True), BankAccount.is_active.is_(True)
+            )
+        )
+        bank_account_id = default_account.id if default_account is not None else None
+    else:
         bank_account_id = None
 
     supplier: Supplier | None = None
