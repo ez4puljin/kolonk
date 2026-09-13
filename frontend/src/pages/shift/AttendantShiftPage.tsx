@@ -627,6 +627,12 @@ export function AttendantShiftPage() {
   // ---- Хаалтын wizard төлөв ----
   const [wizardOpen, setWizardOpen] = useState(false);
   const [step, setStep] = useState<WizardStep>(0);
+  /** Идэвхтэй алхамын товч — зөвхөн алхам солигдоход л харагдах хэсэгт гүйлгэнэ. */
+  const stepChipRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (!wizardOpen) return;
+    stepChipRef.current?.scrollIntoView({ inline: "center", block: "nearest" });
+  }, [step, wizardOpen]);
   const [closeReadings, setCloseReadings] = useState<Record<UUID, string>>({});
   const [declaredCash, setDeclaredCash] = useState("");
   const [settlementVat, setSettlementVat] = useState("");
@@ -771,6 +777,8 @@ export function AttendantShiftPage() {
     () => dSum(creditRowTotals.map((row) => row.total)),
     [creditRowTotals],
   );
+  /** Зээлээр өгсөн бараа — тос/барааны алхамд ороогүй тул тулгалтад тусад нь нэмэгдэнэ. */
+  const creditGoodsTotal = useMemo(() => dSub(creditTotal, creditFuelTotal), [creditTotal, creditFuelTotal]);
 
   /**
    * Зээлийн алхамд шинээр нэмсэн харилцагчид — «Өглөг төлөлт»-ийн сонголтод
@@ -1387,7 +1395,7 @@ export function AttendantShiftPage() {
               <button
                 key={meta.label}
                 type="button"
-                ref={index === step ? (el) => el?.scrollIntoView({ inline: "center", block: "nearest" }) : undefined}
+                ref={index === step ? stepChipRef : undefined}
                 // Тулгалт руу шууд үсрэхэд тооцоог сервэрээс дуудна — эс бөгөөс
                 // preview байхгүй тул хоосон дэлгэц харагдана.
                 onClick={() =>
@@ -1880,9 +1888,12 @@ export function AttendantShiftPage() {
                 const declared = declaredCash === "" ? "0" : declaredCash;
                 const arNonCash = dSub(arTotal, arCashTotal);
                 const expenseNonCash = dSub(expenseTotal, expenseCashTotal);
+                // Зээлээр өгсөн бараа: орлогод нэмээд зээлийн нийтээр хасна — ингэснээр
+                // зээлийн мөр зээлийн алхмын дүнтэй (түлш + бараа) яг таарна.
+                const goodsAll = dAdd(oilTotal, creditGoodsTotal);
                 const mustTotal = dSub(
-                  dSum([preview.opening_cash, preview.fuel_total, oilTotal, arTotal]),
-                  dSum([creditFuelTotal, expenseTotal]),
+                  dSum([preview.opening_cash, preview.fuel_total, goodsAll, arTotal]),
+                  dSum([creditTotal, expenseTotal]),
                 );
                 const handedTotal = dSub(
                   dSum([declared, settlementTotal, transferAmount, arNonCash]),
@@ -1917,9 +1928,17 @@ export function AttendantShiftPage() {
                         </span>
                         <Row label={`+ ${t.shift.openingCash}`} value={preview.opening_cash} />
                         <Row label={`+ ${t.attendant.fuelByMile}`} value={preview.fuel_total} />
-                        <Row label={`+ ${t.attendant.oilSales}`} value={oilTotal} />
+                        <Row
+                          label={`+ ${Number(creditGoodsTotal) > 0 ? t.attendant.oilSalesInclCredit : t.attendant.oilSales}`}
+                          value={goodsAll}
+                        />
                         <Row label={`+ ${t.attendant.arAll}`} value={arTotal} />
-                        <Row label={`− ${t.attendant.creditGivenFuel}`} value={creditFuelTotal} negative approx />
+                        <Row label={`− ${t.attendant.creditGivenAll}`} value={creditTotal} negative approx />
+                        {Number(creditGoodsTotal) > 0 ? (
+                          <span className="num -mt-1 text-right text-xs text-ink-soft">
+                            {t.sales.fuel}: {formatMNT(creditFuelTotal)} · {t.products.title}: {formatMNT(creditGoodsTotal)}
+                          </span>
+                        ) : null}
                         <Row label={`− ${t.attendant.expenseAll}`} value={expenseTotal} negative />
                         <div className="num mt-1 flex items-baseline justify-between gap-3 border-t border-line-strong pt-2">
                           <span className="font-bold text-ink">= {t.attendant.mustHandover}</span>
