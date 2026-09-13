@@ -143,6 +143,7 @@ export function BranchSetupPage() {
   const [active, setActive] = useState(true);
   const [requireMile, setRequireMile] = useState(true);
   const [requirePhoto, setRequirePhoto] = useState(true);
+  const [mileCameraOnly, setMileCameraOnly] = useState(true);
 
   useEffect(() => {
     if (!branch) return;
@@ -152,6 +153,7 @@ export function BranchSetupPage() {
     setActive(branch.is_active);
     setRequireMile(branch.require_open_mile);
     setRequirePhoto(branch.require_open_photo);
+    setMileCameraOnly(branch.mile_photo_camera_only ?? true);
   }, [branch]);
 
   const saveGeneral = (): void => {
@@ -164,6 +166,7 @@ export function BranchSetupPage() {
         is_active: active,
         require_open_mile: requireMile,
         require_open_photo: requirePhoto,
+        mile_photo_camera_only: mileCameraOnly,
       },
       {
         onSuccess: () => toastSuccess(t.common.saved),
@@ -574,6 +577,12 @@ export function BranchSetupPage() {
               hint={t.branches.requirePhotoHint}
               value={requirePhoto}
               onChange={setRequirePhoto}
+            />
+            <ToggleField
+              label={t.branches.mileCameraOnly}
+              hint={t.branches.mileCameraOnlyHint}
+              value={mileCameraOnly}
+              onChange={setMileCameraOnly}
             />
           </div>
         </Card>

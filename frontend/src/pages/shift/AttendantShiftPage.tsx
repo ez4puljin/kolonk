@@ -49,6 +49,7 @@ import type {
   UUID,
 } from "../../api/types";
 import { PageHeader } from "../../components/layout/PageHeader";
+import { CameraCapture } from "../../components/shift/CameraCapture";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { Modal } from "../../components/ui/Modal";
@@ -59,6 +60,7 @@ import { t } from "../../i18n/mn";
 import { dAdd, dIsPositive, dIsZero, dMul, dSub, dSum, dToQty } from "../../lib/decimal";
 import { formatDateTime, formatLiters, formatMNT, formatNumber } from "../../lib/format";
 import { useBranches } from "../../api/queries/branches";
+import { cameraAvailable, isFreshCapture, stampClock, stampFile } from "../../lib/photo";
 import { useAuthStore } from "../../stores/auth";
 import { useUiStore } from "../../stores/ui";
 import { FieldLabel, NumberField, PickerField, TextField } from "../catalog/_shared";
@@ -92,6 +94,8 @@ function PhotoButton({
   compact = false,
   onCountChange,
   onAdded,
+  cameraOnly = false,
+  stampLines,
 }: {
   shiftId: UUID | null;
   kind: string;
@@ -105,6 +109,13 @@ function PhotoButton({
   onCountChange?: (count: number) => void;
   /** Зураг амжилттай нэмэгдэх бүрд — дараагийн талбар руу шилжихэд. */
   onAdded?: () => void;
+  /**
+   * Милийн зураг: зөвхөн камераар (галерей хориотой), огноо/цагийн тамгатай.
+   * Салбарын журам «Милийн зургийг зөвхөн камераар»-аас ирнэ.
+   */
+  cameraOnly?: boolean;
+  /** Тамганы мөрүүд — дарах мөчид тооцоолно (цаг, салбар, түгээгч). */
+  stampLines?: () => string[];
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const upload = useUploadShiftPhotoMutation();
@@ -112,53 +123,99 @@ function PhotoButton({
   const toastError = useUiStore((state) => state.toastError);
   const toastSuccess = useUiStore((state) => state.toastSuccess);
   const [queued, setQueued] = useState(0);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  /** Аппын камер нээгдэхгүй бол (зөвшөөрөлгүй, HTTP) утасны камер руу буцна. */
+  const [cameraFailed, setCameraFailed] = useState(false);
 
   const count =
     (attachments ?? []).filter(
       (a) => a.kind === kind && (refId === null || a.ref_id === refId),
     ).length + (shiftId ? 0 : queued);
 
+  const addFiles = (files: File[]): void => {
+    if (files.length === 0) return;
+    if (shiftId === null) {
+      queue?.current.push(...files.map((file) => ({ file, refId })));
+      setQueued((n) => {
+        const next = n + files.length;
+        onCountChange?.(next);
+        return next;
+      });
+      onAdded?.();
+      return;
+    }
+    for (const file of files) {
+      upload.mutate(
+        { shiftId, kind, file, refId },
+        {
+          onSuccess: () => {
+            toastSuccess(`1 ${t.attendant.photoUploaded}`);
+            onAdded?.();
+          },
+          onError: (cause) => toastError(errorMessage(cause)),
+        },
+      );
+    }
+  };
+
+  const lines = (): string[] => stampLines?.() ?? [stampClock()];
+
+  const pick = (): void => {
+    if (cameraOnly && !cameraFailed && cameraAvailable()) {
+      setCameraOpen(true);
+      return;
+    }
+    inputRef.current?.click();
+  };
+
   return (
     <>
+      {/* Милийн зураг: зөвхөн зураг, нэг ширхэг, утасны камер шууд.
+          Бусад зураг: галерей/PDF ч болно. */}
       <input
         ref={inputRef}
         type="file"
-        accept="image/*,.pdf"
-        capture="environment"
-        multiple
+        accept={cameraOnly ? "image/*" : "image/*,.pdf"}
+        capture={cameraOnly ? "environment" : undefined}
+        multiple={!cameraOnly}
         className="hidden"
         onChange={(event) => {
           const files = [...(event.target.files ?? [])];
           event.target.value = "";
           if (files.length === 0) return;
-          if (shiftId === null) {
-            queue?.current.push(...files.map((file) => ({ file, refId })));
-            setQueued((n) => {
-              const next = n + files.length;
-              onCountChange?.(next);
-              return next;
-            });
-            onAdded?.();
+          if (!cameraOnly) {
+            addFiles(files);
             return;
           }
-          for (const file of files) {
-            upload.mutate(
-              { shiftId, kind, file, refId },
-              {
-                onSuccess: () => {
-                  toastSuccess(`1 ${t.attendant.photoUploaded}`);
-                  onAdded?.();
-                },
-                onError: (cause) => toastError(errorMessage(cause)),
-              },
-            );
+          // Зарим утас `capture`-ыг үл тоож галерей нээдэг — хуучин файлыг татгалзана.
+          const file = files[0];
+          if (!isFreshCapture(file)) {
+            toastError(t.attendant.photoNotFresh);
+            return;
           }
+          void stampFile(file, lines())
+            .then((stamped) => addFiles([stamped]))
+            .catch((cause: unknown) => toastError(errorMessage(cause)));
         }}
       />
+      {cameraOnly ? (
+        <CameraCapture
+          open={cameraOpen}
+          title={t.attendant.mileCameraTitle}
+          stampLines={lines}
+          onCapture={(file) => addFiles([file])}
+          onClose={() => setCameraOpen(false)}
+          onUnavailable={() => {
+            setCameraOpen(false);
+            setCameraFailed(true);
+            inputRef.current?.click();
+          }}
+        />
+      ) : null}
       {compact ? (
         <button
           type="button"
-          onClick={() => inputRef.current?.click()}
+          onClick={pick}
           aria-label={t.attendant.addPhoto}
           className={[
             "relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border-2 border-dashed",
@@ -178,7 +235,7 @@ function PhotoButton({
       ) : (
         <button
           type="button"
-          onClick={() => inputRef.current?.click()}
+          onClick={pick}
           className="flex h-12 items-center gap-2 rounded-xl border-2 border-dashed border-action px-4 text-[15px] font-bold text-action-dark transition-colors hover:bg-action-soft/40 active:bg-action-soft"
         >
           <Camera className="h-5 w-5" />
@@ -375,7 +432,15 @@ export function AttendantShiftPage() {
   const branchRules = (branchesQuery.data ?? []).find((b) => b.id === branchId);
   const requireMile = branchRules?.require_open_mile ?? true;
   const requirePhoto = branchRules?.require_open_photo ?? true;
+  const mileCameraOnly = branchRules?.mile_photo_camera_only ?? true;
   const currentUserId = useAuthStore((state) => state.user?.id ?? null);
+  const currentUserName = useAuthStore((state) => state.user?.full_name ?? "");
+  const currentBranchName = useAuthStore((state) => state.user?.branch?.name ?? "");
+  /** Милийн зургийн тамга: «2026-09-13 14:05:33» / «Цагаан-Уул салбар · Туяа». */
+  const stampLines = (): string[] => [
+    stampClock(),
+    [currentBranchName, currentUserName].filter(Boolean).join(" · "),
+  ].filter((line) => line !== "");
 
   const { data: current, isLoading: shiftLoading } = useCurrentShift();
   // Хошууг АЖЛЫН САЛБАРААР шүүнэ. Сервер түгээгчийн харьяа салбараар өөрөө
@@ -508,20 +573,44 @@ export function AttendantShiftPage() {
   const countPhoto = (key: string) => (n: number) =>
     setOpenPhotos((prev) => ({ ...prev, [key]: n }));
 
+  /**
+   * Нээлтийн миль хошууны хадгалсан заалтаас (= өмнөх хаалтын миль) урьдчилж
+   * бөглөгдөнө. Түгээгч ГАРААР хүрээгүй талбарыг хошууны заалт шинэчлэгдэх
+   * бүрд дахин бөглөнө — ингэснээр апп нээлттэй байхад ээлж хаагдаад дараагийн
+   * нээлт эхлэхэд хуучин (өмнөх нээлтийн) миль үлдэхгүй.
+   */
+  const openTouched = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (nozzles.length === 0) return;
     setOpenReadings((prev) => {
       const next = { ...prev };
       let changed = false;
       for (const { nozzle } of nozzles) {
-        if (next[nozzle.id] === undefined) {
-          next[nozzle.id] = litersOf(nozzle.totalizer);
+        if (openTouched.current.has(nozzle.id)) continue;
+        const value = litersOf(nozzle.totalizer);
+        if (next[nozzle.id] !== value) {
+          next[nozzle.id] = value;
           changed = true;
         }
       }
       return changed ? next : prev;
     });
   }, [nozzles]);
+
+  /** Ээлж хаагдмагц нээлтийн маягтыг цэвэрлэнэ — дараагийн ээлж цэвэр эхэлнэ. */
+  const prevShiftId = useRef<UUID | null>(null);
+  useEffect(() => {
+    if (prevShiftId.current !== null && shiftId === null) {
+      openTouched.current = new Set();
+      openPhotoQueue.current = [];
+      setOpenReadings({});
+      setOpenPhotos({});
+      setMileConfirmed({});
+      setMileGapAck(false);
+      setOpenCash("");
+    }
+    prevShiftId.current = shiftId;
+  }, [shiftId]);
 
   // ---- Хаалтын wizard төлөв ----
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -991,6 +1080,7 @@ export function AttendantShiftPage() {
                       label=""
                       value={openReadings[nozzle.id] ?? ""}
                       onChange={(value) => {
+                        openTouched.current.add(nozzle.id);
                         setOpenReadings((prev) => ({ ...prev, [nozzle.id]: value }));
                         setMileConfirmed((prev) => ({ ...prev, [nozzle.id]: true }));
                         // Зураг нь аль хэдийн байвал (эсвэл шаардлагагүй бол) мөр
@@ -1011,6 +1101,8 @@ export function AttendantShiftPage() {
                       refId={nozzle.id}
                       queue={openPhotoQueue}
                       compact
+                      cameraOnly={mileCameraOnly}
+                      stampLines={stampLines}
                       onCountChange={countPhoto(nozzle.id)}
                       onAdded={() => {
                         if (!requireMile || mileConfirmed[nozzle.id] === true) {
@@ -1294,6 +1386,8 @@ export function AttendantShiftPage() {
                       kind="close"
                       refId={nozzle.id}
                       compact
+                      cameraOnly={mileCameraOnly}
+                      stampLines={stampLines}
                       onAdded={() => {
                         if ((closeReadings[nozzle.id] ?? "").trim() !== "") {
                           jumpToNextMile("close-mile-", nozzle.id, closeReadings);

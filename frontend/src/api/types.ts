@@ -1193,6 +1193,8 @@ export interface Branch {
   require_open_mile: boolean;
   /** Ээлж нээхэд зураг заавал хавсаргах эсэх. */
   require_open_photo: boolean;
+  /** Милийн зургийг зөвхөн камераар (огноо/цагийн тамгатай) авах эсэх. */
+  mile_photo_camera_only: boolean;
 }
 
 /** Салбарт тухайн төлбөрийн хэрэгсэл идэвхтэй эсэх. */
@@ -1214,6 +1216,7 @@ export interface BranchCreate {
   sort_order?: number;
   require_open_mile?: boolean;
   require_open_photo?: boolean;
+  mile_photo_camera_only?: boolean;
 }
 
 export type BranchUpdate = Partial<BranchCreate>;

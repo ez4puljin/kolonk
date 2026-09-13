@@ -77,6 +77,7 @@ export function useOpenShiftMutation() {
     mutationFn: (payload: ShiftOpenRequest) => api.post<CurrentShift>("/api/shifts/open", payload),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: shiftKeys.all });
+      void queryClient.invalidateQueries({ queryKey: ["pumps"] });
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       void queryClient.invalidateQueries({ queryKey: ["tanks"] });
       void queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
@@ -91,6 +92,7 @@ export function useCloseShiftMutation() {
       api.post<ShiftReport>(`/api/shifts/${id}/close`, payload),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: shiftKeys.all });
+      void queryClient.invalidateQueries({ queryKey: ["pumps"] });
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       void queryClient.invalidateQueries({ queryKey: ["tanks"] });
       void queryClient.invalidateQueries({ queryKey: ["accounting"] });
@@ -243,6 +245,8 @@ export function useDailyCloseMutation() {
     onSuccess: () => {
       for (const key of [
         ["shifts"],
+        // Хаалтын миль хошуунд хадгалагддаг — дараагийн нээлт үүнээс эхэлнэ.
+        ["pumps"],
         ["dashboard"],
         ["tanks"],
         ["accounting"],

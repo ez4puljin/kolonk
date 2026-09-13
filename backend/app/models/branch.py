@@ -35,3 +35,8 @@ class Branch(UUIDPKMixin, TimestampMixin, Base):
     require_open_photo: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False
     )
+    #: Милийн зургийг ЗӨВХӨН камераар (галерейгээс хуучин зураг оруулахгүй,
+    #: зураг дээр огноо/цаг тамгална). Бусад зураг галерейгээс сонгож болно.
+    mile_photo_camera_only: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true"), nullable=False
+    )

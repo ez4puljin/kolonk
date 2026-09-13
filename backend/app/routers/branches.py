@@ -45,6 +45,7 @@ class BranchUpdate(BaseModel):
     sort_order: int | None = None
     require_open_mile: bool | None = None
     require_open_photo: bool | None = None
+    mile_photo_camera_only: bool | None = None
 
 
 class PaymentMethodRow(BaseModel):
@@ -83,6 +84,8 @@ class BranchOut(BaseModel):
     require_open_mile: bool = True
     #: Ээлж нээхэд зураг заавал шаардах эсэх.
     require_open_photo: bool = True
+    #: Милийн зургийг зөвхөн камераар авах (огноо/цагийн тамгатай).
+    mile_photo_camera_only: bool = True
 
 
 def _clean(value: str | None) -> str | None:
@@ -124,6 +127,7 @@ async def _with_counts(db: AsyncSession, rows: list[Branch]) -> list[BranchOut]:
             open_shifts=shifts.get(b.id, 0),
             require_open_mile=b.require_open_mile,
             require_open_photo=b.require_open_photo,
+            mile_photo_camera_only=b.mile_photo_camera_only,
         )
         for b in rows
     ]
@@ -189,6 +193,8 @@ async def update_branch(
         branch.require_open_mile = payload.require_open_mile
     if payload.require_open_photo is not None:
         branch.require_open_photo = payload.require_open_photo
+    if payload.mile_photo_camera_only is not None:
+        branch.mile_photo_camera_only = payload.mile_photo_camera_only
 
     if payload.code is not None:
         code = _clean(payload.code)
