@@ -74,7 +74,8 @@ export function FuelShipmentFormPage() {
   const toastSuccess = useUiStore((state) => state.toastSuccess);
   const toastError = useUiStore((state) => state.toastError);
 
-  const [supplierId, setSupplierId] = useState("");
+  /** Тээврийн зардлыг нэхэмжлэх нийлүүлэгч — тээвэртэй үед л сонгоно. */
+  const [freightSupplierId, setFreightSupplierId] = useState("");
   const [vehicleNo, setVehicleNo] = useState("");
   const [driverName, setDriverName] = useState("");
   const [shipmentDate, setShipmentDate] = useState(todayInput());
@@ -97,15 +98,10 @@ export function FuelShipmentFormPage() {
     () => suppliers.map((s) => ({ value: s.id, label: s.name, hint: s.register_no ?? undefined })),
     [suppliers],
   );
-  // Мөрийн нийлүүлэгч — хоосон утга «үндсэн нийлүүлэгч» гэсэн үг.
-  const lineSupplierOptions = useMemo(
-    () => [
-      { value: "", label: `${t.shipments.mainSupplierShort}${supplierId ? ` — ${supplierName(supplierId)}` : ""}` },
-      ...supplierOptions.filter((o) => o.value !== supplierId),
-    ],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [supplierOptions, supplierId],
-  );
+  // «Үндсэн нийлүүлэгч» гэсэн ойлголт хэрэглэгчид харагдахгүй — мөр бүр өөрийн
+  // нийлүүлэгчтэй. Сервер талын supplier_id-д эхний мөрийн (эсвэл тээврийн)
+  // нийлүүлэгч очно.
+  const lineSupplierOptions = supplierOptions;
 
   const fuels = useMemo(() => fuelsQuery.data?.items ?? [], [fuelsQuery.data]);
   const fuelOptions = useMemo(
@@ -164,32 +160,34 @@ export function FuelShipmentFormPage() {
     items.some((row) => allocatedLiters(row) > num(row.liters) + 0.0005) ||
     goods.some((row) => allocatedQty(row) > num(row.qty) + 0.0005);
 
+  /** Серверийн «үндсэн» нийлүүлэгч: тээвэртэй бол тээврийнх, үгүй бол эхний мөрийнх. */
+  const firstLineSupplier = validItems[0]?.supplier_id || validGoods[0]?.supplier_id || "";
+  const headSupplierId = num(freight) > 0 && freightSupplierId ? freightSupplierId : firstLineSupplier;
+
   const totals = useMemo(() => {
-    const perSupplier = new Map<string, { name: string; isMain: boolean; subtotal: number }>();
+    const perSupplier = new Map<string, { name: string; subtotal: number }>();
     const bump = (sid: string, amount: number): void => {
-      const key = sid || supplierId;
-      const entry = perSupplier.get(key) ?? {
-        name: key ? supplierName(key) : t.shipments.mainSupplierShort,
-        isMain: key === supplierId,
-        subtotal: 0,
-      };
+      if (!sid) return;
+      const entry = perSupplier.get(sid) ?? { name: supplierName(sid), subtotal: 0 };
       entry.subtotal += amount;
-      perSupplier.set(key, entry);
+      perSupplier.set(sid, entry);
     };
-    bump("", num(freight));
     for (const row of items) bump(row.supplier_id, num(row.liters) * num(row.unit_cost));
     for (const row of goods) bump(row.supplier_id, num(row.qty) * num(row.unit_cost));
+    bump(headSupplierId, num(freight));
     const rows = [...perSupplier.values()]
       .map((r) => ({ ...r, vat: r.subtotal * VAT_RATE, gross: r.subtotal * (1 + VAT_RATE) }))
-      .sort((a, b) => Number(b.isMain) - Number(a.isMain) || b.gross - a.gross);
+      .sort((a, b) => b.gross - a.gross);
     const subtotal = sum(rows.map((r) => r.subtotal));
     const vat = sum(rows.map((r) => r.vat));
     return { rows, subtotal, vat, gross: subtotal + vat };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, goods, freight, supplierId, suppliers]);
+  }, [items, goods, freight, headSupplierId, suppliers]);
 
+  const missingSupplier = validItems.some((r) => !r.supplier_id) || validGoods.some((r) => !r.supplier_id);
   const canSave =
-    Boolean(supplierId) &&
+    Boolean(headSupplierId) &&
+    !missingSupplier &&
     vehicleNo.trim().length > 0 &&
     validItems.length + validGoods.length > 0 &&
     !duplicateFuel &&
@@ -199,7 +197,7 @@ export function FuelShipmentFormPage() {
   const save = (): void => {
     if (!canSave) return;
     const payload: FuelShipmentCreate = {
-      supplier_id: supplierId,
+      supplier_id: headSupplierId,
       vehicle_no: vehicleNo.trim(),
       driver_name: driverName.trim() || null,
       shipment_date: shipmentDate || null,
@@ -251,12 +249,20 @@ export function FuelShipmentFormPage() {
 
       <Card title={t.shipments.headerCard} subtitle={t.shipments.headerHint}>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <PickerField label={t.shipments.mainSupplier} value={supplierId} options={supplierOptions} onChange={setSupplierId} searchable />
           <TextField label={t.shipments.vehicleNo} value={vehicleNo} onChange={setVehicleNo} placeholder="1234 УБА" maxLength={32} />
           <TextField label={t.shipments.driver} value={driverName} onChange={setDriverName} maxLength={64} />
           <DateField label={t.common.date} value={shipmentDate} onChange={setShipmentDate} max={todayInput()} />
           <TextField label={t.shipments.invoiceNo} value={invoiceNo} onChange={setInvoiceNo} maxLength={64} />
           <NumberField name="freight" label={t.shipments.freight} value={freight} onChange={setFreight} suffix="₮" maxDecimals={2} hint={t.shipments.freightHint} />
+          {num(freight) > 0 ? (
+            <PickerField
+              label={t.shipments.freightSupplier}
+              value={freightSupplierId || firstLineSupplier}
+              options={supplierOptions}
+              onChange={setFreightSupplierId}
+              searchable
+            />
+          ) : null}
         </div>
       </Card>
 
@@ -283,7 +289,7 @@ export function FuelShipmentFormPage() {
                   <PickerField label={t.shipments.fuel} value={row.fuel_id} options={fuelOptions} onChange={(value) => patchItem(row.key, { fuel_id: value, allocations: [] })} />
                   <PickerField label={t.procurement.supplier} value={row.supplier_id} options={lineSupplierOptions} onChange={(value) => patchItem(row.key, { supplier_id: value })} searchable />
                   <NumberField name={`liters-${row.key}`} label={t.common.liters} value={row.liters} onChange={(value) => patchItem(row.key, { liters: value })} suffix="л" maxDecimals={3} />
-                  <NumberField name={`cost-${row.key}`} label={t.shipments.unitCostNoVat} value={row.unit_cost} onChange={(value) => patchItem(row.key, { unit_cost: value })} suffix="₮" maxDecimals={2} />
+                  <NumberField name={`cost-${row.key}`} label={t.shipments.unitCost} value={row.unit_cost} onChange={(value) => patchItem(row.key, { unit_cost: value })} suffix="₮" maxDecimals={2} />
                   <div className="flex flex-col gap-1.5 pb-1">
                     <FieldLabel>{t.common.amount}</FieldLabel>
                     <span className="num font-bold text-ink">{formatMNT(amount)}</span>
@@ -347,7 +353,7 @@ export function FuelShipmentFormPage() {
                   <PickerField label={t.shipments.product} value={row.product_id} options={productOptions} onChange={(value) => patchGoods(row.key, { product_id: value })} searchable />
                   <PickerField label={t.procurement.supplier} value={row.supplier_id} options={lineSupplierOptions} onChange={(value) => patchGoods(row.key, { supplier_id: value })} searchable />
                   <NumberField name={`qty-${row.key}`} label={t.common.qty} value={row.qty} onChange={(value) => patchGoods(row.key, { qty: value })} suffix={unit} maxDecimals={3} />
-                  <NumberField name={`gcost-${row.key}`} label={t.shipments.unitCostNoVat} value={row.unit_cost} onChange={(value) => patchGoods(row.key, { unit_cost: value })} suffix="₮" maxDecimals={2} />
+                  <NumberField name={`gcost-${row.key}`} label={t.shipments.unitCost} value={row.unit_cost} onChange={(value) => patchGoods(row.key, { unit_cost: value })} suffix="₮" maxDecimals={2} />
                   <div className="flex flex-col gap-1.5 pb-1">
                     <FieldLabel>{t.common.amount}</FieldLabel>
                     <span className="num font-bold text-ink">{formatMNT(amount)}</span>
@@ -399,11 +405,8 @@ export function FuelShipmentFormPage() {
             </thead>
             <tbody>
               {totals.rows.map((r) => (
-                <tr key={r.name + String(r.isMain)} className="border-t border-line">
-                  <td className="py-2 pr-3 font-semibold text-ink">
-                    {r.name}
-                    {r.isMain ? <span className="ml-2 rounded-md bg-warning-soft px-1.5 py-0.5 text-[11px] font-bold text-warning-dark">{t.shipments.mainSupplierTag}</span> : null}
-                  </td>
+                <tr key={r.name} className="border-t border-line">
+                  <td className="py-2 pr-3 font-semibold text-ink">{r.name}</td>
                   <td className="num py-2 pr-3 text-right">{formatMNT(r.subtotal)}</td>
                   <td className="num py-2 pr-3 text-right">{formatMNT(r.vat)}</td>
                   <td className="num py-2 text-right font-bold">{formatMNT(r.gross)}</td>
