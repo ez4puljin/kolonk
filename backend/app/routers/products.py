@@ -388,6 +388,9 @@ async def list_products(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> ProductListOut:
+    # Салбарт харьяалагдсан хэрэглэгч (түгээгч) ЗӨВХӨН өөрийн салбарын үлдэгдэл,
+    # үнийг харна — өөр салбар хүссэн ч үл хэрэгснэ.
+    branch_id = getattr(_user, "branch_id", None) or branch_id
     conditions = []
     if sale_mode is not None:
         conditions.append(Product.sale_mode == str(sale_mode))
@@ -486,6 +489,7 @@ async def get_product(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> ProductOut:
+    branch_id = getattr(_user, "branch_id", None) or branch_id
     return await _one_out(db, await _load_product(db, product_id), branch_id=branch_id)
 
 

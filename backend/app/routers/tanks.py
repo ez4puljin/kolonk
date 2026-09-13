@@ -143,7 +143,12 @@ async def get_tank(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(require_permission("tanks.view", "tanks.manage")),
 ) -> TankOut:
-    return _to_out(await _load_tank(db, tank_id), await _branch_names(db))
+    tank = await _load_tank(db, tank_id)
+    # Салбарын хэрэглэгч өөр салбарын савыг id-гаар ч харахгүй.
+    own = getattr(_user, "branch_id", None)
+    if own is not None and tank.branch_id != own:
+        raise HTTPException(status_code=404, detail="Сав олдсонгүй")
+    return _to_out(tank, await _branch_names(db))
 
 
 @router.get("/tanks/{tank_id}/movements", response_model=TankMovementListOut)

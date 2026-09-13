@@ -5,6 +5,7 @@ import { Database, Droplets, SlidersHorizontal, TriangleAlert } from "lucide-rea
 import { errorMessage } from "../../api/client";
 import { useBranches } from "../../api/queries/branches";
 import { useAdjustTankMutation, useTanks } from "../../api/queries/tanks";
+import { useAuthStore } from "../../stores/auth";
 import type { Tank } from "../../api/types";
 import { PageHeader } from "../../components/layout/PageHeader";
 import { Button } from "../../components/ui/Button";
@@ -37,7 +38,10 @@ export function TanksPage() {
 
   // Салбар сонгосон бол зөвхөн тэр салбарын сав; сонгоогүй бол бүгд нь
   // салбараараа бүлэглэгдэж харагдана.
-  const [branchId, setBranchId] = useState("");
+  // Салбарын хэрэглэгч (түгээгч) зөвхөн өөрийн салбарын савыг харна — сервер
+  // ч хүчээр шүүдэг, энд салбар солих сонголтыг л нуудаг.
+  const lockedBranchId = useAuthStore((state) => state.user?.branch?.id ?? "");
+  const [branchId, setBranchId] = useState(lockedBranchId);
   const branchesQuery = useBranches();
   const branches = useMemo(
     () => (branchesQuery.data ?? []).filter((branch) => branch.is_active),
@@ -142,7 +146,7 @@ export function TanksPage() {
         />
       </div>
 
-      {branches.length > 1 ? (
+      {lockedBranchId === "" && branches.length > 1 ? (
         <ChipGroup<string>
           value={branchId}
           onChange={setBranchId}

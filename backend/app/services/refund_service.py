@@ -547,6 +547,7 @@ async def list_refunds(
     status: str | None = None,
     sale_id: uuid.UUID | None = None,
     shift_id: uuid.UUID | None = None,
+    branch_id: uuid.UUID | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
@@ -557,6 +558,11 @@ async def list_refunds(
         conditions.append(Refund.sale_id == sale_id)
     if shift_id is not None:
         conditions.append(Refund.shift_id == shift_id)
+    if branch_id is not None:
+        # Салбарын хэрэглэгч зөвхөн өөрийн салбарын борлуулалтын буцаалтыг харна.
+        conditions.append(
+            Refund.sale_id.in_(select(Sale.id).where(Sale.branch_id == branch_id))
+        )
 
     total = await db.scalar(select(func.count()).select_from(Refund).where(*conditions)) or 0
     rows = (

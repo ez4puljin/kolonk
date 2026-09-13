@@ -154,6 +154,10 @@ async def inventory_snapshot(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(require_permission("products.view", "inventory.manage")),
 ) -> InventoryListOut:
+    # Салбарын хэрэглэгч зөвхөн өөрийн салбарын үлдэгдлийг харна (салбарын
+    # задаргаанд ч бусад салбар орохгүй).
+    own_branch: uuid.UUID | None = getattr(_user, "branch_id", None)
+    branch_id = own_branch or branch_id
     conditions = []
     if sale_mode is not None:
         conditions.append(Product.sale_mode == str(sale_mode))
@@ -189,14 +193,15 @@ async def inventory_snapshot(
     branch_rows: dict[uuid.UUID, list[BranchQty]] = {}
     branch_qty: dict[tuple[uuid.UUID, uuid.UUID], Decimal] = {}
     if product_ids:
-        stock_rows = (
-            await db.execute(
-                select(ProductBranchStock.product_id, ProductBranchStock.branch_id, Branch.name, ProductBranchStock.qty)
-                .join(Branch, Branch.id == ProductBranchStock.branch_id)
-                .where(ProductBranchStock.product_id.in_(product_ids))
-                .order_by(Branch.sort_order, Branch.name)
-            )
-        ).all()
+        stock_stmt = (
+            select(ProductBranchStock.product_id, ProductBranchStock.branch_id, Branch.name, ProductBranchStock.qty)
+            .join(Branch, Branch.id == ProductBranchStock.branch_id)
+            .where(ProductBranchStock.product_id.in_(product_ids))
+            .order_by(Branch.sort_order, Branch.name)
+        )
+        if own_branch is not None:
+            stock_stmt = stock_stmt.where(ProductBranchStock.branch_id == own_branch)
+        stock_rows = (await db.execute(stock_stmt)).all()
         for pid, bid, branch_name, qty in stock_rows:
             branch_rows.setdefault(pid, []).append(
                 BranchQty(branch_id=bid, branch_name=branch_name, qty=q3(qty or ZERO))

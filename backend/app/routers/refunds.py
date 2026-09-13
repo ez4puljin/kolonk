@@ -55,6 +55,7 @@ async def list_refunds(
         status=str(status) if status else None,
         sale_id=sale_id,
         shift_id=shift_id,
+        branch_id=getattr(_user, "branch_id", None),
         limit=limit,
         offset=offset,
     )

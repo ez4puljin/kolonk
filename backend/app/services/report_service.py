@@ -1232,13 +1232,14 @@ async def _pump_states(
     ]
 
 
-async def _open_shift_meta(db: AsyncSession) -> dict[str, Any] | None:
-    shift = await db.scalar(
-        select(Shift)
-        .where(Shift.status == ShiftStatus.OPEN)
-        .order_by(Shift.opened_at.desc())
-        .limit(1)
-    )
+async def _open_shift_meta(
+    db: AsyncSession, branch_id: uuid.UUID | None = None
+) -> dict[str, Any] | None:
+    """Нээлттэй ээлж — салбар заасан бол зөвхөн тэр салбарынх."""
+    stmt = select(Shift).where(Shift.status == ShiftStatus.OPEN)
+    if branch_id is not None:
+        stmt = stmt.where(Shift.branch_id == branch_id)
+    shift = await db.scalar(stmt.order_by(Shift.opened_at.desc()).limit(1))
     if shift is None:
         return None
     opener = await db.scalar(select(User.full_name).where(User.id == shift.opened_by))
@@ -1281,7 +1282,7 @@ async def cashier_dashboard(db: AsyncSession, user: User) -> dict[str, Any]:
 
     return {
         "date": day,
-        "shift": await _open_shift_meta(db),
+        "shift": await _open_shift_meta(db, branch_id),
         "today": {
             "total": mine["total"],
             "sale_count": mine["sale_count"],

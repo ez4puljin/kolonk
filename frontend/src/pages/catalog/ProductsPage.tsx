@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { ClipboardList, Package, Pencil, Plus, Power, Scissors, TrendingUp } from "lucide-react";
 
 import { errorMessage } from "../../api/client";
+import { useAuthStore } from "../../stores/auth";
 import { useCreatePriceChangeMutation } from "../../api/queries/approvals";
 import { useBranches } from "../../api/queries/branches";
 import {
@@ -80,8 +81,11 @@ export function ProductsPage() {
 
   const [query, setQuery] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  // Салбарт харьяалагдсан хэрэглэгч (түгээгч) зөвхөн өөрийн салбарыг харна —
+  // сервер ч мөн адил хүчээр шүүдэг, энд сонголтыг нь нуухад л хэрэгтэй.
+  const lockedBranchId = useAuthStore((state) => state.user?.branch?.id ?? "");
   // Салбар сонговол үлдэгдэл, зарах үнэ нь ТУХАЙН САЛБАРЫНХААР харагдана.
-  const [branchId, setBranchId] = useState("");
+  const [branchId, setBranchId] = useState(lockedBranchId);
   const [openingOpen, setOpeningOpen] = useState(false);
   const [stockFilter, setStockFilter] = useState<StockFilter>("all");
   const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
@@ -421,7 +425,7 @@ export function ProductsPage() {
           }}
           className="min-w-[14rem]"
         />
-        {(branchesQuery.data ?? []).length > 1 ? (
+        {lockedBranchId === "" && (branchesQuery.data ?? []).length > 1 ? (
           <PickerField
             label={t.branches.title}
             value={branchId}
