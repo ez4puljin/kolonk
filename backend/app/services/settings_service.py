@@ -46,6 +46,15 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # --- Дата backup ---
     # Хоосон бол .env-ийн BACKUP_DIR ашиглагдана.
     "backup_dir": "",
+    # Огноотой (шөнийн 03:00, гар) нөөцлөлтийг хэдэн хоног хадгалах; 0 = үүрд.
+    # Цаг тутмын kolonk-latest.dump үүнд хамаарахгүй (үргэлж нэг файл).
+    "backup_keep_days": 14,
+    # --- Google Drive (service account) — Админ панел → Дата backup ---
+    "gdrive_enabled": False,
+    "gdrive_folder_id": "",
+    "gdrive_service_account": "",
+    "gdrive_last_upload_at": "",
+    "gdrive_last_error": "",
     # --- Цалингийн тооцоо ---
     # Хувь хэмжээг НЯГТЛАНТАЙГАА тулгаж баталгаажуулна уу. Хууль өөрчлөгдвөл
     # энэ тохиргоог солиход л хангалттай — код өөрчлөх шаардлагагүй.
@@ -71,6 +80,12 @@ SETTING_DESCRIPTIONS: dict[str, str] = {
     "shift_totalizer_enabled": "Ээлжид тоолуурын заалт бүртгэх эсэх",
     "pos_sales_enabled": "ПОС борлуулалт ашиглах эсэх (унтраавал түгээгчийн өдрийн горим)",
     "backup_dir": "Нөөцлөлт хадгалах хавтас",
+    "backup_keep_days": "Огноотой нөөцлөлт хадгалах хоног (0 = үүрд)",
+    "gdrive_enabled": "Google Drive руу цаг тутам байршуулах эсэх",
+    "gdrive_folder_id": "Google Drive хавтасны ID",
+    "gdrive_service_account": "Google service account түлхүүр (JSON)",
+    "gdrive_last_upload_at": "Google Drive — сүүлд байршуулсан",
+    "gdrive_last_error": "Google Drive — сүүлийн алдаа",
     "payroll_si_employee_rate": "НДШ — ажилтны хувь (0.115 = 11.5%)",
     "payroll_si_employer_rate": "НДШ — ажил олгогчийн хувь (0.125 = 12.5%)",
     "payroll_pit_rate": "ХХОАТ-ын хувь (0.10 = 10%)",

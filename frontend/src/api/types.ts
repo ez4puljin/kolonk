@@ -2356,6 +2356,42 @@ export interface RestoreRequest {
   confirm: string;
 }
 
+/** Google Drive дээрх ганц нөөцлөлтийн файл (kolonk-latest.dump). */
+export interface GdriveRemoteFile {
+  name: string;
+  size_bytes: number;
+  modified_at: IsoDateTime | null;
+}
+
+export interface GdriveStatus {
+  configured: boolean;
+  enabled: boolean;
+  folder_id: string;
+  folder_name: string | null;
+  client_email: string | null;
+  last_upload_at: IsoDateTime | null;
+  last_error: string | null;
+  remote: GdriveRemoteFile | null;
+  /** Тохируулсан ч Drive-д хүрч чадахгүй бол алдааны мессеж. */
+  check_error: string | null;
+}
+
+export interface GdriveConfigInput {
+  enabled: boolean;
+  folder_id: string;
+  /** null — хадгалсан түлхүүр хэвээр; "" — устгана. */
+  service_account_json?: string | null;
+}
+
+export interface GdriveUploadResult {
+  filename: string;
+  size_mb: number;
+  uploaded: boolean;
+  error: string | null;
+  remote: GdriveRemoteFile | null;
+  message: string;
+}
+
 export interface HealthResponse {
   status: string;
   db: boolean;

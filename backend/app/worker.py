@@ -8,7 +8,8 @@
 
 Cron:
 
-* шөнө бүр **03:00** — өгөгдлийн сангийн нөөцлөлт,
+* цаг тутам **:05** — kolonk-latest.dump (дарж бичнэ) + Google Drive,
+* шөнө бүр **03:00** — огноотой нөөцлөлт,
 * сар бүрийн **1-ний 02:00** — өмнөх сарын гэрээт нэхэмжлэх.
 
 Дараалалын ажил амжилтгүй болвол ARQ ``max_tries`` (5) удаа дахин оролдоно.
@@ -23,7 +24,7 @@ from arq import cron
 from arq.connections import RedisSettings
 
 from app.config import settings
-from app.jobs.backup_jobs import run_backup, run_restore
+from app.jobs.backup_jobs import run_backup, run_hourly_backup, run_restore
 from app.jobs.ebarimt_jobs import submit_ebarimt
 from app.jobs.invoice_jobs import generate_monthly_invoices
 from app.jobs.price_jobs import apply_due_price_changes
@@ -58,14 +59,19 @@ class WorkerSettings:
     functions = [
         submit_ebarimt,
         run_backup,
+        run_hourly_backup,
         run_restore,
         generate_monthly_invoices,
         apply_due_price_changes,
     ]
 
     cron_jobs = [
-        # Шөнө бүр 03:00 — бүтэн нөөцлөлт.
+        # Шөнө бүр 03:00 — огноотой нөөцлөлт (backup_keep_days хоног хадгална).
         cron(run_backup, hour=3, minute=0, run_at_startup=False),
+        # Цаг тутам :05 — kolonk-latest.dump-ыг дарж бичээд Google Drive руу
+        # байршуулна (тохируулсан бол). Асаалтад ажиллахгүй — шинэ PC дээр
+        # хоосон сангаар Drive дээрх хуулбарыг дарахгүйн тулд.
+        cron(run_hourly_backup, minute=5, run_at_startup=False),
         # Сар бүрийн 1-ний 02:00 — өмнөх сарын нэхэмжлэх.
         cron(generate_monthly_invoices, day=1, hour=2, minute=0, run_at_startup=False),
         # Өдөр бүр 16:05 UTC = станцын 00:05 — хугацаа болсон үнийн

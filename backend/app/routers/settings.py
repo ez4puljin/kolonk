@@ -15,6 +15,10 @@ from app.services.audit_service import audit
 router = APIRouter(prefix="/api", tags=["settings"])
 
 
+#: Утгыг нь GET /settings-д харуулахгүй тохиргоонууд.
+SECRET_SETTINGS = ("gdrive_service_account",)
+
+
 def _client_ip(request: Request) -> str | None:
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
@@ -29,7 +33,12 @@ async def get_settings(
 ) -> dict[str, Any]:
     """Бүх тохиргоо `{түлхүүр: утга}` хэлбэрээр."""
     await settings_service.ensure_settings(db)
-    return await settings_service.get_all(db)
+    data = await settings_service.get_all(db)
+    # Нууц түлхүүр ерөнхий жагсаалтад гарахгүй (Дата backup хуудас өөрийн API-тай).
+    for secret in SECRET_SETTINGS:
+        if data.get(secret):
+            data[secret] = "••••"
+    return data
 
 
 @router.put("/settings/{key}", response_model=SettingOut)
@@ -45,6 +54,11 @@ async def update_setting(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Тохиргооны түлхүүр буруу байна (1-64 тэмдэгт)",
+        )
+    if key in SECRET_SETTINGS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Энэ тохиргоог Дата backup хуудаснаас солино",
         )
     old_value, row = await settings_service.set_setting(db, key, payload.value)
 

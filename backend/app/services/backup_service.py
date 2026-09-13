@@ -30,6 +30,9 @@ from app.config import settings
 
 BACKUP_PREFIX = "kolonk_"
 BACKUP_SUFFIX = ".dump"
+#: Цаг тутмын «сүүлийн» нөөцлөлт — үргэлж энэ нэг файлыг дарж бичнэ
+#: (хард дүүрэхгүй); Google Drive дээр ч ижил нэртэй ганц файл байна.
+LATEST_NAME = "kolonk-latest.dump"
 FILENAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 PG_DUMP = "pg_dump"
@@ -237,13 +240,22 @@ def backup_info(filename: str, directory: str | Path | None = None) -> dict[str,
 
 
 async def create_backup(
-    *, directory: str | Path | None = None, timeout: float = DEFAULT_TIMEOUT
+    *,
+    directory: str | Path | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    filename: str | None = None,
 ) -> str:
-    """``pg_dump -Fc`` ажиллуулж шинэ нөөцлөлт үүсгээд файлын нэрийг буцаана."""
+    """``pg_dump -Fc`` ажиллуулж нөөцлөлт үүсгээд файлын нэрийг буцаана.
+
+    ``filename`` өгвөл (жишээ нь ``LATEST_NAME``) тэр файлыг ДАРЖ бичнэ —
+    эхлээд ``.part`` түр файлд буулгаад амжилттай бол ``os.replace``-ээр
+    сольдог тул dump дундаа тасарсан ч өмнөх бүтэн хуулбар үлдэнэ.
+    """
     target = parse_database_url()
     directory = backup_dir(directory)
-    filename = new_backup_name()
+    filename = safe_name(filename) if filename else new_backup_name()
     path = directory / filename
+    part = directory / f"{filename}.part"
 
     command = [
         PG_DUMP,
@@ -252,18 +264,42 @@ async def create_backup(
         "--no-owner",
         "--no-privileges",
         "-f",
-        str(path),
+        str(part),
     ]
     code, message = await _run(command, target.env(), timeout)
     if code != 0:
-        path.unlink(missing_ok=True)
+        part.unlink(missing_ok=True)
         raise HTTPException(
             status_code=422, detail=f"Нөөцлөлт амжилтгүй боллоо: {_tail(message) or 'тодорхойгүй алдаа'}"
         )
-    if not path.is_file() or path.stat().st_size == 0:
-        path.unlink(missing_ok=True)
+    if not part.is_file() or part.stat().st_size == 0:
+        part.unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail="Нөөцлөлтийн файл хоосон үүслээ")
+    os.replace(part, path)
     return filename
+
+
+def prune_dated_backups(keep_days: int, directory: str | Path | None = None) -> list[str]:
+    """``kolonk_YYYYMMDD_HHMMSS.dump`` файлуудаас ``keep_days``-ээс хуучныг устгана.
+
+    ``LATEST_NAME`` болон бусад нэртэй (before-reset-… гэх мэт) файлд хүрэхгүй.
+    ``keep_days`` ≤ 0 бол юу ч устгахгүй.
+    """
+    if keep_days <= 0:
+        return []
+    directory = backup_dir(directory)
+    cutoff = datetime.now(UTC).timestamp() - keep_days * 86400
+    removed: list[str] = []
+    for path in directory.glob(f"{BACKUP_PREFIX}*{BACKUP_SUFFIX}"):
+        if not path.is_file() or path.name == LATEST_NAME:
+            continue
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+                removed.append(path.name)
+        except OSError:  # pragma: no cover — зэрэг устгагдсан
+            continue
+    return removed
 
 
 async def restore_backup(

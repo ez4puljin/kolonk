@@ -435,3 +435,44 @@ class RestoreResultOut(BaseModel):
 class DeleteResultOut(BaseModel):
     filename: str
     message: str
+
+
+# --------------------------------------------------------------------------- #
+# Google Drive
+# --------------------------------------------------------------------------- #
+class GdriveRemoteFileOut(BaseModel):
+    name: str
+    size_bytes: int = 0
+    modified_at: datetime | None = None
+
+
+class GdriveStatusOut(BaseModel):
+    configured: bool = False
+    enabled: bool = False
+    folder_id: str = ""
+    folder_name: str | None = None
+    client_email: str | None = None
+    last_upload_at: datetime | None = None
+    last_error: str | None = None
+    #: Drive дээрх kolonk-latest.dump (холбогдож чадсан бол).
+    remote: GdriveRemoteFileOut | None = None
+    #: Холболт шалгахад гарсан алдаа (тохируулсан ч хүрч чадахгүй бол).
+    check_error: str | None = None
+
+
+class GdriveConfigIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    folder_id: str = Field(default="", max_length=128)
+    #: None бол хадгалсан түлхүүрийг хэвээр үлдээнэ; "" бол устгана.
+    service_account_json: str | None = Field(default=None, max_length=20000)
+
+
+class GdriveUploadOut(BaseModel):
+    filename: str
+    size_mb: float
+    uploaded: bool
+    error: str | None = None
+    remote: GdriveRemoteFileOut | None = None
+    message: str

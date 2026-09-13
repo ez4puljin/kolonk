@@ -7,6 +7,9 @@ import type {
   BackupFile,
   BackupResult,
   EbarimtQueueRow,
+  GdriveConfigInput,
+  GdriveStatus,
+  GdriveUploadResult,
   JsonValue,
   OkResponse,
   Paged,
@@ -153,4 +156,51 @@ export function useSetBackupDirectoryMutation() {
 
 export function downloadBackup(name: string): Promise<void> {
   return api.download(`/api/backups/${encodeURIComponent(name)}/download`, undefined, name);
+}
+
+// -------------------------------------------------------------------------
+// Google Drive
+// -------------------------------------------------------------------------
+
+/** Тохиргоо + Drive дээрх файлын төлөв (сервер холбогдож шалгадаг тул удаан байж болно). */
+export function useGdriveStatus(enabled = true) {
+  return useQuery({
+    queryKey: [...systemKeys.backups(), "gdrive"],
+    queryFn: () => api.get<GdriveStatus>("/api/backups/gdrive"),
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
+export function useSaveGdriveMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: GdriveConfigInput) => api.put<GdriveStatus>("/api/backups/gdrive", payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: systemKeys.backups() });
+      void queryClient.invalidateQueries({ queryKey: systemKeys.settings() });
+    },
+  });
+}
+
+/** Одоо kolonk-latest.dump үүсгээд Drive руу дарж бичнэ. */
+export function useGdriveUploadMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<GdriveUploadResult>("/api/backups/gdrive/upload", {}),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: systemKeys.backups() });
+    },
+  });
+}
+
+/** Drive дээрх kolonk-latest.dump-ыг серверийн хавтас руу татна — дараа нь жагсаалтаас сэргээнэ. */
+export function useGdriveDownloadMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<BackupFile>("/api/backups/gdrive/download", {}),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: systemKeys.backups() });
+    },
+  });
 }

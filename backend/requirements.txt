@@ -12,6 +12,10 @@ bcrypt==4.2.1
 openpyxl==3.1.5
 httpx==0.28.1
 python-multipart==0.0.20
+# Google Drive руу нөөцлөлт байршуулах (service account)
+google-api-python-client==2.154.0
+google-auth==2.37.0
+google-auth-httplib2==0.2.0
 # Windows-д системийн цагийн бүсийн сан байдаггүй тул zoneinfo-д хэрэгтэй.
 tzdata==2024.2
 websockets==14.1

@@ -1,12 +1,28 @@
-import { useMemo, useState } from "react";
-import { Archive, Download, FolderCog, HardDrive, RotateCcw, TriangleAlert } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import {
+  Archive,
+  Clock,
+  Cloud,
+  CloudDownload,
+  CloudUpload,
+  Download,
+  FolderCog,
+  HardDrive,
+  RotateCcw,
+  Settings2,
+  TriangleAlert,
+} from "lucide-react";
 
 import { api, errorMessage } from "../../api/client";
 import {
   useBackupDirectory,
   useBackups,
   useCreateBackupMutation,
+  useGdriveDownloadMutation,
+  useGdriveStatus,
+  useGdriveUploadMutation,
   useRestoreBackupMutation,
+  useSaveGdriveMutation,
   useSetBackupDirectoryMutation,
 } from "../../api/queries/system";
 import type { BackupFile } from "../../api/types";
@@ -21,7 +37,7 @@ import { StatBox } from "../../components/ui/StatBox";
 import { t } from "../../i18n/mn";
 import { formatBytes, formatDateTime } from "../../lib/format";
 import { useUiStore } from "../../stores/ui";
-import { TextField } from "../catalog/_shared";
+import { KeyValue, TextAreaField, TextField, ToggleField } from "../catalog/_shared";
 
 /** Сервер `filename` талбараар буцаадаг (DTO-д `name`) — хоёуланг нь дэмжинэ. */
 type BackupRow = BackupFile;
@@ -44,8 +60,89 @@ export function BackupPage() {
   const [dirDraft, setDirDraft] = useState("");
   const [dirError, setDirError] = useState<string | null>(null);
 
+  // Google Drive
+  const [gdriveOpen, setGdriveOpen] = useState(false);
+  const [gdriveEnabled, setGdriveEnabled] = useState(false);
+  const [gdriveFolder, setGdriveFolder] = useState("");
+  const [gdriveKey, setGdriveKey] = useState("");
+  const [gdriveClearKey, setGdriveClearKey] = useState(false);
+  const [gdriveError, setGdriveError] = useState<string | null>(null);
+  const [gdriveUploadOpen, setGdriveUploadOpen] = useState(false);
+  const [gdriveDownloadOpen, setGdriveDownloadOpen] = useState(false);
+  const keyFileRef = useRef<HTMLInputElement | null>(null);
+
   const backupsQuery = useBackups();
   const directoryQuery = useBackupDirectory();
+  const gdriveQuery = useGdriveStatus();
+  const saveGdriveMutation = useSaveGdriveMutation();
+  const gdriveUploadMutation = useGdriveUploadMutation();
+  const gdriveDownloadMutation = useGdriveDownloadMutation();
+  const gdrive = gdriveQuery.data ?? null;
+
+  const openGdriveEditor = (): void => {
+    setGdriveEnabled(gdrive?.enabled ?? false);
+    setGdriveFolder(gdrive?.folder_id ?? "");
+    setGdriveKey("");
+    setGdriveClearKey(false);
+    setGdriveError(null);
+    setGdriveOpen(true);
+  };
+
+  const readKeyFile = (file: File | null): void => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setGdriveKey(String(reader.result ?? ""));
+      setGdriveClearKey(false);
+    };
+    reader.readAsText(file);
+  };
+
+  const saveGdrive = (): void => {
+    setGdriveError(null);
+    const key = gdriveKey.trim();
+    saveGdriveMutation.mutate(
+      {
+        enabled: gdriveEnabled,
+        folder_id: gdriveFolder.trim(),
+        // Түлхүүр оруулаагүй бол хадгалсныг хэвээр үлдээнэ (null); устгах бол "".
+        service_account_json: gdriveClearKey ? "" : key === "" ? null : key,
+      },
+      {
+        onSuccess: () => {
+          toastSuccess(t.admin.gdriveSaved);
+          setGdriveOpen(false);
+        },
+        onError: (error) => setGdriveError(errorMessage(error)),
+      },
+    );
+  };
+
+  const uploadNow = (): void => {
+    gdriveUploadMutation.mutate(undefined, {
+      onSuccess: () => {
+        toastSuccess(t.admin.gdriveUploaded);
+        setGdriveUploadOpen(false);
+      },
+      onError: (error) => {
+        toastError(errorMessage(error));
+        setGdriveUploadOpen(false);
+      },
+    });
+  };
+
+  const downloadFromDrive = (): void => {
+    gdriveDownloadMutation.mutate(undefined, {
+      onSuccess: () => {
+        toastSuccess(t.admin.gdriveDownloaded);
+        setGdriveDownloadOpen(false);
+      },
+      onError: (error) => {
+        toastError(errorMessage(error));
+        setGdriveDownloadOpen(false);
+      },
+    });
+  };
   const createMutation = useCreateBackupMutation();
   const restoreMutation = useRestoreBackupMutation();
   const setDirMutation = useSetBackupDirectoryMutation();
@@ -80,6 +177,7 @@ export function BackupPage() {
     }),
     [rows],
   );
+  const latestRolling = useMemo(() => rows.find((row) => row.filename === "kolonk-latest.dump") ?? null, [rows]);
 
   const download = async (row: BackupRow): Promise<void> => {
     const name = fileNameOf(row);
@@ -229,6 +327,107 @@ export function BackupPage() {
         </div>
       </Card>
 
+      {/* Автомат хуваарь */}
+      <Card title={t.admin.backupSchedule}>
+        <div className="flex flex-col gap-3">
+          <p className="flex items-start gap-3 text-[15px] text-ink-soft">
+            <Clock className="mt-0.5 h-5 w-5 shrink-0" />
+            {t.admin.backupScheduleHint}
+          </p>
+          <KeyValue
+            label={t.admin.backupLatest}
+            value={latestRolling ? `${formatDateTime(latestRolling.created_at)} · ${formatBytes(latestRolling.size_bytes)}` : "—"}
+            numeric
+          />
+        </div>
+      </Card>
+
+      {/* Google Drive */}
+      <Card
+        title={t.admin.gdrive}
+        subtitle={t.admin.gdriveSubtitle}
+        actions={
+          <Button variant="secondary" size="md" icon={<Settings2 />} onClick={openGdriveEditor}>
+            {t.admin.gdriveConfigure}
+          </Button>
+        }
+      >
+        {gdriveQuery.isLoading ? (
+          <p className="text-sm text-ink-soft">…</p>
+        ) : !gdrive?.configured ? (
+          <div className="flex flex-col gap-4">
+            <p className="flex items-start gap-3 text-[15px] text-ink-soft">
+              <Cloud className="mt-0.5 h-5 w-5 shrink-0" />
+              {t.admin.gdriveNotConfigured}
+            </p>
+            <div>
+              <span className="text-[11px] font-semibold tracking-wide text-ink-faint uppercase">{t.admin.gdriveHowTo}</span>
+              <ol className="mt-1 list-decimal space-y-1 pl-5 text-sm text-ink-soft">
+                {t.admin.gdriveSteps.map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ol>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <KeyValue label={t.admin.gdriveClientEmail} value={gdrive.client_email ?? "—"} />
+              <KeyValue label={t.admin.gdriveFolder} value={gdrive.folder_name ?? gdrive.folder_id} />
+              <KeyValue
+                label={t.admin.gdriveRemoteFile}
+                value={
+                  gdrive.remote
+                    ? `${formatBytes(gdrive.remote.size_bytes)} · ${formatDateTime(gdrive.remote.modified_at)}`
+                    : gdrive.check_error
+                      ? "—"
+                      : t.admin.gdriveRemoteNone
+                }
+                numeric
+              />
+              <KeyValue
+                label={t.admin.gdriveLastUpload}
+                value={gdrive.last_upload_at ? formatDateTime(gdrive.last_upload_at) : "—"}
+                numeric
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  gdrive.enabled ? "bg-success-soft text-success-dark" : "bg-surface-sunken text-ink-soft"
+                }`}
+              >
+                {t.admin.gdriveEnabled}: {gdrive.enabled ? t.common.yes : t.common.no}
+              </span>
+              <Button
+                variant="primary"
+                size="md"
+                icon={<CloudUpload />}
+                loading={gdriveUploadMutation.isPending}
+                onClick={() => setGdriveUploadOpen(true)}
+              >
+                {t.admin.gdriveUploadNow}
+              </Button>
+              <Button
+                variant="secondary"
+                size="md"
+                icon={<CloudDownload />}
+                loading={gdriveDownloadMutation.isPending}
+                disabled={!gdrive.remote}
+                onClick={() => setGdriveDownloadOpen(true)}
+              >
+                {t.admin.gdriveDownload}
+              </Button>
+            </div>
+            {gdrive.check_error || gdrive.last_error ? (
+              <p className="rounded-xl bg-danger-soft px-4 py-3 text-sm font-medium text-danger-dark">
+                {t.admin.gdriveLastError}: {gdrive.check_error ?? gdrive.last_error}
+              </p>
+            ) : null}
+          </div>
+        )}
+      </Card>
+
       <div className="flex items-start gap-4 rounded-xl border border-warning/30 bg-warning-soft px-5 py-4">
         <TriangleAlert className="mt-0.5 h-6 w-6 shrink-0 text-warning-dark" />
         <p className="text-[15px] font-medium text-warning-dark">{t.admin.restoreWarning}</p>
@@ -306,6 +505,111 @@ export function BackupPage() {
             <p className="rounded-xl bg-danger-soft px-4 py-3 text-sm font-medium text-danger-dark">
               {dirError}
             </p>
+          ) : null}
+        </div>
+      </Modal>
+
+      <ConfirmDialog
+        open={gdriveUploadOpen}
+        title={t.admin.gdriveUploadNow}
+        message={t.admin.gdriveUploadNowConfirm}
+        variant="primary"
+        confirmLabel={t.admin.gdriveUploadNow}
+        loading={gdriveUploadMutation.isPending}
+        onConfirm={uploadNow}
+        onCancel={() => setGdriveUploadOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={gdriveDownloadOpen}
+        title={t.admin.gdriveDownload}
+        message={t.admin.gdriveDownloadConfirm}
+        variant="warning"
+        confirmLabel={t.admin.gdriveDownload}
+        loading={gdriveDownloadMutation.isPending}
+        onConfirm={downloadFromDrive}
+        onCancel={() => setGdriveDownloadOpen(false)}
+      />
+
+      <Modal
+        open={gdriveOpen}
+        onClose={() => setGdriveOpen(false)}
+        size="lg"
+        title={t.admin.gdrive}
+        subtitle={t.admin.gdriveSubtitle}
+        dismissible={!saveGdriveMutation.isPending}
+        footer={
+          <>
+            <Button variant="secondary" size="md" disabled={saveGdriveMutation.isPending} onClick={() => setGdriveOpen(false)}>
+              {t.common.cancel}
+            </Button>
+            <Button variant="primary" size="md" loading={saveGdriveMutation.isPending} onClick={saveGdrive}>
+              {t.common.save}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <ToggleField
+            label={t.admin.gdriveEnabled}
+            hint={t.admin.gdriveEnabledHint}
+            value={gdriveEnabled}
+            onChange={setGdriveEnabled}
+          />
+          <TextField
+            label={t.admin.gdriveFolderId}
+            value={gdriveFolder}
+            onChange={setGdriveFolder}
+            placeholder="1AbCdEfGhIjKlMnOpQrStUvWxYz"
+            hint={t.admin.gdriveFolderIdHint}
+          />
+          <div className="flex flex-col gap-2">
+            <TextAreaField
+              label={t.admin.gdriveKey}
+              value={gdriveKey}
+              onChange={(value) => {
+                setGdriveKey(value);
+                setGdriveClearKey(false);
+              }}
+              rows={5}
+              placeholder={gdrive?.client_email && !gdriveClearKey ? `${t.admin.gdriveKeySaved}: ${gdrive.client_email}` : "{ \"type\": \"service_account\", … }"}
+            />
+            <span className="text-xs text-ink-soft">{t.admin.gdriveKeyHint}</span>
+            <div className="flex flex-wrap gap-2">
+              <input
+                ref={keyFileRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={(event) => readKeyFile(event.target.files?.[0] ?? null)}
+              />
+              <Button variant="secondary" size="md" onClick={() => keyFileRef.current?.click()}>
+                {t.admin.gdriveKeyFile}
+              </Button>
+              {gdrive?.client_email ? (
+                <Button
+                  variant={gdriveClearKey ? "danger" : "ghost"}
+                  size="md"
+                  onClick={() => {
+                    setGdriveClearKey((v) => !v);
+                    setGdriveKey("");
+                  }}
+                >
+                  {t.admin.gdriveKeyClear}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+          <div>
+            <span className="text-[11px] font-semibold tracking-wide text-ink-faint uppercase">{t.admin.gdriveHowTo}</span>
+            <ol className="mt-1 list-decimal space-y-1 pl-5 text-sm text-ink-soft">
+              {t.admin.gdriveSteps.map((step) => (
+                <li key={step}>{step}</li>
+              ))}
+            </ol>
+          </div>
+          {gdriveError ? (
+            <p className="rounded-xl bg-danger-soft px-4 py-3 text-sm font-medium text-danger-dark">{gdriveError}</p>
           ) : null}
         </div>
       </Modal>

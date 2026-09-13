@@ -760,10 +760,57 @@ python -m scripts.set_pin 4821 dorj         # зөвхөн нэгд
 docker compose exec api pytest
 ```
 
-## Нөөшлөлт
+## Нөөцлөлт ба Google Drive
 
-`POST /api/backups` (эзэн) — `pg_dump -Fc` ажиллаж `/backups` volume-д хадгална.
+Worker (ARQ) хоёр хуваарьтай:
+
+| Хэзээ | Юу | Хаана |
+|---|---|---|
+| Цаг тутам :05 | `kolonk-latest.dump` — **үргэлж нэг файлыг дарж бичнэ** (хард дүүрэхгүй) | нөөцлөлтийн хавтас + Google Drive (тохируулсан бол) |
+| Шөнө 03:00 | `kolonk_YYYYMMDD_HHMMSS.dump` — огноотой хуулбар, `backup_keep_days` (14) хоногоос хуучныг өөрөө устгана | нөөцлөлтийн хавтас |
+
+Гараар: Админ панел → Дата backup → «Нөөцлөх» (огноотой файл), «Одоо байршуулах»
+(latest + Drive). `POST /api/backups`, `POST /api/backups/gdrive/upload`.
 Сэргээхэд `{"confirm": "СЭРГЭЭХ"}` баталгаажуулалт шаардана.
+
+Docker горимд хавтас нь `backups` volume (`/backups`), Docker-гүй горимд
+`backend\.env`-ийн `BACKUP_DIR`.
+
+### Google Drive тохируулах (нэг удаа)
+
+1. <https://console.cloud.google.com> → шинэ төсөл (жишээ `kolonk-backup`) →
+   **APIs & Services → Library → Google Drive API → Enable**.
+2. **IAM & Admin → Service accounts → Create service account** → нэр өгөөд
+   Done → тухайн account → **Keys → Add key → Create new key → JSON** (файл
+   татагдана — энэ бол түлхүүр, аюулгүй газар хадгална).
+3. <https://drive.google.com> дээр `kolonk-backup` хавтас үүсгээд **Share** →
+   service account-ын и-мэйл (`…@….iam.gserviceaccount.com`) → **Editor**.
+4. Хавтсыг нээгээд хаягийн `folders/` дараах ID-г хуулна.
+5. Админ панел → Дата backup → Google Drive → «Тохируулах»: JSON файлаа
+   сонгож, хавтасны ID оруулж, «Цаг тутам автоматаар байршуулах» асаагаад
+   хадгална (хадгалахдаа Drive-д хүрч чадахыг шалгана). «Одоо байршуулах»
+   дарж анхны файлаа илгээнэ.
+
+Drive дээр ганц `kolonk-latest.dump` байна — цаг бүр дарагдаж бичигдэнэ.
+Хамгаалалт: автомат байршуулалт локал dump Drive дээрхээс 2 дахин бага бол
+(шинэ/хоосон сан) дарж бичихгүй, алдааг хуудсанд харуулна; гар «Одоо
+байршуулах» үргэлж дарж бичнэ.
+
+### PC устсан үед шинэ PC дээр сэргээх
+
+1. `git clone …` → [Шинэ PC дээр суулгах](#шинэ-pc-дээр-суулгах-production)
+   дагуу `install.bat` / `deploy.bat` (хоосон сан, `admin` / `000000`).
+2. `http://localhost` → admin → Админ панел → Дата backup → Google Drive →
+   «Тохируулах»: хадгалж байсан JSON түлхүүр + хавтасны ID (автомат
+   байршуулалтыг ЭХЛЭЭД АСААХГҮЙ — хоосон сангаар Drive-ыг дарахгүйн тулд).
+3. «Drive-аас татах» → жагсаалтад `kolonk-latest.dump` гарна → «Сэргээх» →
+   `СЭРГЭЭХ` гэж бичнэ. Дахин нэвтэрнэ — өгөгдөл, тохиргоо (Drive-ын
+   тохиргоо ч) бүгд буцаж ирнэ, цаг тутмын байршуулалт үргэлжилнэ.
+4. Ээлжийн зураг (`uploads`) dump-д ордоггүй — хэрэгтэй бол хуучин
+   `kolonk-uploads.zip`-ээс `restore-data.bat`-аар.
+
+Drive-д хандах боломжгүй бол (интернэтгүй) Drive-аас `kolonk-latest.dump`-ыг
+браузерээр татаж, repo хавтсанд `kolonk.dump` нэрээр хуулаад `restore-data.bat`.
 
 ## Хавтасны бүтэц
 

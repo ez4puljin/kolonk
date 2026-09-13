@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -18,10 +19,15 @@ from app.schemas.report import (
     BackupFileOut,
     BackupListOut,
     DeleteResultOut,
+    GdriveConfigIn,
+    GdriveRemoteFileOut,
+    GdriveStatusOut,
+    GdriveUploadOut,
     RestoreConfirmIn,
     RestoreResultOut,
 )
-from app.services import backup_service, settings_service
+from app.jobs.backup_jobs import hourly_backup_and_upload
+from app.services import backup_service, gdrive_service, settings_service
 from app.services.audit_service import audit
 
 log = logging.getLogger("kolonk.backup")
@@ -191,3 +197,143 @@ async def delete_backup(
         ip=_client_ip(request),
     )
     return DeleteResultOut(filename=removed, message="Нөөцлөлтийн файл устгагдлаа")
+
+
+# --------------------------------------------------------------------------- #
+# Google Drive
+# --------------------------------------------------------------------------- #
+def _parse_dt(raw: object) -> datetime | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _remote_out(remote: dict | None) -> GdriveRemoteFileOut | None:
+    if not remote:
+        return None
+    return GdriveRemoteFileOut(
+        name=remote["name"], size_bytes=remote["size_bytes"], modified_at=_parse_dt(remote.get("modified_at"))
+    )
+
+
+async def _gdrive_status(db: AsyncSession, *, probe: bool) -> GdriveStatusOut:
+    config = await gdrive_service.load_config(db)
+    out = GdriveStatusOut(
+        **gdrive_service.masked_status(config),
+        last_upload_at=_parse_dt(await settings_service.get_setting(db, "gdrive_last_upload_at")),
+        last_error=str(await settings_service.get_setting(db, "gdrive_last_error") or "") or None,
+    )
+    if probe and config.configured:
+        try:
+            info = await gdrive_service.check(config)
+            out.folder_name = info.get("folder_name")
+            out.remote = _remote_out(info.get("remote"))
+        except HTTPException as exc:
+            out.check_error = str(exc.detail)
+    return out
+
+
+@router.get("/backups/gdrive", response_model=GdriveStatusOut)
+async def get_gdrive_status(
+    db: AsyncSession = Depends(get_db),
+    user: User = CanManage,
+) -> GdriveStatusOut:
+    """Тохиргоо + Drive дээрх файлын төлөв (холбогдож шалгана)."""
+    return await _gdrive_status(db, probe=True)
+
+
+@router.put("/backups/gdrive", response_model=GdriveStatusOut)
+async def set_gdrive_config(
+    payload: GdriveConfigIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = CanManage,
+) -> GdriveStatusOut:
+    """Түлхүүр, хавтсыг хадгална — өмнө нь Drive-д хүрч чадахыг шалгана."""
+    current = await gdrive_service.load_config(db)
+    service_account = current.service_account
+    if payload.service_account_json is not None:
+        service_account = payload.service_account_json.strip()
+        if service_account:
+            gdrive_service.validate_service_account(service_account)
+    folder_id = payload.folder_id.strip()
+
+    config = gdrive_service.GdriveConfig(service_account, folder_id, payload.enabled)
+    if config.configured:
+        await gdrive_service.check(config)  # 422 — хавтас олдохгүй/эрхгүй бол
+    elif payload.enabled:
+        raise HTTPException(
+            status_code=422, detail="Автомат байршуулалт асаахын тулд түлхүүр, хавтас хоёулаа хэрэгтэй"
+        )
+
+    await settings_service.set_setting(db, "gdrive_service_account", service_account)
+    await settings_service.set_setting(db, "gdrive_folder_id", folder_id)
+    await settings_service.set_setting(db, "gdrive_enabled", bool(payload.enabled))
+    await settings_service.set_setting(db, "gdrive_last_error", "")
+    await audit(
+        db,
+        user_id=user.id,
+        action="backup.gdrive_config",
+        entity_type="setting",
+        before={"folder_id": current.folder_id, "enabled": current.enabled, "client_email": current.client_email},
+        after={"folder_id": folder_id, "enabled": payload.enabled, "client_email": config.client_email},
+        ip=_client_ip(request),
+    )
+    return await _gdrive_status(db, probe=True)
+
+
+@router.post("/backups/gdrive/upload", response_model=GdriveUploadOut)
+async def gdrive_upload_now(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = CanManage,
+) -> GdriveUploadOut:
+    """Одоо kolonk-latest.dump үүсгээд Drive руу дарж бичнэ (гар үйлдэл — хэмжээний хамгаалалтгүй)."""
+    config = await gdrive_service.load_config(db)
+    if not config.configured:
+        raise HTTPException(status_code=422, detail="Google Drive тохируулаагүй байна")
+    result = await hourly_backup_and_upload(force_upload=True)
+    await audit(
+        db,
+        user_id=user.id,
+        action="backup.gdrive_upload",
+        entity_type="backup",
+        after={"filename": result["filename"], "uploaded": result["uploaded"], "error": result["error"]},
+        ip=_client_ip(request),
+    )
+    if result["error"]:
+        raise HTTPException(status_code=422, detail=result["error"])
+    return GdriveUploadOut(
+        filename=result["filename"],
+        size_mb=result["size_mb"],
+        uploaded=True,
+        remote=_remote_out(result.get("remote")),
+        message="Google Drive руу байршууллаа",
+    )
+
+
+@router.post("/backups/gdrive/download", response_model=BackupFileOut)
+async def gdrive_download_latest(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = CanManage,
+) -> BackupFileOut:
+    """Drive дээрх kolonk-latest.dump-ыг локал хавтас руу татна (дараа нь жагсаалтаас «Сэргээх»)."""
+    config = await gdrive_service.load_config(db)
+    directory = await _configured_dir(db)
+    dest = backup_service.backup_dir(directory) / backup_service.LATEST_NAME
+    await gdrive_service.download(config, dest)
+    info = backup_service.backup_info(backup_service.LATEST_NAME, directory)
+    await audit(
+        db,
+        user_id=user.id,
+        action="backup.gdrive_download",
+        entity_type="backup",
+        after={"filename": info["filename"], "size_mb": info["size_mb"]},
+        ip=_client_ip(request),
+    )
+    return BackupFileOut(**info)
