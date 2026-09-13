@@ -800,18 +800,10 @@ export function AttendantShiftPage() {
   }, [expenseRows]);
   const expenseCashTotal = expenseByMethod.cash;
 
-  /**
-   * Байвал зохих бэлэн мөнгө (ойролцоо) — серверийн томьёотой ижил бүтэц:
-   * эхний бэлэн + миль×үнэ − settlement − зээлийн түлш + тос/бараа
-   * + өглөгийн бэлэн төлбөр − кассаас гарсан зарлага.
-   */
-  const expectedCash = preview
-    ? dSub(
-        dSum([preview.opening_cash, preview.fuel_total, oilTotal, arCashTotal]),
-        dSum([settlementTotal, transferAmount, creditFuelTotal, expenseCashTotal]),
-      )
-    : "0";
-  const cashDiff = dSub(declaredCash === "" ? "0" : declaredCash, expectedCash);
+  // Байвал зохих бэлэн мөнгө серверийн томьёогоор: эхний бэлэн + миль×үнэ −
+  // терминал − шилжүүлэг − зээлийн түлш + тос/бараа + өглөгийн бэлэн төлбөр −
+  // кассаас гарсан зарлага. Тулгалтын алхам үүнийг «Тушаах ёстой ↔ Тушаасан»
+  // хэлбэрээр харуулна — зөрүү нь яг энэ бэлэн мөнгөний зөрүүтэй тэнцүү.
 
   const readingsPayload = (): TotalizerReadingInput[] =>
     nozzles.map(({ nozzle }) => ({
@@ -1854,33 +1846,92 @@ export function AttendantShiftPage() {
 
           {step === CONFIRM_STEP && preview ? (
             <div className="flex flex-col gap-4">
-              <div className="grid gap-3 sm:grid-cols-3">
-                <StatBox
-                  label={t.attendant.fuelByMile}
-                  value={formatMNT(preview.fuel_total)}
-                  tone="brand"
-                />
-                <StatBox
-                  label={t.pos.liters}
-                  value={formatLiters(preview.fuel_liters, 1)}
-                  tone="neutral"
-                />
-                <StatBox
-                  label={t.attendant.handoverTotal}
-                  value={formatMNT(handoverTotal)}
-                  tone="action"
-                />
-              </div>
-              {/* Тушаалтын задаргаа — гурван суваг бүгд харагдана */}
-              <p className="num -mt-1 text-sm text-ink-soft">
-                {t.attendant.methodCash}: <b className="text-ink">{formatMNT(declaredCash === "" ? "0" : declaredCash)}</b>
-                {" · "}
-                {t.attendant.methodCard}: <b className="text-ink">{formatMNT(settlementTotal)}</b>
-                {" · "}
-                {t.attendant.methodTransfer}: <b className="text-ink">{formatMNT(transferAmount)}</b>
-              </p>
+              {/*
+               * Тулгалт = «Тушаах ёстой» ↔ «Тушаасан» ↔ Зөрүү.
+               * Ёстой: эхний бэлэн + түлш (миль×үнэ) + тос/бараа + өглөг төлөлт − зээлээр өгсөн − зарлага.
+               * Тушаасан: тоолсон бэлэн + терминал + шилжүүлэг (+ бэлэн бус өглөг төлөлт − бэлэн бус зарлага).
+               * Терминал, шилжүүлгийг түгээгч өөрөө мэдүүлдэг тул зөрүү зөвхөн бэлэн мөнгөнөөс гарна.
+               */}
+              {(() => {
+                const declared = declaredCash === "" ? "0" : declaredCash;
+                const arNonCash = dSub(arTotal, arCashTotal);
+                const expenseNonCash = dSub(expenseTotal, expenseCashTotal);
+                const mustTotal = dSub(
+                  dSum([preview.opening_cash, preview.fuel_total, oilTotal, arTotal]),
+                  dSum([creditFuelTotal, expenseTotal]),
+                );
+                const handedTotal = dSub(
+                  dSum([declared, settlementTotal, transferAmount, arNonCash]),
+                  expenseNonCash,
+                );
+                const diff = dSub(handedTotal, mustTotal);
+                const diffNum = Number(diff);
+                const diffTone =
+                  diffNum < 0
+                    ? "border-danger bg-danger-soft text-danger-dark"
+                    : diffNum > 0
+                      ? "border-warning bg-warning-soft text-warning-dark"
+                      : "border-success bg-success-soft text-success-dark";
+                const diffLabel =
+                  diffNum < 0 ? t.attendant.diffShort : diffNum > 0 ? t.attendant.diffOver : t.attendant.diffNone;
+                return (
+                  <>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <StatBox label={t.attendant.mustHandover} value={formatMNT(mustTotal)} tone="brand" size="lg" />
+                      <StatBox label={t.attendant.handedOver} value={formatMNT(handedTotal)} tone="action" size="lg" />
+                      <div className={`flex flex-col justify-center rounded-2xl border-2 px-4 py-3 ${diffTone}`}>
+                        <span className="text-xs font-bold tracking-wide uppercase">{t.attendant.diff} · {diffLabel}</span>
+                        <span className="num text-3xl font-black">{formatMNT(diff)}</span>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {/* Тушаах ёстой хэрхэн гарав */}
+                      <div className="flex flex-col gap-1.5 rounded-xl border border-line bg-surface-alt px-4 py-3 text-[15px]">
+                        <span className="text-xs font-bold tracking-wide text-ink-soft uppercase">
+                          {t.attendant.mustHandoverHow}
+                        </span>
+                        <Row label={`+ ${t.shift.openingCash}`} value={preview.opening_cash} />
+                        <Row label={`+ ${t.attendant.fuelByMile}`} value={preview.fuel_total} />
+                        <Row label={`+ ${t.attendant.oilSales}`} value={oilTotal} />
+                        <Row label={`+ ${t.attendant.arAll}`} value={arTotal} />
+                        <Row label={`− ${t.attendant.creditGivenFuel}`} value={creditFuelTotal} negative approx />
+                        <Row label={`− ${t.attendant.expenseAll}`} value={expenseTotal} negative />
+                        <div className="num mt-1 flex items-baseline justify-between gap-3 border-t border-line-strong pt-2">
+                          <span className="font-bold text-ink">= {t.attendant.mustHandover}</span>
+                          <span className="text-lg font-bold text-ink">{formatMNT(mustTotal)}</span>
+                        </div>
+                      </div>
+
+                      {/* Тушаасан — суваг бүрээр */}
+                      <div className="flex flex-col gap-1.5 rounded-xl border border-line bg-surface-alt px-4 py-3 text-[15px]">
+                        <span className="text-xs font-bold tracking-wide text-ink-soft uppercase">
+                          {t.attendant.handedOverHow}
+                        </span>
+                        <Row label={`+ ${t.attendant.methodCash} (${t.shift.declaredCash})`} value={declared} />
+                        <Row label={`+ ${t.attendant.methodCard}`} value={settlementTotal} />
+                        <Row label={`+ ${t.attendant.methodTransfer}`} value={transferAmount} />
+                        {Number(arNonCash) > 0 ? (
+                          <Row label={`+ ${t.attendant.arNonCash}`} value={arNonCash} />
+                        ) : null}
+                        {Number(expenseNonCash) > 0 ? (
+                          <Row label={`− ${t.attendant.expenseNonCash}`} value={expenseNonCash} negative />
+                        ) : null}
+                        <div className="num mt-1 flex items-baseline justify-between gap-3 border-t border-line-strong pt-2">
+                          <span className="font-bold text-ink">= {t.attendant.handedOver}</span>
+                          <span className="text-lg font-bold text-ink">{formatMNT(handedTotal)}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-xs text-ink-soft">{t.attendant.diffHint}</p>
+                  </>
+                );
+              })()}
 
               {/* Хошуу бүрийн задаргаа — утсанд карт, дэлгэцэнд хүснэгт */}
+              <span className="mt-1 text-xs font-bold tracking-wide text-ink-soft uppercase">
+                {t.attendant.fuelByMile} · {formatLiters(preview.fuel_liters, 1)}
+              </span>
               <div className="flex flex-col gap-2 sm:hidden">
                 {preview.nozzles.map((row) => (
                   <div key={row.nozzle_id} className="rounded-xl border border-line px-3 py-2.5">
@@ -1937,129 +1988,6 @@ export function AttendantShiftPage() {
                     ))}
                   </tbody>
                 </table>
-              </div>
-
-              {/* Хүлээгдэх бэлэн мөнгөний баримжаа */}
-              <div className="flex flex-col gap-1.5 rounded-xl border border-line bg-surface-alt px-4 py-3 text-[15px]">
-                <Row label={t.shift.openingCash} value={preview.opening_cash} />
-                <Row label={`+ ${t.attendant.fuelByMile}`} value={preview.fuel_total} />
-                <Row
-                  label={`− ${t.attendant.methodCard} (${t.attendant.salesLabel})`}
-                  value={settlementTotal}
-                  negative
-                />
-                <Row
-                  label={`− ${t.attendant.methodTransfer} (${t.attendant.salesLabel})`}
-                  value={transferAmount}
-                  negative
-                />
-                <Row
-                  label={`− ${t.attendant.creditSales}`}
-                  value={creditFuelTotal}
-                  negative
-                  approx
-                />
-                <Row label={`+ ${t.attendant.oilSales}`} value={oilTotal} />
-                <Row
-                  label={`+ ${t.attendant.stepAr} (${t.attendant.methodCash})`}
-                  value={arCashTotal}
-                />
-                <Row
-                  label={`− ${t.attendant.stepExpense} (${t.attendant.methodCash})`}
-                  value={expenseCashTotal}
-                  negative
-                />
-
-                <div className="num mt-1 flex items-baseline justify-between gap-3 border-t border-line-strong pt-2">
-                  <span className="font-semibold text-ink">{t.shift.expectedCash} ≈</span>
-                  <span className="text-lg font-bold text-ink">{formatMNT(expectedCash)}</span>
-                </div>
-                <div className="num flex items-baseline justify-between gap-3">
-                  <span className="font-semibold text-ink">{t.shift.declaredCash}</span>
-                  <span className="text-lg font-bold text-ink">
-                    {formatMNT(declaredCash === "" ? "0" : declaredCash)}
-                  </span>
-                </div>
-                <div className="num flex items-baseline justify-between gap-3 border-t border-line-strong pt-2">
-                  <span className="font-bold text-ink">{t.shift.overShort} ≈</span>
-                  <span
-                    className={[
-                      "text-xl font-black",
-                      Number(cashDiff) < 0
-                        ? "text-danger-dark"
-                        : Number(cashDiff) > 0
-                          ? "text-warning-dark"
-                          : "text-success-dark",
-                    ].join(" ")}
-                  >
-                    {formatMNT(cashDiff)}
-                  </span>
-                </div>
-              </div>
-              {/* Бүх суваг нэг хүснэгтэд: тушаалт + өглөг төлөлт − зарлага = сувгийн нийт */}
-              <div className="overflow-x-auto rounded-xl border border-line">
-                <div className="border-b border-line bg-surface-alt px-3 py-2 text-xs font-bold text-ink-soft uppercase">
-                  {t.attendant.channels}
-                </div>
-                <table className="num w-full text-sm">
-                  <thead className="text-left text-xs font-bold text-ink-soft uppercase">
-                    <tr>
-                      <th className="px-3 py-2">{t.attendant.channel}</th>
-                      <th className="px-3 py-2 text-right">{t.attendant.channelHandover}</th>
-                      <th className="px-3 py-2 text-right">{t.attendant.stepAr}</th>
-                      <th className="px-3 py-2 text-right">{t.attendant.stepExpense}</th>
-                      <th className="px-3 py-2 text-right">{t.attendant.channelNet}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(
-                      [
-                        {
-                          label: t.attendant.methodCash,
-                          handover: declaredCash === "" ? "0" : declaredCash,
-                          ar: arByMethod.cash,
-                          expense: expenseByMethod.cash,
-                        },
-                        {
-                          label: t.attendant.methodCard,
-                          handover: settlementTotal,
-                          ar: arByMethod.card,
-                          expense: expenseByMethod.card,
-                        },
-                        {
-                          label: t.attendant.methodTransfer,
-                          handover: transferAmount,
-                          ar: arByMethod.transfer,
-                          expense: expenseByMethod.transfer,
-                        },
-                      ] as const
-                    ).map((row) => (
-                      <tr key={row.label} className="border-t border-line">
-                        <td className="px-3 py-2 font-semibold text-ink">{row.label}</td>
-                        <td className="px-3 py-2 text-right">{formatMNT(row.handover)}</td>
-                        <td className="px-3 py-2 text-right">{formatMNT(row.ar)}</td>
-                        <td className="px-3 py-2 text-right text-danger-dark">
-                          {Number(row.expense) > 0 ? `− ${formatMNT(row.expense)}` : formatMNT("0")}
-                        </td>
-                        <td className="px-3 py-2 text-right font-bold">
-                          {formatMNT(dSub(dAdd(row.handover, row.ar), row.expense))}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr className="border-t border-line-strong bg-surface-alt font-bold">
-                      <td className="px-3 py-2">{t.common.total}</td>
-                      <td className="px-3 py-2 text-right">{formatMNT(handoverTotal)}</td>
-                      <td className="px-3 py-2 text-right">{formatMNT(arTotal)}</td>
-                      <td className="px-3 py-2 text-right text-danger-dark">
-                        {Number(expenseTotal) > 0 ? `− ${formatMNT(expenseTotal)}` : formatMNT("0")}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        {formatMNT(dSub(dAdd(handoverTotal, arTotal), expenseTotal))}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-                <p className="px-3 py-2 text-xs text-ink-soft">{t.attendant.channelsHint}</p>
               </div>
 
               <p className="text-xs text-ink-soft">
