@@ -2518,8 +2518,9 @@ export interface NewCreditCustomerInput {
 }
 
 export interface CreditLineInput {
-  /** Байгаа гэрээ — эсвэл new_customer (хаалтын үед харилцагч + гэрээ үүснэ). */
+  /** Байгаа гэрээ / гэрээгүй харилцагч (гэрээ автоматаар) / new_customer — аль нэг нь. */
   contract_id?: UUID;
+  customer_id?: UUID;
   new_customer?: NewCreditCustomerInput;
   items: CreditItemInput[];
 }
@@ -2531,8 +2532,9 @@ export interface OilLineInput {
 }
 
 export interface ArPaymentLineInput {
-  /** Байгаа гэрээ — эсвэл энэ хаалтын зээлийн алхамд нэмсэн шинэ харилцагч. */
+  /** Байгаа гэрээ / гэрээгүй харилцагч / энэ хаалтын зээлийн алхамд нэмсэн шинэ харилцагч. */
   contract_id?: UUID;
+  customer_id?: UUID;
   new_customer?: NewCreditCustomerInput;
   amount: MoneyStr;
   method: "cash" | "card" | "transfer";

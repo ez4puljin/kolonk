@@ -365,6 +365,50 @@ async def _next_contract_no(db: AsyncSession, prefix: str) -> str:
         seq += 1
 
 
+async def _contract_for_customer(
+    db: AsyncSession, user: User, customer_id: uuid.UUID
+) -> Contract:
+    """Бүртгэлтэй боловч гэрээгүй харилцагч — идэвхтэй гэрээг нь олно, үгүй бол нээнэ.
+
+    Харилцагч цэснээс гэрээгүйгээр үүсгэсэн хүнд түгээгч зээлээр өгөх, төлбөр
+    авахад гэрээг автоматаар (ЗЭ-YYYYMMDD-NN) нээж, лимитийг зээлийн дүнгээр
+    тогтооно (нягтлан дараа нь засна).
+    """
+    customer = await db.scalar(
+        select(Customer).where(Customer.id == customer_id, Customer.is_active.is_(True))
+    )
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Харилцагч олдсонгүй эсвэл идэвхгүй")
+    contract = await db.scalar(
+        select(Contract)
+        .where(Contract.customer_id == customer.id, Contract.status == str(ContractStatus.ACTIVE))
+        .order_by(Contract.created_at)
+    )
+    if contract is not None:
+        return contract
+    today = datetime.now(STATION_TZ).date()
+    contract = Contract(
+        customer_id=customer.id,
+        contract_no=await _next_contract_no(db, f"ЗЭ-{today:%Y%m%d}"),
+        credit_limit=q2(_d(customer.credit_limit)),
+        balance=ZERO,
+        price_discount_per_l=ZERO,
+        billing_day=1,
+        status=str(ContractStatus.ACTIVE),
+    )
+    db.add(contract)
+    await db.flush()
+    await audit(
+        db,
+        user_id=user.id,
+        action="contract.create",
+        entity_type="contract",
+        entity_id=contract.id,
+        after={"contract_no": contract.contract_no, "customer_id": str(customer.id), "source": "daily_close"},
+    )
+    return contract
+
+
 async def _contract_for_new_customer(
     db: AsyncSession,
     user: User,
@@ -495,6 +539,11 @@ async def _create_credit_sales(
             )
             if contract.id not in opened:
                 opened[contract.id] = q2(_d(new_customer.credit_limit)) <= ZERO
+        elif getattr(line, "customer_id", None) is not None:
+            # Гэрээгүй бүртгэлтэй харилцагч — гэрээ нээгдэж, лимит нь зээлээ багтаана.
+            contract = await _contract_for_customer(db, user, line.customer_id)
+            if contract.id not in opened:
+                opened[contract.id] = True
         else:
             contract = await db.scalar(select(Contract).where(Contract.id == line.contract_id))
             if contract is None:
@@ -838,6 +887,8 @@ async def daily_close(
                 db, user, pay.new_customer, new_customers, branch_id=shift.branch_id
             )
             contract_id = contract.id
+        elif getattr(pay, "customer_id", None) is not None:
+            contract_id = (await _contract_for_customer(db, user, pay.customer_id)).id
         await contract_service.record_payment(
             db,
             user,

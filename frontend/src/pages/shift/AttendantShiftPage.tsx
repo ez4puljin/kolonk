@@ -390,6 +390,8 @@ interface OilRow extends OilLineInput {
 const NEW_CUSTOMER = "__new__";
 /** Өглөг төлөлтөд зээлийн алхамын шинэ харилцагчийг заах утгын угтвар. */
 const NEW_AR_PREFIX = "new:";
+/** Гэрээгүй бүртгэлтэй харилцагчийг заах угтвар — сервер гэрээг автоматаар нээнэ. */
+const CUSTOMER_PREFIX = "cust:";
 
 interface CreditRow {
   key: number;
@@ -492,17 +494,27 @@ export function AttendantShiftPage() {
   const products = useMemo(() => productsPage?.items ?? [], [productsPage]);
 
   // Хайлт нэр, гэрээ, утас, салбараар (PickerField label + hint-ээр хайдаг).
+  // Гэрээгүй харилцагч ч сонгогдоно («cust:<id>») — хаалтын үед гэрээ автоматаар нээгдэнэ.
   const contractOptions = useMemo(
     () =>
-      (customersPage?.items ?? []).flatMap((customer) =>
-        customer.contracts
-          .filter((contract) => contract.status === "active")
-          .map((contract) => ({
-            value: contract.id,
-            label: `${customer.full_name || customer.name} · ${contract.contract_no}`,
-            hint: [customer.phone, customer.branch_name].filter(Boolean).join(" · ") || undefined,
-          })),
-      ),
+      (customersPage?.items ?? []).flatMap((customer) => {
+        const active = customer.contracts.filter((contract) => contract.status === "active");
+        const hint = [customer.phone, customer.branch_name].filter(Boolean).join(" · ") || undefined;
+        if (active.length === 0) {
+          return [
+            {
+              value: `${CUSTOMER_PREFIX}${customer.id}`,
+              label: `${customer.full_name || customer.name} · ${t.attendant.creditNoContract}`,
+              hint,
+            },
+          ];
+        }
+        return active.map((contract) => ({
+          value: contract.id,
+          label: `${customer.full_name || customer.name} · ${contract.contract_no}`,
+          hint,
+        }));
+      }),
     [customersPage],
   );
 
@@ -846,7 +858,9 @@ export function AttendantShiftPage() {
                 // дараа нь нягтлан/админ Харилцагч цэснээс өөрчилнө.
               },
             }
-          : { contract_id: row.contract_id }),
+          : row.contract_id.startsWith(CUSTOMER_PREFIX)
+            ? { customer_id: row.contract_id.slice(CUSTOMER_PREFIX.length) }
+            : { contract_id: row.contract_id }),
         items: [
           ...(row.fuel_id !== "" && dToQty(row.value) > 0
             ? [
@@ -882,17 +896,27 @@ export function AttendantShiftPage() {
               const creditRow = contract_id.startsWith(NEW_AR_PREFIX)
                 ? creditRows.find((r) => String(r.key) === contract_id.slice(NEW_AR_PREFIX.length))
                 : undefined;
-              return creditRow
-                ? {
-                    ...rest,
-                    new_customer: {
-                      name: creditRow.new_name.trim(),
-                      phone: creditRow.new_phone.trim() === "" ? null : creditRow.new_phone.trim(),
-                    },
-                  }
-                : { ...rest, contract_id };
+              if (creditRow) {
+                return {
+                  ...rest,
+                  new_customer: {
+                    name: creditRow.new_name.trim(),
+                    phone: creditRow.new_phone.trim() === "" ? null : creditRow.new_phone.trim(),
+                  },
+                };
+              }
+              // «cust:<id>» — гэрээгүй бүртгэлтэй харилцагч (гэрээ автоматаар нээгдэнэ).
+              if (contract_id.startsWith(CUSTOMER_PREFIX)) {
+                return { ...rest, customer_id: contract_id.slice(CUSTOMER_PREFIX.length) };
+              }
+              return { ...rest, contract_id };
             })
-            .filter((row) => row.contract_id !== undefined || (row.new_customer?.name ?? "") !== ""),
+            .filter(
+              (row) =>
+                row.contract_id !== undefined ||
+                row.customer_id !== undefined ||
+                (row.new_customer?.name ?? "") !== "",
+            ),
           expenses: expenseRows
             .filter((row) => row.account_code !== "" && dToQty(row.amount) > 0)
             .map(({ key: _key, ...rest }) => rest),

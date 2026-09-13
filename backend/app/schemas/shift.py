@@ -253,15 +253,18 @@ class NewCreditCustomerIn(BaseModel):
 class CreditLineIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    #: Байгаа гэрээ — эсвэл ``new_customer``-ийн аль нэг нь заавал.
+    #: Гурвын аль нэг нь заавал: байгаа гэрээ / гэрээгүй бүртгэлтэй харилцагч
+    #: (гэрээ автоматаар нээгдэнэ) / шинэ харилцагч.
     contract_id: uuid.UUID | None = None
+    customer_id: uuid.UUID | None = None
     new_customer: NewCreditCustomerIn | None = None
     items: list[CreditItemIn] = Field(min_length=1)
 
     @model_validator(mode="after")
     def _one_target(self) -> "CreditLineIn":
-        if (self.contract_id is None) == (self.new_customer is None):
-            raise ValueError("Гэрээ сонгох эсвэл шинэ харилцагч оруулах — аль нэгийг нь")
+        given = sum(x is not None for x in (self.contract_id, self.customer_id, self.new_customer))
+        if given != 1:
+            raise ValueError("Гэрээ, харилцагч эсвэл шинэ харилцагч — аль нэгийг нь")
         return self
 
 
@@ -279,6 +282,7 @@ class ArPaymentLineIn(BaseModel):
     #: Байгаа гэрээ — эсвэл энэ хаалтын «Зээл» алхамд шинээр нэмсэн харилцагч
     #: (``new_customer`` — нэр/утас нь зээлийн мөртэй ижил бол нэг гэрээ).
     contract_id: uuid.UUID | None = None
+    customer_id: uuid.UUID | None = None
     new_customer: NewCreditCustomerIn | None = None
     amount: Decimal = Field(gt=0)
     #: cash | card | transfer — карт/шилжүүлэг банк руу орно.
@@ -287,8 +291,9 @@ class ArPaymentLineIn(BaseModel):
 
     @model_validator(mode="after")
     def _one_target(self) -> "ArPaymentLineIn":
-        if (self.contract_id is None) == (self.new_customer is None):
-            raise ValueError("Гэрээ сонгох эсвэл шинэ харилцагч оруулах — аль нэгийг нь")
+        given = sum(x is not None for x in (self.contract_id, self.customer_id, self.new_customer))
+        if given != 1:
+            raise ValueError("Гэрээ, харилцагч эсвэл шинэ харилцагч — аль нэгийг нь")
         return self
 
 
