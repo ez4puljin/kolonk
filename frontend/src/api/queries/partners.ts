@@ -229,8 +229,16 @@ export function useGenerateArInvoicesMutation() {
 export function useCreateArChargeMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ contractId, ...payload }: ArChargeCreate & { contractId: UUID }) =>
-      api.post<Contract>(`/api/contracts/${contractId}/charges`, payload),
+    // Гэрээтэй бол гэрээнд, гэрээгүй харилцагч бол харилцагчид (гэрээ автоматаар нээгдэнэ).
+    mutationFn: ({
+      contractId,
+      customerId,
+      ...payload
+    }: ArChargeCreate & { contractId?: UUID; customerId?: UUID }) =>
+      api.post<Contract>(
+        contractId ? `/api/contracts/${contractId}/charges` : `/api/customers/${customerId}/charges`,
+        payload,
+      ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: partnerKeys.contracts });
       void queryClient.invalidateQueries({ queryKey: partnerKeys.customers });

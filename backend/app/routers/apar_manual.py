@@ -67,12 +67,34 @@ async def create_ar_charge(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_permission("contracts.manage")),
 ) -> ContractOut:
-    amount = q2(payload.amount)
-    if amount == ZERO:
-        raise HTTPException(status_code=422, detail="Дүн 0 байж болохгүй")
     contract = await db.scalar(select(Contract).where(Contract.id == contract_id).with_for_update())
     if contract is None:
         raise HTTPException(status_code=404, detail="Гэрээ олдсонгүй")
+    return await _apply_charge(db, user, request, contract, payload)
+
+
+@router.post("/customers/{customer_id}/charges", response_model=ContractOut, status_code=201)
+async def create_customer_charge(
+    customer_id: uuid.UUID,
+    payload: ArChargeIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("contracts.manage")),
+) -> ContractOut:
+    """Гэрээгүй харилцагчид авлага үүсгэх — идэвхтэй гэрээг олох эсвэл автоматаар нээнэ."""
+    from app.services.attendant_service import _contract_for_customer
+
+    contract = await _contract_for_customer(db, user, customer_id)
+    contract = await db.scalar(select(Contract).where(Contract.id == contract.id).with_for_update())
+    return await _apply_charge(db, user, request, contract, payload)
+
+
+async def _apply_charge(
+    db: AsyncSession, user: User, request: Request, contract: Contract, payload: ArChargeIn
+) -> ContractOut:
+    amount = q2(payload.amount)
+    if amount == ZERO:
+        raise HTTPException(status_code=422, detail="Дүн 0 байж болохгүй")
     customer = await db.scalar(select(Customer).where(Customer.id == contract.customer_id))
     balance_after = q2(Decimal(contract.balance or ZERO) + amount)
     if balance_after < ZERO:

@@ -23,9 +23,10 @@ import {
   useContractStatement,
   useCreateArChargeMutation,
   useCreateArPaymentMutation,
+  useCustomers,
 } from "../../api/queries/partners";
 import { useSuppliers } from "../../api/queries/procurement";
-import type { ApInvoice, ArInvoice, CashAccount, Contract, StatementRow, UUID } from "../../api/types";
+import type { ApInvoice, ArInvoice, CashAccount, Contract, Customer, StatementRow, UUID } from "../../api/types";
 import { PickerField } from "../catalog/_shared";
 import { BarChart, type BarDatum } from "../../components/charts/BarChart";
 import { PageHeader } from "../../components/layout/PageHeader";
@@ -422,38 +423,80 @@ function ArPaymentModal({ target, onClose }: { target: ArPayTarget | null; onClo
 // Авлага гараар үүсгэх (гэрээнд нэмэх / хасах)
 // --------------------------------------------------------------------------
 
-function ArChargeModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+/** Авлага үүсгэх сонголтын утга: гэрээтэй бол гэрээний id, гэрээгүй харилцагч бол `u:<customerId>`. */
+interface ArChargeTarget {
+  contractId?: UUID;
+  customerId?: UUID;
+}
+
+function targetValue(target: ArChargeTarget | null): string {
+  if (!target) return "";
+  return target.contractId ?? (target.customerId ? `u:${target.customerId}` : "");
+}
+
+function ArChargeModal({
+  open,
+  target,
+  onClose,
+}: {
+  open: boolean;
+  /** Мөрөөс дарж нээхэд урьдчилан сонгогдох харилцагч/гэрээ. */
+  target: ArChargeTarget | null;
+  onClose: () => void;
+}) {
   const toastError = useUiStore((state) => state.toastError);
   const toastSuccess = useUiStore((state) => state.toastSuccess);
   const mutation = useCreateArChargeMutation();
-  const contractsQuery = useContracts({ limit: 500 });
+  const customersQuery = useCustomers({ active_only: true, limit: 500 });
 
-  const [contractId, setContractId] = useState("");
+  const [picked, setPicked] = useState("");
   const [amount, setAmount] = useState("0.00");
   const [negative, setNegative] = useState(false);
   const [kind, setKind] = useState<"opening" | "income">("opening");
   const [chargeDate, setChargeDate] = useState(todayInput);
   const [note, setNote] = useState("");
+  const value = picked !== "" ? picked : targetValue(target);
 
-  const options = useMemo(
-    () =>
-      (contractsQuery.data?.items ?? [])
-        .filter((contract) => contract.status === "active")
-        .map((contract) => ({
+  /** Бүх идэвхтэй харилцагч — гэрээтэй бол гэрээ бүрээр, гэрээгүй бол харилцагчаар (гэрээ автоматаар нээгдэнэ). */
+  const options = useMemo(() => {
+    const items = customersQuery.data?.items ?? [];
+    const rows: { value: string; label: string; hint: string; balance: string }[] = [];
+    for (const customer of items) {
+      const active = customer.contracts.filter((c) => c.status === "active");
+      if (active.length === 0) {
+        rows.push({
+          value: `u:${customer.id}`,
+          label: `${customer.full_name} · ${t.partners.noContractAuto}`,
+          hint: customer.phone ?? "",
+          balance: "0.00",
+        });
+        continue;
+      }
+      for (const contract of active) {
+        rows.push({
           value: contract.id,
-          label: `${contract.customer_name ?? "—"} · ${contract.contract_no}`,
+          label: `${customer.full_name} · ${contract.contract_no}`,
           hint: `${t.partners.currentBalance}: ${formatMNT(contract.balance)}`,
-        })),
-    [contractsQuery.data],
-  );
-  const selected = (contractsQuery.data?.items ?? []).find((c) => c.id === contractId) ?? null;
-  const valid = contractId !== "" && dCmp(amount, "0") > 0;
+          balance: contract.balance,
+        });
+      }
+    }
+    return rows.sort((a, b) => a.label.localeCompare(b.label));
+  }, [customersQuery.data]);
+  const selected = options.find((o) => o.value === value) ?? null;
+  const valid = value !== "" && dCmp(amount, "0") > 0;
+
+  const close = (): void => {
+    setPicked("");
+    onClose();
+  };
 
   const submit = (): void => {
     if (!valid) return;
+    const ids = value.startsWith("u:") ? { customerId: value.slice(2) } : { contractId: value };
     mutation.mutate(
       {
-        contractId,
+        ...ids,
         amount: negative ? `-${amount}` : amount,
         charge_date: chargeDate,
         kind,
@@ -464,7 +507,7 @@ function ArChargeModal({ open, onClose }: { open: boolean; onClose: () => void }
           toastSuccess(t.common.saved);
           setAmount("0.00");
           setNote("");
-          onClose();
+          close();
         },
         onError: (error: unknown) => toastError(errorMessage(error)),
       },
@@ -474,13 +517,13 @@ function ArChargeModal({ open, onClose }: { open: boolean; onClose: () => void }
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={close}
       size="md"
       title={t.partners.arCharge}
       subtitle={t.partners.arChargeHint}
       footer={
         <>
-          <Button variant="secondary" size="md" onClick={onClose}>
+          <Button variant="secondary" size="md" onClick={close}>
             {t.common.cancel}
           </Button>
           <Button variant="success" size="lg" onClick={submit} disabled={!valid} loading={mutation.isPending}>
@@ -490,7 +533,7 @@ function ArChargeModal({ open, onClose }: { open: boolean; onClose: () => void }
       }
     >
       <div className="flex flex-col gap-4">
-        <PickerField label={t.partners.contract} value={contractId} options={options} onChange={setContractId} searchable />
+        <PickerField label={t.partners.customer} value={value} options={options} onChange={setPicked} searchable />
         {selected ? (
           <div className="flex items-center justify-between rounded-xl bg-surface-alt px-4 py-3">
             <span className="text-sm font-semibold text-ink-soft">{t.partners.currentBalance}</span>
@@ -543,6 +586,17 @@ function ArChargeModal({ open, onClose }: { open: boolean; onClose: () => void }
       </div>
     </Modal>
   );
+}
+
+/** Авлагын хүснэгтийн мөр — нэг харилцагч, түүний идэвхтэй гэрээнүүд. */
+interface CustomerArRow {
+  customer: Customer;
+  contracts: Contract[];
+  /** Хуулга/төлбөрт ашиглах гэрээ (үлдэгдэл хамгийн их нь). */
+  primary: Contract | null;
+  opening: string;
+  limit: string;
+  balance: string;
 }
 
 // --------------------------------------------------------------------------
@@ -773,19 +827,42 @@ export function ApArPage() {
   const [arTarget, setArTarget] = useState<ArPayTarget | null>(null);
   const [statementContract, setStatementContract] = useState<UUID | null>(null);
   const [arChargeOpen, setArChargeOpen] = useState(false);
+  const [arChargeTarget, setArChargeTarget] = useState<ArChargeTarget | null>(null);
   const [apCreateOpen, setApCreateOpen] = useState(false);
 
   const apQuery = useApInvoices({ limit: 200 });
   const arQuery = useArInvoices({ limit: 200 });
   const contractsQuery = useContracts({ limit: 500 });
+  const customersQuery = useCustomers({ active_only: true, limit: 500 });
 
-  /** Гэрээ бүрийн одоогийн үлдэгдэл — нэхэмжлэхгүй авлага ч энд харагдана. */
-  const contractRows = useMemo(() => {
-    const items = (contractsQuery.data?.items ?? []).filter((c) => c.status === "active");
-    const rows = openOnly ? items.filter((c) => dCmp(c.balance, "0") > 0) : items;
-    return [...rows].sort((a, b) => dCmp(b.balance, a.balance));
-  }, [contractsQuery.data, openOnly]);
-  const arBalanceTotal = useMemo(() => dSum(contractRows.map((c) => c.balance)), [contractRows]);
+  /** Харилцагч бүр нэг мөр — гэрээгүй (гараар үүсгэсэн) харилцагч ч энд харагдана. */
+  const customerRows = useMemo(() => {
+    const contracts = (contractsQuery.data?.items ?? []).filter((c) => c.status === "active");
+    const byCustomer = new Map<UUID, Contract[]>();
+    for (const contract of contracts) {
+      const list = byCustomer.get(contract.customer_id) ?? [];
+      list.push(contract);
+      byCustomer.set(contract.customer_id, list);
+    }
+    const rows: CustomerArRow[] = (customersQuery.data?.items ?? []).map((customer) => {
+      const own = byCustomer.get(customer.id) ?? [];
+      const primary = [...own].sort((a, b) => dCmp(b.balance, a.balance))[0] ?? null;
+      return {
+        customer,
+        contracts: own,
+        primary,
+        opening: dSum(own.map((c) => c.opening_balance ?? "0")),
+        limit: own.length > 0 ? dSum(own.map((c) => c.credit_limit)) : customer.credit_limit,
+        balance: dSum(own.map((c) => c.balance)),
+      };
+    });
+    // Бүх харилцагч (үлдэгдэлгүй, гэрээгүй ч) харагдана — «Төлөгдөөгүй» шүүлт зөвхөн нэхэмжлэхэд.
+    return rows.sort((a, b) => {
+      const byBalance = dCmp(b.balance, a.balance);
+      return byBalance !== 0 ? byBalance : a.customer.full_name.localeCompare(b.customer.full_name);
+    });
+  }, [contractsQuery.data, customersQuery.data]);
+  const arBalanceTotal = useMemo(() => dSum(customerRows.map((r) => r.balance)), [customerRows]);
 
   /** Нийлүүлэгч бүрийн төлөгдөөгүй нэхэмжлэх. */
   const supplierRows = useMemo(() => {
@@ -1006,21 +1083,36 @@ export function ApArPage() {
     },
   ];
 
-  const contractColumns: Column<Contract>[] = [
+  const customerColumns: Column<CustomerArRow>[] = [
     {
       key: "customer",
       header: t.partners.customer,
       primary: true,
-      render: (row) => <span className="font-bold">{row.customer_name ?? "—"}</span>,
+      render: (row) => (
+        <span className="flex flex-col">
+          <span className="font-bold">{row.customer.full_name}</span>
+          {row.customer.phone ? <span className="num text-xs text-ink-soft">{row.customer.phone}</span> : null}
+        </span>
+      ),
     },
-    { key: "contract", header: t.partners.contractNo, hideOnMobile: true, render: (row) => row.contract_no },
+    {
+      key: "contract",
+      header: t.partners.contractNo,
+      hideOnMobile: true,
+      render: (row) =>
+        row.contracts.length > 0 ? (
+          row.contracts.map((c) => c.contract_no).join(", ")
+        ) : (
+          <span className="text-ink-soft">{t.partners.noContract}</span>
+        ),
+    },
     {
       key: "opening",
       header: t.partners.openingBalance,
       align: "right",
       numeric: true,
       hideOnMobile: true,
-      render: (row) => formatMNT(row.opening_balance),
+      render: (row) => formatMNT(row.opening),
     },
     {
       key: "limit",
@@ -1028,7 +1120,7 @@ export function ApArPage() {
       align: "right",
       numeric: true,
       hideOnMobile: true,
-      render: (row) => formatMNT(row.credit_limit),
+      render: (row) => formatMNT(row.limit),
     },
     {
       key: "balance",
@@ -1041,35 +1133,48 @@ export function ApArPage() {
       key: "action",
       header: t.common.actions,
       align: "right",
-      render: (row) => (
-        <span className="flex flex-wrap justify-end gap-2">
-          <Button
-            variant="secondary"
-            size="md"
-            icon={<FileText className="h-5 w-5" />}
-            onClick={() => setStatementContract(row.id)}
-          >
-            {t.partners.statement}
-          </Button>
-          {dCmp(row.balance, "0") > 0 ? (
+      render: (row) => {
+        const primary = row.primary;
+        return (
+          <span className="flex flex-wrap justify-end gap-2">
+            {primary ? (
+              <Button
+                variant="secondary"
+                size="md"
+                icon={<FileText className="h-5 w-5" />}
+                onClick={() => setStatementContract(primary.id)}
+              >
+                {t.partners.statement}
+              </Button>
+            ) : null}
             <Button
-              variant="primary"
+              variant="secondary"
               size="md"
-              icon={<Wallet className="h-5 w-5" />}
-              onClick={() =>
-                setArTarget({
-                  contract_id: row.id,
-                  invoice_id: null,
-                  label: `${row.customer_name ?? ""} · ${row.contract_no}`,
-                  due: row.balance,
-                })
-              }
+              icon={<Plus className="h-5 w-5" />}
+              onClick={() => setArChargeTarget(primary ? { contractId: primary.id } : { customerId: row.customer.id })}
             >
-              {t.partners.arPayment}
+              {t.partners.arCharge}
             </Button>
-          ) : null}
-        </span>
-      ),
+            {primary && dCmp(primary.balance, "0") > 0 ? (
+              <Button
+                variant="primary"
+                size="md"
+                icon={<Wallet className="h-5 w-5" />}
+                onClick={() =>
+                  setArTarget({
+                    contract_id: primary.id,
+                    invoice_id: null,
+                    label: `${row.customer.full_name} · ${primary.contract_no}`,
+                    due: primary.balance,
+                  })
+                }
+              >
+                {t.partners.arPayment}
+              </Button>
+            ) : null}
+          </span>
+        );
+      },
     },
   ];
 
@@ -1154,10 +1259,10 @@ export function ApArPage() {
             flush
           >
             <DataTable
-              columns={contractColumns}
-              rows={contractRows}
-              rowKey={(row) => row.id}
-              loading={contractsQuery.isLoading}
+              columns={customerColumns}
+              rows={customerRows}
+              rowKey={(row) => row.customer.id}
+              loading={contractsQuery.isLoading || customersQuery.isLoading}
               emptyTitle={t.reports.noData}
             />
           </Card>
@@ -1175,7 +1280,14 @@ export function ApArPage() {
 
       <ApPaymentModal invoice={apTarget} onClose={() => setApTarget(null)} />
       <ArPaymentModal target={arTarget} onClose={() => setArTarget(null)} />
-      <ArChargeModal open={arChargeOpen} onClose={() => setArChargeOpen(false)} />
+      <ArChargeModal
+        open={arChargeOpen || arChargeTarget !== null}
+        target={arChargeTarget}
+        onClose={() => {
+          setArChargeOpen(false);
+          setArChargeTarget(null);
+        }}
+      />
       <ApInvoiceModal open={apCreateOpen} onClose={() => setApCreateOpen(false)} />
       <StatementModal contractId={statementContract} onClose={() => setStatementContract(null)} />
     </div>
