@@ -404,10 +404,7 @@ export function FuelShipmentDetailPage() {
       header: t.procurement.supplier,
       primary: true,
       render: (row) => (
-        <span className="font-bold">
-          {row.supplier_name ?? "—"}
-          {row.is_main ? <span className="ml-2 rounded-md bg-warning-soft px-1.5 py-0.5 text-[11px] font-bold text-warning-dark">{t.shipments.mainSupplierTag}</span> : null}
-        </span>
+        <span className="font-bold">{row.supplier_name ?? "—"}</span>
       ),
     },
     { key: "subtotal", header: t.shipments.subtotalNoVat, align: "right", numeric: true, hideOnMobile: true, render: (row) => formatMNT(row.subtotal) },
