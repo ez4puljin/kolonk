@@ -96,15 +96,14 @@ export function FuelShipmentsPage() {
       key: "supplier",
       header: t.procurement.supplier,
       hideOnMobile: true,
-      // Олон нийлүүлэгчтэй ачилт: үндсэн нийлүүлэгч + бусдын тоо; бараатай бол тэмдэг.
+      // Олон нийлүүлэгчтэй ачилт: бүх нийлүүлэгчийн нэр; бараатай бол тэмдэг.
       render: (row) => (
         <span className="inline-flex flex-wrap items-center gap-1.5">
-          <span>{row.supplier_name ?? "—"}</span>
-          {row.supplier_count > 1 ? (
-            <span className="num rounded-md bg-surface-sunken px-1.5 py-0.5 text-[11px] font-bold text-ink-soft">
-              +{row.supplier_count - 1}
-            </span>
-          ) : null}
+          <span>
+            {row.suppliers.length > 0
+              ? row.suppliers.map((s) => s.supplier_name ?? "—").join(", ")
+              : (row.supplier_name ?? "—")}
+          </span>
           {Number(row.total_goods_qty) > 0 ? (
             <span className="rounded-md bg-violet-soft px-1.5 py-0.5 text-[11px] font-bold text-violet-dark">
               {t.shipments.goodsShort}
