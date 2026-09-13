@@ -395,8 +395,6 @@ interface CreditRow {
   contract_id: string;
   new_name: string;
   new_phone: string;
-  /** Зээлийн лимит (заавал биш — хоосон бол энэ зээлийн дүнгээр). */
-  new_limit: string;
   fuel_id: string;
   mode: "liters" | "amount";
   value: string;
@@ -829,7 +827,8 @@ export function AttendantShiftPage() {
               new_customer: {
                 name: row.new_name.trim(),
                 phone: row.new_phone.trim() === "" ? null : row.new_phone.trim(),
-                ...(dToQty(row.new_limit) > 0 ? { credit_limit: row.new_limit } : {}),
+                // Лимитийг түгээгч оруулахгүй — сервер энэ зээлийн дүнгээр тогтооно,
+                // дараа нь нягтлан/админ Харилцагч цэснээс өөрчилнө.
               },
             }
           : { contract_id: row.contract_id }),
@@ -1565,16 +1564,7 @@ export function AttendantShiftPage() {
                             maxLength={32}
                             className="min-w-[9rem]"
                           />
-                          <NumberField
-                            name={`credit-limit-${row.key}`}
-                            label={t.attendant.creditCustomerLimit}
-                            value={row.new_limit}
-                            onChange={(value) => patch({ new_limit: value })}
-                            maxDecimals={2}
-                            className="min-w-[10rem]"
-                          />
                         </div>
-                        <span className="text-xs text-ink-faint">{t.attendant.creditCustomerLimitHint}</span>
                       </div>
                     ) : null}
                     <div className="flex flex-wrap items-end gap-2">
@@ -1644,7 +1634,6 @@ export function AttendantShiftPage() {
                       contract_id: "",
                       new_name: "",
                       new_phone: "",
-                      new_limit: "",
                       fuel_id: fuelOptions[0]?.value ?? "",
                       mode: "liters",
                       value: "",
