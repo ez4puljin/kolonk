@@ -2499,7 +2499,9 @@ export interface OilLineInput {
 }
 
 export interface ArPaymentLineInput {
-  contract_id: UUID;
+  /** Байгаа гэрээ — эсвэл энэ хаалтын зээлийн алхамд нэмсэн шинэ харилцагч. */
+  contract_id?: UUID;
+  new_customer?: NewCreditCustomerInput;
   amount: MoneyStr;
   method: "cash" | "card" | "transfer";
   note?: string | null;
@@ -2508,7 +2510,8 @@ export interface ArPaymentLineInput {
 export interface ExpenseLineInput {
   account_code: string;
   amount: MoneyStr;
-  payment_method: "cash" | "bank";
+  /** cash | card (банкны терминал) | transfer | bank. */
+  payment_method: "cash" | "card" | "transfer" | "bank";
   description?: string | null;
 }
 

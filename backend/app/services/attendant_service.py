@@ -461,6 +461,7 @@ async def _create_credit_sales(
     shift: Shift,
     credit_lines: list[Any],
     slots: _SegmentSlots,
+    new_by_key: dict[tuple[str, str], Contract] | None = None,
 ) -> tuple[Decimal, list[uuid.UUID]]:
     """Зээлийн (гэрээт) борлуулалтуудыг үүсгэнэ.
 
@@ -483,7 +484,8 @@ async def _create_credit_sales(
     #: Энэ хаалтад шинээр нээсэн гэрээнүүд → лимит автоматаар (True) эсвэл
     #: түгээгчийн оруулсан лимит (False — хэтэрвэл ердийн лимитийн алдаа).
     opened: dict[uuid.UUID, bool] = {}
-    new_by_key: dict[tuple[str, str], Contract] = {}
+    if new_by_key is None:
+        new_by_key = {}
 
     for line in credit_lines or []:
         new_customer = getattr(line, "new_customer", None)
@@ -780,8 +782,11 @@ async def daily_close(
     slots = _SegmentSlots(calcs)
 
     # --- 1. Зээлийн борлуулалтууд ---
+    #: Энэ хаалтад шинээр үүсгэсэн харилцагчдын гэрээ — «Өглөг төлөлт» алхамд
+    #: тэр хүнээс мөнгө авсан бол нэг л гэрээ рүү бүртгэнэ.
+    new_customers: dict[tuple[str, str], Contract] = {}
     credit_total, credit_sale_ids = await _create_credit_sales(
-        db, user, shift, payload.credit_lines, slots
+        db, user, shift, payload.credit_lines, slots, new_by_key=new_customers
     )
 
     # Шилжүүлгийн орлого аль банкны дансанд орсон бэ — түгээгч сонгоогүй бол
@@ -826,10 +831,17 @@ async def daily_close(
         method = str(pay.method or "cash")
         received_to = str(CashAccount.CASH) if method == "cash" else str(CashAccount.BANK)
         method_name = {"cash": "бэлэн", "card": "карт", "transfer": "шилжүүлэг"}.get(method, method)
+        contract_id = pay.contract_id
+        if getattr(pay, "new_customer", None) is not None:
+            # Зээлийн алхамд нэмсэн шинэ харилцагч — ижил нэр/утсаар нэг гэрээ.
+            contract = await _contract_for_new_customer(
+                db, user, pay.new_customer, new_customers, branch_id=shift.branch_id
+            )
+            contract_id = contract.id
         await contract_service.record_payment(
             db,
             user,
-            contract_id=pay.contract_id,
+            contract_id=contract_id,
             amount=q2(_d(pay.amount)),
             received_to=received_to,
             note=f"Өдрийн хаалт — {method_name}" + (f" · {pay.note}" if pay.note else ""),
@@ -839,13 +851,22 @@ async def daily_close(
     # --- 5. Зарлагууд ---
     expense_total = ZERO
     for exp in payload.expenses or []:
+        # Түгээгч тушаалтын сувгаар нь заана: бэлэн / банкны терминал / шилжүүлэг.
+        # Терминал, шилжүүлэг хоёулаа харилцахаас гардаг тул «bank»; хэлбэрийг нь
+        # тайлбарт үлдээнэ.
+        raw_method = str(exp.payment_method or "cash")
+        method = "cash" if raw_method == "cash" else "bank"
+        method_label = {"card": "банкны терминал", "transfer": "шилжүүлэг"}.get(raw_method)
+        description = (exp.description or "").strip() or "Өдрийн хаалт"
+        if method_label:
+            description = f"{description} · {method_label}"
         await expense_service.create_expense(
             db,
             user,
             account_code=exp.account_code,
             amount=q2(_d(exp.amount)),
-            payment_method=str(exp.payment_method or "cash"),
-            description=(exp.description or "").strip() or "Өдрийн хаалт",
+            payment_method=method,
+            description=description[:255],
             # Зарлага ээлжийн салбарт бичигдэнэ — эс бөгөөс салбарын цэвэр
             # ашигт харагдахгүй үлдэнэ.
             branch_id=shift.branch_id,

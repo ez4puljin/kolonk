@@ -388,6 +388,8 @@ interface OilRow extends OilLineInput {
 
 /** Харилцагчийн сонголтод «шинэ харилцагч» гэсэн тусгай утга. */
 const NEW_CUSTOMER = "__new__";
+/** Өглөг төлөлтөд зээлийн алхамын шинэ харилцагчийг заах утгын угтвар. */
+const NEW_AR_PREFIX = "new:";
 
 interface CreditRow {
   key: number;
@@ -758,6 +760,22 @@ export function AttendantShiftPage() {
     [creditRowTotals],
   );
 
+  /**
+   * Зээлийн алхамд шинээр нэмсэн харилцагчид — «Өглөг төлөлт»-ийн сонголтод
+   * гэрээ үүсэхээс өмнө нь гарна (утга «new:<мөрийн key>», сервер нэр/утсаар
+   * тэр гэрээг олно).
+   */
+  const newCustomerOptions = useMemo(
+    () =>
+      creditRows
+        .filter((row) => row.contract_id === NEW_CUSTOMER && row.new_name.trim() !== "")
+        .map((row) => ({
+          value: `${NEW_AR_PREFIX}${row.key}`,
+          label: `${row.new_name.trim()} · ${t.attendant.creditNewCustomerTag}`,
+          hint: row.new_phone.trim() || undefined,
+        })),
+    [creditRows],
+  );
   const arTotal = useMemo(() => dSum(arRows.map((row) => row.amount || "0")), [arRows]);
   const arCashTotal = useMemo(
     () => dSum(arRows.filter((row) => row.method === "cash").map((row) => row.amount || "0")),
@@ -862,7 +880,22 @@ export function AttendantShiftPage() {
           credit_lines: creditLines,
           ar_payments: arRows
             .filter((row) => row.contract_id !== "" && dToQty(row.amount) > 0)
-            .map(({ key: _key, ...rest }) => rest),
+            .map(({ key: _key, contract_id, ...rest }): ArPaymentLineInput => {
+              // «new:<key>» — зээлийн алхамд шинээр нэмсэн харилцагч.
+              const creditRow = contract_id.startsWith(NEW_AR_PREFIX)
+                ? creditRows.find((r) => String(r.key) === contract_id.slice(NEW_AR_PREFIX.length))
+                : undefined;
+              return creditRow
+                ? {
+                    ...rest,
+                    new_customer: {
+                      name: creditRow.new_name.trim(),
+                      phone: creditRow.new_phone.trim() === "" ? null : creditRow.new_phone.trim(),
+                    },
+                  }
+                : { ...rest, contract_id };
+            })
+            .filter((row) => row.contract_id !== undefined || (row.new_customer?.name ?? "") !== ""),
           expenses: expenseRows
             .filter((row) => row.account_code !== "" && dToQty(row.amount) > 0)
             .map(({ key: _key, ...rest }) => rest),
@@ -1667,7 +1700,7 @@ export function AttendantShiftPage() {
                     <PickerField
                       label={t.nav.customers}
                       value={row.contract_id}
-                      options={contractOptions}
+                      options={[...newCustomerOptions, ...contractOptions]}
                       onChange={(value) => patch({ contract_id: value })}
                       className="min-w-[15rem] flex-1"
                     />
@@ -1753,8 +1786,9 @@ export function AttendantShiftPage() {
                       label={t.expenses.paymentMethod}
                       value={row.payment_method}
                       options={[
-                        { value: "cash", label: t.expenses.methodCash },
-                        { value: "bank", label: t.expenses.methodBank },
+                        { value: "cash", label: t.attendant.methodCash },
+                        { value: "card", label: t.attendant.methodCard },
+                        { value: "transfer", label: t.attendant.methodTransfer },
                       ]}
                       onChange={(value) =>
                         patch({ payment_method: value as ExpenseRow["payment_method"] })
@@ -1799,8 +1833,8 @@ export function AttendantShiftPage() {
               <TotalBox
                 label={t.attendant.stepExpense}
                 value={expenseTotal}
-                hint={`${t.expenses.methodCash}: ${formatMNT(expenseCashTotal)} · ${
-                  t.expenses.methodBank
+                hint={`${t.attendant.methodCash}: ${formatMNT(expenseCashTotal)} · ${
+                  t.attendant.nonCash
                 }: ${formatMNT(dSub(expenseTotal, expenseCashTotal))}`}
               />
             </div>

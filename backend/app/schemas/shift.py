@@ -276,11 +276,20 @@ class OilLineIn(BaseModel):
 class ArPaymentLineIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    contract_id: uuid.UUID
+    #: Байгаа гэрээ — эсвэл энэ хаалтын «Зээл» алхамд шинээр нэмсэн харилцагч
+    #: (``new_customer`` — нэр/утас нь зээлийн мөртэй ижил бол нэг гэрээ).
+    contract_id: uuid.UUID | None = None
+    new_customer: NewCreditCustomerIn | None = None
     amount: Decimal = Field(gt=0)
     #: cash | card | transfer — карт/шилжүүлэг банк руу орно.
     method: str = "cash"
     note: str | None = Field(default=None, max_length=255)
+
+    @model_validator(mode="after")
+    def _one_target(self) -> "ArPaymentLineIn":
+        if (self.contract_id is None) == (self.new_customer is None):
+            raise ValueError("Гэрээ сонгох эсвэл шинэ харилцагч оруулах — аль нэгийг нь")
+        return self
 
 
 class ExpenseLineIn(BaseModel):
@@ -288,6 +297,8 @@ class ExpenseLineIn(BaseModel):
 
     account_code: str
     amount: Decimal = Field(gt=0)
+    #: cash | card (банкны терминал) | transfer | bank — терминал/шилжүүлэг
+    #: харилцахаас (bank) гарна, хэлбэр нь зардлын тайлбарт бичигдэнэ.
     payment_method: str = "cash"
     description: str | None = Field(default=None, max_length=255)
 
