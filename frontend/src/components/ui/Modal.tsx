@@ -150,11 +150,9 @@ export function Modal({
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-6">
-      <div
-        className="absolute inset-0 bg-brand-950/70 backdrop-blur-[2px]"
-        onClick={dismissible ? onClose : undefined}
-        aria-hidden="true"
-      />
+      {/* Дэвсгэр дээр дарахад цонх ХААГДАХГҮЙ — бөглөж байгаа маягт санамсаргүй
+          алга болохоос сэргийлнэ; зөвхөн × товч, Болих, Esc, утасны back хаана. */}
+      <div className="absolute inset-0 bg-brand-950/70 backdrop-blur-[2px]" aria-hidden="true" />
       <div
         role="dialog"
         aria-modal="true"
@@ -189,7 +187,9 @@ export function Modal({
 
         {footer ? (
           // Утсанд товчнууд өргөнөө тэнцүү хувааж, хуруунд том бай болно.
-          <footer className="safe-bottom flex shrink-0 items-center justify-end gap-3 border-t border-line bg-white px-4 py-3 sm:px-6 sm:py-4 [&>button]:flex-1 sm:[&>button]:flex-none">
+          // Доод зай: утсанд safe-area-г НЭМЖ тооцно (өмнө нь .safe-bottom padding-ийг
+          // 0 болгож, товчнууд ирмэгт наалддаг байв).
+          <footer className="flex shrink-0 items-center justify-end gap-3 border-t border-line bg-white px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:px-6 sm:pt-4 sm:pb-[calc(1rem+env(safe-area-inset-bottom,0px))] [&>button]:flex-1 sm:[&>button]:flex-none">
             {footer}
           </footer>
         ) : null}

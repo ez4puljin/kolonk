@@ -194,7 +194,7 @@ export function CartPanel({
       </aside>
 
       {/* --- Гар утасны доод самбар --- */}
-      <div className="no-print safe-bottom fixed inset-x-0 bottom-16 z-20 border-t border-line-strong bg-white px-3 py-2.5 shadow-[0_-8px_24px_rgba(15,23,42,0.12)] lg:hidden">
+      <div className="no-print fixed inset-x-0 bottom-16 z-20 border-t border-line-strong bg-white px-3 pt-2.5 pb-[calc(0.625rem+env(safe-area-inset-bottom,0px))] shadow-[0_-8px_24px_rgba(15,23,42,0.12)] lg:hidden">
         <div className="flex items-center gap-3">
           <button
             type="button"
