@@ -11,6 +11,7 @@ import {
   Building2,
   Camera,
   ChevronRight,
+  Droplets,
   Gauge,
   LayoutGrid,
   MapPin,
@@ -190,6 +191,7 @@ export function AdminHomePage() {
 
       <div className="grid gap-3 sm:grid-cols-3">
         {[
+          { to: "/admin/fuels", icon: Droplets, label: t.nav.fuels, hint: t.adminPanel.quickFuels, tone: "from-sky-500 to-sky-700" },
           { to: "/admin/users", icon: UserCog, label: t.nav.users, hint: t.adminPanel.quickUsers, tone: "from-violet-500 to-violet-700" },
           { to: "/admin/settings", icon: Settings2, label: t.nav.settings, hint: t.adminPanel.quickSettings, tone: "from-amber-400 to-amber-600" },
           { to: "/owner", icon: LayoutGrid, label: t.nav.owner, hint: t.adminPanel.quickOwner, tone: "from-emerald-400 to-emerald-600" },

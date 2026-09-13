@@ -41,6 +41,9 @@ def _snapshot(fuel: Fuel) -> dict:
 @router.get("/fuels", response_model=FuelListOut)
 async def list_fuels(
     active_only: bool = Query(default=False, description="Зөвхөн идэвхтэй түлш"),
+    branch_id: uuid.UUID | None = Query(
+        default=None, description="Үнийг энэ салбарын хүчинтэй үнээр харуулна (override байвал)"
+    ),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> FuelListOut:
@@ -50,7 +53,16 @@ async def list_fuels(
     stmt = stmt.order_by(Fuel.sort_order, Fuel.code)
 
     fuels = (await db.scalars(stmt)).all()
-    return FuelListOut(items=[FuelOut.model_validate(f) for f in fuels], total=len(fuels))
+    items = [FuelOut.model_validate(f) for f in fuels]
+    if branch_id is not None:
+        # Салбарын тохиргоонд тухайн салбарын хүчинтэй үнэ харагдана.
+        from app.services.pricing_service import fuel_price_map
+
+        overrides = await fuel_price_map(db, branch_id)
+        for item in items:
+            if item.id in overrides:
+                item.price_per_liter = overrides[item.id]
+    return FuelListOut(items=items, total=len(items))
 
 
 @router.get("/fuels/{fuel_id}", response_model=FuelOut)

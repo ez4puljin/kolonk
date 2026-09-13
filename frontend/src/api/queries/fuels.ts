@@ -5,6 +5,8 @@ import type { Fuel, FuelCreate, FuelUpdate, Paged, UUID } from "../types";
 
 export interface FuelListParams {
   active_only?: boolean;
+  /** Үнийг энэ салбарын хүчинтэй үнээр (override байвал) харуулна. */
+  branch_id?: UUID;
   limit?: number;
   offset?: number;
 }

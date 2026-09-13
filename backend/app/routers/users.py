@@ -254,6 +254,10 @@ async def list_users(
     conditions = []
     if "users.manage" not in user_permissions(current):
         conditions.append(User.is_active.is_(True))
+        # Салбарын хэрэглэгч (түгээгч) зөвхөн өөрийн салбарын ажилтнуудыг харна.
+        own = getattr(current, "branch_id", None)
+        if own is not None:
+            conditions.append(User.branch_id == own)
     elif is_active is not None:
         conditions.append(User.is_active.is_(is_active))
     if role_code:

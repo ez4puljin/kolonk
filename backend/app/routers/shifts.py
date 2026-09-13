@@ -145,6 +145,15 @@ PHOTO_EXTENSIONS: dict[str, str] = {
 ATTACHMENT_KINDS = {"open", "close", "settlement", "price_mark"}
 
 
+async def _visible_shift(db: AsyncSession, user: User, shift_id: uuid.UUID):
+    """Ээлжийг ачаалж, салбарын хэрэглэгч (түгээгч) өөр салбарынхыг харахгүй."""
+    shift = await shift_service.get_shift(db, shift_id)
+    own = getattr(user, "branch_id", None)
+    if own is not None and shift.branch_id is not None and shift.branch_id != own:
+        raise HTTPException(status_code=404, detail="Ээлж олдсонгүй")
+    return shift
+
+
 def _attachment_out(row: ShiftAttachment) -> dict[str, Any]:
     return {
         "id": row.id,
@@ -223,6 +232,7 @@ async def list_shift_attachments(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
+    await _visible_shift(db, _user, shift_id)
     rows = (
         await db.scalars(
             sa_select(ShiftAttachment)
@@ -240,6 +250,7 @@ async def download_shift_attachment(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> FileResponse:
+    await _visible_shift(db, _user, shift_id)
     row = await db.get(ShiftAttachment, attachment_id)
     if row is None or row.shift_id != shift_id:
         raise HTTPException(status_code=404, detail="Хавсралт олдсонгүй")
@@ -279,7 +290,7 @@ async def list_price_marks(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
-    shift = await shift_service.get_shift(db, shift_id)
+    shift = await _visible_shift(db, _user, shift_id)
     return await attendant_service.price_marks_out(db, shift)
 
 
@@ -343,9 +354,12 @@ async def daily_closings(
     status: str | None = Query(default=None),
     only_variance: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_permission("shifts.view_all", "shifts.close")),
+    user: User = Depends(require_permission("shifts.view_all", "shifts.approve")),
 ) -> list[dict[str, Any]]:
-    """Ээлжийн тайлан — салбар, ажилтан, огноо, батламжийн төлвөөр шүүнэ."""
+    """Ээлжийн тайлан — салбар, ажилтан, огноо, батламжийн төлвөөр шүүнэ.
+
+    Зөвхөн нягтлан/эзэн (view_all, approve) — түгээгч энд хандахгүй.
+    """
     if date_from is not None and date_to is not None and date_from > date_to:
         raise HTTPException(status_code=422, detail="Эхлэх огноо дуусах огнооноос хойш байж болохгүй")
     if status is not None and status not in {"approved", "pending"}:
@@ -418,8 +432,8 @@ async def shift_report(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_permission("shifts.view_all", "shifts.close")),
 ) -> dict[str, Any]:
-    """Ээлжийн бүрэн тайлан."""
-    shift = await shift_service.get_shift(db, shift_id)
+    """Ээлжийн бүрэн тайлан — түгээгч зөвхөн өөрийн салбарын ээлжийг."""
+    shift = await _visible_shift(db, user, shift_id)
     report = await shift_service.shift_report(db, shift)
     # Түгээгчийн өдрийн хаалттай бол миль×үнэ тооцоог хамт өгнө.
     report["daily"] = await attendant_service.closing_out(db, shift)

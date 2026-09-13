@@ -41,6 +41,7 @@ import {
 import { useCreateTankMutation, useTanks, useUpdateTankMutation } from "../../api/queries/tanks";
 import { useCreateUserMutation, useRoles, useUsers } from "../../api/queries/users";
 import type { Pump, PumpNozzle, Tank, UUID } from "../../api/types";
+import { FuelsPanel } from "../../components/admin/FuelsPanel";
 import { PageHeader } from "../../components/layout/PageHeader";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
@@ -58,7 +59,7 @@ import { formatLiters, formatMNT } from "../../lib/format";
 import { useUiStore } from "../../stores/ui";
 import { NumberField, PickerField, TextField, ToggleField } from "../catalog/_shared";
 
-type Tab = "general" | "cashiers" | "tanks" | "pumps" | "payments";
+type Tab = "general" | "cashiers" | "fuels" | "tanks" | "pumps" | "payments";
 
 /** Талбайн торны хэмжээ — насосыг байрлуулах нүднүүд. */
 const GRID_COLS = 4;
@@ -515,6 +516,12 @@ export function BranchSetupPage() {
               badge: cashiers.length || null,
             },
             {
+              value: "fuels",
+              label: t.branches.tabFuels,
+              icon: <Fuel className="h-5 w-5" />,
+              badge: (fuelsQuery.data?.items ?? []).length || null,
+            },
+            {
               value: "tanks",
               label: t.branches.tabTanks,
               icon: <Database className="h-5 w-5" />,
@@ -638,6 +645,9 @@ export function BranchSetupPage() {
       ) : null}
 
       {/* --- Сав --- */}
+      {/* --- Түлш: төрлүүд нийтлэг, үнэ нь энэ салбарынхаар --- */}
+      {tab === "fuels" ? <FuelsPanel branchId={branchId as UUID} branchName={branch.name} /> : null}
+
       {tab === "tanks" ? (
         <Card
           title={t.branches.tabTanks}

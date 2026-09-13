@@ -287,6 +287,8 @@ async def list_transactions(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(require_permission("products.view", "inventory.manage")),
 ) -> InventoryTxListOut:
+    # Салбарын хэрэглэгч зөвхөн өөрийн салбарын хөдөлгөөнийг харна.
+    branch_id = getattr(_user, "branch_id", None) or branch_id
     conditions = []
     if product_id is not None:
         conditions.append(InventoryTransaction.product_id == product_id)

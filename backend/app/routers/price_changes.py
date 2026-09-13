@@ -11,7 +11,7 @@ import uuid
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import Row, func, select
+from sqlalchemy import Row, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -144,7 +144,11 @@ async def list_price_changes(
         conditions.append(PriceChange.fuel_id == fuel_id)
     if product_id is not None:
         conditions.append(PriceChange.product_id == product_id)
-    if branch_id is not None:
+    own = getattr(_user, "branch_id", None)
+    if own is not None:
+        # Салбарын хэрэглэгч: өөрийн салбарын болон бүх салбарт хамаарах (салбаргүй) өөрчлөлт.
+        conditions.append(or_(PriceChange.branch_id == own, PriceChange.branch_id.is_(None)))
+    elif branch_id is not None:
         conditions.append(PriceChange.branch_id == branch_id)
 
     total = await db.scalar(select(func.count()).select_from(PriceChange).where(*conditions)) or 0
