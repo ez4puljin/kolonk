@@ -7,6 +7,7 @@ Excel тайланг энэ файлд openpyxl-ээр шууд барина (г
 from __future__ import annotations
 
 import io
+import json
 import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -23,11 +24,13 @@ from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
 from app.database import get_db
-from app.deps import get_current_user, require_permission
+from app.deps import get_current_user, require_permission, user_permissions
 from app.enums import ShiftStatus
 from app.models.user import User
 from app.models.shift import ShiftAttachment
 from app.schemas.shift import (
+    CloseDraftIn,
+    CloseDraftOut,
     ClosingApprovalIn,
     ClosingCorrectIn,
     CurrentShiftOut,
@@ -304,6 +307,39 @@ async def daily_preview(
     """Хаалтын өмнөх миль×үнэ тулгалт — юу ч бичихгүй."""
     shift = await shift_service.get_shift(db, shift_id)
     return await attendant_service.daily_preview(db, shift, payload.totalizer_readings)
+
+
+@router.get("/shifts/{shift_id}/close-draft", response_model=CloseDraftOut)
+async def get_close_draft(
+    shift_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.close")),
+) -> CloseDraftOut:
+    """Өдрийн турш бөглөсөн хаалтын ноорог (тос/бараа, зээл, өглөг төлөлт, зарлага)."""
+    shift = await _visible_shift(db, user, shift_id)
+    return CloseDraftOut(draft=shift.close_draft, updated_at=shift.close_draft_at)
+
+
+@router.put("/shifts/{shift_id}/close-draft", response_model=CloseDraftOut)
+async def save_close_draft(
+    shift_id: uuid.UUID,
+    payload: CloseDraftIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.close")),
+) -> CloseDraftOut:
+    """Нооргийг хадгална — зөвхөн нээлттэй, өөрийн ээлжид (бүх ээлж хардаг хүн ч болно)."""
+    shift = await _visible_shift(db, user, shift_id)
+    if shift.status != str(ShiftStatus.OPEN):
+        raise HTTPException(status_code=422, detail="Ээлж хаагдсан — ноорог хадгалахгүй")
+    if shift.opened_by != user.id and "shifts.view_all" not in user_permissions(user):
+        raise HTTPException(status_code=403, detail="Өөр түгээгчийн ээлж")
+    raw = json.dumps(payload.draft, ensure_ascii=False)
+    if len(raw.encode("utf-8")) > 256 * 1024:
+        raise HTTPException(status_code=422, detail="Ноорог хэт том байна")
+    shift.close_draft = payload.draft
+    shift.close_draft_at = datetime.now(UTC)
+    await db.flush()
+    return CloseDraftOut(draft=shift.close_draft, updated_at=shift.close_draft_at)
 
 
 @router.post("/shifts/{shift_id}/daily-close", response_model=ShiftReportOut)

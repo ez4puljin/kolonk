@@ -2635,8 +2635,10 @@ export interface ExpenseLineInput {
 export interface DailyCloseRequest {
   totalizer_readings: TotalizerReadingInput[];
   declared_cash: MoneyStr;
-  settlement_vat: MoneyStr;
-  settlement_novat: MoneyStr;
+  settlement_vat?: MoneyStr;
+  settlement_novat?: MoneyStr;
+  /** Банкны терминалын нийт дүн (НӨАТ-тэй/гүй хуваахгүй) — vat/novat-ыг орлоно. */
+  settlement_total?: MoneyStr;
   /** Дансаар шилжүүлж тушаасан дүн. */
   transfer_total?: MoneyStr;
   oil_lines: OilLineInput[];
@@ -3081,4 +3083,17 @@ export interface BranchSummary {
   total_gross_profit: MoneyStr;
   total_expense: MoneyStr;
   total_net_profit: MoneyStr;
+}
+
+/** Ээлжийн хаалтын ноорог — өдрийн турш бөглөсөн мөрүүд (сервер JSON-оор хадгална). */
+export interface CloseDraft {
+  oil: OilLineInput[];
+  credit: Record<string, unknown>[];
+  ar: Record<string, unknown>[];
+  expense: Record<string, unknown>[];
+}
+
+export interface CloseDraftResponse {
+  draft: CloseDraft | null;
+  updated_at: IsoDateTime | null;
 }

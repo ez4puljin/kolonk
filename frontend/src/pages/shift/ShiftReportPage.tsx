@@ -347,8 +347,6 @@ export function ShiftReportPage() {
         {daily ? (
           <Card title={t.attendant.reconciliation} subtitle={t.attendant.title}>
             <CashRow label={t.attendant.fuelByMile} value={daily.fuel_total} strong />
-            <CashRow label={t.attendant.settlementVat} value={daily.settlement_vat} />
-            <CashRow label={t.attendant.settlementNovat} value={daily.settlement_novat} />
             <CashRow label={t.attendant.settlementTotal} value={daily.settlement_total} strong />
             <CashRow label={t.attendant.transferTotal} value={daily.transfer_total ?? "0"} />
             <CashRow label={t.attendant.creditSales} value={daily.credit_total} />

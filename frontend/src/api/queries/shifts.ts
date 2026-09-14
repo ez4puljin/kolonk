@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../client";
 import type {
+  CloseDraft,
+  CloseDraftResponse,
   CurrentShift,
   DailyCloseRequest,
   DailyClosingFilters,
@@ -259,5 +261,25 @@ export function useDailyCloseMutation() {
         void queryClient.invalidateQueries({ queryKey: key });
       }
     },
+  });
+}
+
+// -------------------------------------------------------------------------
+// Хаалтын ноорог — өдрийн турш бөглөсөн тос/бараа, зээл, өглөг төлөлт, зарлага
+// -------------------------------------------------------------------------
+
+export function useCloseDraft(shiftId: UUID | null) {
+  return useQuery({
+    queryKey: ["shifts", "close-draft", shiftId ?? ""],
+    queryFn: () => api.get<CloseDraftResponse>(`/api/shifts/${shiftId}/close-draft`),
+    enabled: Boolean(shiftId),
+    staleTime: Infinity,
+  });
+}
+
+export function useSaveCloseDraftMutation() {
+  return useMutation({
+    mutationFn: ({ shiftId, draft }: { shiftId: UUID; draft: CloseDraft }) =>
+      api.put<CloseDraftResponse>(`/api/shifts/${shiftId}/close-draft`, { draft }),
   });
 }

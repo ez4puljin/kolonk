@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -30,6 +30,10 @@ class Shift(UUIDPKMixin, TimestampMixin, Base):
     expected_cash: Mapped[Decimal | None] = mapped_column(Money)
     cash_over_short: Mapped[Decimal | None] = mapped_column(Money)
     note: Mapped[str | None] = mapped_column(Text)
+    #: Хаалтын ноорог — өдрийн турш бөглөсөн тос/бараа, зээл, өглөг төлөлт,
+    #: зарлага (frontend-ийн мөрүүд JSON хэлбэрээр); хаалт хийгдэхэд цэвэрлэгдэнэ.
+    close_draft: Mapped[dict | None] = mapped_column(JSONB)
+    close_draft_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     tank_levels: Mapped[list["ShiftTankLevel"]] = relationship(
         back_populates="shift", cascade="all, delete-orphan", lazy="selectin"

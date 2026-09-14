@@ -817,10 +817,39 @@ async def daily_close(
 
     settlement_vat = q2(_d(payload.settlement_vat))
     settlement_novat = q2(_d(payload.settlement_novat))
+    # Терминалын ганц дүн (НӨАТ-тэй/гүй хуваахгүй) ирвэл түүнийг ашиглана.
+    single_settlement = getattr(payload, "settlement_total", None)
+    if single_settlement is not None:
+        settlement_vat = q2(_d(single_settlement))
+        settlement_novat = ZERO
     transfer_total = q2(_d(getattr(payload, "transfer_total", ZERO)))
     if settlement_vat < ZERO or settlement_novat < ZERO or transfer_total < ZERO:
         raise HTTPException(status_code=422, detail="Тушаалтын дүн сөрөг байж болохгүй")
     settlement_total = q2(settlement_vat + settlement_novat)
+
+    # Түгээгчийн мэдүүлсэн терминал/шилжүүлгийн дүнд харилцагчийн ӨГЛӨГ ТӨЛӨЛТ
+    # (карт, шилжүүлгээр төлсөн) багтсан байдаг — тэр хэсэг борлуулалт биш
+    # авлагын төлбөр тул түлш/барааны борлуулалтад хуваарилахгүй.
+    ar_card = ZERO
+    ar_transfer = ZERO
+    for pay in payload.ar_payments or []:
+        method = str(getattr(pay, "method", None) or "cash")
+        if method == "card":
+            ar_card = q2(ar_card + q2(_d(pay.amount)))
+        elif method == "transfer":
+            ar_transfer = q2(ar_transfer + q2(_d(pay.amount)))
+    if ar_card > settlement_total:
+        raise HTTPException(
+            status_code=422,
+            detail="Өглөг төлөлтийн терминалын дүн тушаасан терминалын нийт дүнгээс их байна",
+        )
+    if ar_transfer > transfer_total:
+        raise HTTPException(
+            status_code=422,
+            detail="Өглөг төлөлтийн шилжүүлгийн дүн тушаасан шилжүүлгийн нийт дүнгээс их байна",
+        )
+    sales_card = q2(settlement_total - ar_card)
+    sales_transfer = q2(transfer_total - ar_transfer)
 
     # Миль×үнэ-ээр бодогдсон нийт түгээлт — тайланд ЭНЭ дүн харагдана
     # (зээлээр өгсөн литр ч түгээгдсэн тул хасахгүй).
@@ -849,14 +878,14 @@ async def daily_close(
         db,
         user,
         slots,
-        card_amount=settlement_total,
-        transfer_amount=transfer_total,
+        card_amount=sales_card,
+        transfer_amount=sales_transfer,
         transfer_bank_account_id=transfer_account,
     )
 
     # --- 3. Тос, барааны борлуулалт (үлдсэн карт/шилжүүлгээр) ---
-    card_left = q2(settlement_total - fuel_card)
-    transfer_left = q2(transfer_total - fuel_transfer)
+    card_left = q2(sales_card - fuel_card)
+    transfer_left = q2(sales_transfer - fuel_transfer)
     oil_total, oil_card, oil_transfer, oil_sale_id = await _create_oil_sale(
         db,
         user,
@@ -939,6 +968,9 @@ async def daily_close(
         created_by=user.id,
     )
     db.add(closing)
+    # Өдрийн турш бөглөсөн ноорог хаалтад орсон тул цэвэрлэнэ.
+    shift.close_draft = None
+    shift.close_draft_at = None
     await db.flush()
 
     # --- 7. Ээлж хаах (кассын зөрүү, савны зөрүү автоматаар) ---

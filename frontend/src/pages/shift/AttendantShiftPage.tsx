@@ -5,6 +5,7 @@ import {
   Banknote,
   Camera,
   Check,
+  Clock,
   ChevronLeft,
   ChevronRight,
   CircleCheck,
@@ -18,6 +19,7 @@ import {
   Scale,
   Tag,
   Trash2,
+  Users,
   Wallet,
 } from "lucide-react";
 
@@ -28,16 +30,19 @@ import { useProducts } from "../../api/queries/products";
 import { usePumps } from "../../api/queries/pumps";
 import {
   useAddPriceMarkMutation,
+  useCloseDraft,
   useCurrentShift,
   useDailyCloseMutation,
   useDailyPreviewMutation,
   useOpenShiftMutation,
   usePriceMarks,
+  useSaveCloseDraftMutation,
   useShiftAttachments,
   useUploadShiftPhotoMutation,
 } from "../../api/queries/shifts";
 import type {
   ArPaymentLineInput,
+  CloseDraft,
   CreditLineInput,
   DailyPreview,
   ExpenseLineInput,
@@ -55,6 +60,7 @@ import { Card } from "../../components/ui/Card";
 import { Modal } from "../../components/ui/Modal";
 import { Spinner } from "../../components/ui/Spinner";
 import { StatBox } from "../../components/ui/StatBox";
+import { TabBar } from "../../components/ui/TabBar";
 import { usePermission } from "../../hooks/usePermission";
 import { t } from "../../i18n/mn";
 import { dAdd, dIsPositive, dIsZero, dMul, dSub, dSum, dToQty } from "../../lib/decimal";
@@ -63,7 +69,7 @@ import { useBranches } from "../../api/queries/branches";
 import { cameraAvailable, isFreshCapture, stampClock, stampFile } from "../../lib/photo";
 import { useAuthStore } from "../../stores/auth";
 import { useUiStore } from "../../stores/ui";
-import { FieldLabel, NumberField, PickerField, TextField } from "../catalog/_shared";
+import { FieldLabel, NumberField, PickerField, SearchInput, TextField } from "../catalog/_shared";
 
 /**
  * Ээлж нээгдэхээс ӨМНӨ дарсан зураг.
@@ -419,6 +425,25 @@ interface ExpenseRow extends Omit<ExpenseLineInput, "account_code"> {
 let rowSeq = 0;
 const nextKey = (): number => ++rowSeq;
 
+type DayTab = "oil" | "credit" | "ar" | "expense";
+
+/** Ноорогт мөрийн түр `key`-г оруулахгүй (ачаалахад шинээр өгнө). */
+function draftOf(
+  oil: OilRow[],
+  credit: CreditRow[],
+  ar: ArRow[],
+  expense: ExpenseRow[],
+): CloseDraft {
+  const strip = <T extends { key: number }>(rows: T[]): Omit<T, "key">[] =>
+    rows.map(({ key: _key, ...rest }) => rest);
+  return {
+    oil: strip(oil),
+    credit: strip(credit) as unknown as Record<string, unknown>[],
+    ar: strip(ar) as unknown as Record<string, unknown>[],
+    expense: strip(expense) as unknown as Record<string, unknown>[],
+  };
+}
+
 export function AttendantShiftPage() {
   const navigate = useNavigate();
   const toastError = useUiStore((state) => state.toastError);
@@ -455,7 +480,7 @@ export function AttendantShiftPage() {
   // Бараа, үнэ, үлдэгдлийг ТҮГЭЭГЧИЙН САЛБАРЫНХААР харуулна — сервер зарлагыг
   // яг энэ салбарын нөөцөөс хасдаг тул өөр салбарын бараа сонгуулахгүй.
   const { data: productsPage } = useProducts({ limit: 300, branch_id: branchId ?? undefined });
-  const { data: customersPage } = useCustomers({ q: "", active_only: true, limit: 200 });
+  const { data: customersPage } = useCustomers({ q: "", active_only: true, limit: 500 });
   const expenseCategories = useExpenseCategories();
 
   const openMutation = useOpenShiftMutation();
@@ -635,8 +660,8 @@ export function AttendantShiftPage() {
   }, [step, wizardOpen]);
   const [closeReadings, setCloseReadings] = useState<Record<UUID, string>>({});
   const [declaredCash, setDeclaredCash] = useState("");
-  const [settlementVat, setSettlementVat] = useState("");
-  const [settlementNovat, setSettlementNovat] = useState("");
+  /** Банкны терминалын нийт дүн — НӨАТ-тэй/гүй хуваахгүй ганц тоо. */
+  const [settlementInput, setSettlementInput] = useState("");
   const [transferTotal, setTransferTotal] = useState("");
   const [oilRows, setOilRows] = useState<OilRow[]>([]);
   const [creditRows, setCreditRows] = useState<CreditRow[]>([]);
@@ -645,6 +670,108 @@ export function AttendantShiftPage() {
   const [preview, setPreview] = useState<DailyPreview | null>(null);
   const [closeError, setCloseError] = useState<string | null>(null);
   const [report, setReport] = useState<ShiftReport | null>(null);
+
+  // ---- Өдрийн бүртгэл (хаалтын ноорог) — сервер дээр хадгалагдана ----
+  const [dayTab, setDayTab] = useState<DayTab>("oil");
+  const draftQuery = useCloseDraft(ownShift ? shiftId : null);
+  const saveDraft = useSaveCloseDraftMutation();
+  /** Аль ээлжийн ноорог ачаалагдсан бэ — нэг ээлжид нэг л удаа. */
+  const draftLoadedFor = useRef<UUID | null>(null);
+  const lastSavedDraft = useRef<string>("");
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
+  const [draftDirty, setDraftDirty] = useState(false);
+
+  useEffect(() => {
+    if (!shiftId) {
+      // Ээлж хаагдсан/байхгүй — дараагийн ээлж цэвэр эхэлнэ.
+      draftLoadedFor.current = null;
+      lastSavedDraft.current = "";
+      setDraftSavedAt(null);
+      setDraftDirty(false);
+      setOilRows([]);
+      setCreditRows([]);
+      setArRows([]);
+      setExpenseRows([]);
+      return;
+    }
+    if (draftLoadedFor.current === shiftId || draftQuery.data === undefined) return;
+    draftLoadedFor.current = shiftId;
+    const draft = draftQuery.data.draft;
+    if (draft) {
+      const withKeys = <T extends object>(rows: T[] | undefined): (T & { key: number })[] =>
+        (rows ?? []).map((row) => ({ ...row, key: nextKey() }));
+      setOilRows(withKeys(draft.oil as OilRow[]));
+      setCreditRows(withKeys(draft.credit as unknown as CreditRow[]));
+      setArRows(withKeys(draft.ar as unknown as ArRow[]));
+      setExpenseRows(withKeys(draft.expense as unknown as ExpenseRow[]));
+      lastSavedDraft.current = JSON.stringify(draft);
+    } else {
+      lastSavedDraft.current = JSON.stringify(draftOf([], [], [], []));
+    }
+    setDraftSavedAt(draftQuery.data.updated_at);
+    setDraftDirty(false);
+  }, [shiftId, draftQuery.data]);
+
+  // Мөр өөрчлөгдсөнөөс 1.5 сек дараа сервер рүү хадгална (ачаалагдсан ээлжид л).
+  useEffect(() => {
+    if (!shiftId || draftLoadedFor.current !== shiftId || !ownShift) return;
+    const draft = draftOf(oilRows, creditRows, arRows, expenseRows);
+    const serialized = JSON.stringify(draft);
+    if (serialized === lastSavedDraft.current) {
+      setDraftDirty(false);
+      return;
+    }
+    setDraftDirty(true);
+    const handle = window.setTimeout(() => {
+      saveDraft.mutate(
+        { shiftId, draft },
+        {
+          onSuccess: (data) => {
+            lastSavedDraft.current = serialized;
+            setDraftSavedAt(data.updated_at);
+            setDraftDirty(false);
+          },
+        },
+      );
+    }, 1500);
+    return () => window.clearTimeout(handle);
+    // saveDraft mutation объект тогтвортой биш тул хамааралд оруулахгүй.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shiftId, ownShift, oilRows, creditRows, arRows, expenseRows]);
+
+  // ---- Ээлж хэдий үргэлжилж байгааг минут тутам шинэчилнэ ----
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  // ---- Харилцагчийн авлагын үлдэгдэл ----
+  const [balancesOpen, setBalancesOpen] = useState(false);
+  const [balanceQuery, setBalanceQuery] = useState("");
+  const customerBalances = useMemo(() => {
+    const needle = balanceQuery.trim().toLowerCase();
+    return (customersPage?.items ?? [])
+      .map((customer) => ({
+        id: customer.id,
+        name: customer.full_name,
+        phone: customer.phone,
+        balance: dSum(
+          customer.contracts.filter((c) => c.status === "active").map((c) => c.balance),
+        ),
+      }))
+      .filter(
+        (row) =>
+          needle === "" ||
+          row.name.toLowerCase().includes(needle) ||
+          (row.phone ?? "").toLowerCase().includes(needle),
+      )
+      .sort((a, b) => Number(b.balance) - Number(a.balance) || a.name.localeCompare(b.name));
+  }, [customersPage, balanceQuery]);
+  const customerBalanceTotal = useMemo(
+    () => dSum(customerBalances.map((row) => row.balance)),
+    [customerBalances],
+  );
 
   useEffect(() => {
     if (!wizardOpen || nozzles.length === 0) return;
@@ -688,10 +815,7 @@ export function AttendantShiftPage() {
   };
 
   // ---- Хаалтын тооцоо ----
-  const settlementTotal = dAdd(
-    settlementVat === "" ? "0" : settlementVat,
-    settlementNovat === "" ? "0" : settlementNovat,
-  );
+  const settlementTotal = settlementInput === "" ? "0" : settlementInput;
   const transferAmount = transferTotal === "" ? "0" : transferTotal;
   /** Тушаасан нийт — бэлэн + Settlement + шилжүүлэг. */
   const handoverTotal = dSum([
@@ -890,8 +1014,7 @@ export function AttendantShiftPage() {
         payload: {
           totalizer_readings: readingsPayload(),
           declared_cash: declaredCash === "" ? "0" : declaredCash,
-          settlement_vat: settlementVat === "" ? "0" : settlementVat,
-          settlement_novat: settlementNovat === "" ? "0" : settlementNovat,
+          settlement_total: settlementTotal,
           transfer_total: transferAmount,
           oil_lines: oilRows
             .filter((row) => row.product_id !== "" && dToQty(row.qty) > 0)
@@ -1259,20 +1382,395 @@ export function AttendantShiftPage() {
     );
   }
 
+  /** Хаалтын wizard ба «Өдрийн бүртгэл» карт хоёулаа энэ хэсгийг харуулна. */
+  const stepOilView = (): ReactNode => (
+            <div className="flex flex-col gap-3">
+              <p className="text-sm text-ink-soft">{t.attendant.oilHint}</p>
+              {oilRows.map((row, index) => (
+                <div key={row.key} className="flex flex-wrap items-end gap-2">
+                  <PickerField
+                    label={t.products.product}
+                    value={row.product_id}
+                    options={productOptions}
+                    onChange={(value) =>
+                      setOilRows((prev) =>
+                        prev.map((r, i) => (i === index ? { ...r, product_id: value } : r)),
+                      )
+                    }
+                    className="min-w-[16rem] flex-1"
+                  />
+                  <NumberField
+                    name={`oil-qty-${row.key}`}
+                    label={t.common.qty}
+                    value={row.qty}
+                    onChange={(value) =>
+                      setOilRows((prev) =>
+                        prev.map((r, i) => (i === index ? { ...r, qty: value } : r)),
+                      )
+                    }
+                    maxDecimals={3}
+                    className="min-w-[9rem] flex-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setOilRows((prev) => prev.filter((_, i) => i !== index))}
+                    className="flex h-14 w-12 items-center justify-center rounded-xl text-danger-dark active:bg-danger-soft"
+                  >
+                    <Trash2 className="h-5 w-5" />
+                  </button>
+                </div>
+              ))}
+              <Button
+                variant="secondary"
+                size="md"
+                icon={<Plus />}
+                onClick={() =>
+                  setOilRows((prev) => [...prev, { key: nextKey(), product_id: "", qty: "" }])
+                }
+              >
+                {t.attendant.addLine}
+              </Button>
+              <TotalBox label={t.attendant.oilSales} value={oilTotal} />
+            </div>
+  );
+
+  /** Хаалтын wizard ба «Өдрийн бүртгэл» карт хоёулаа энэ хэсгийг харуулна. */
+  const stepCreditView = (): ReactNode => (
+            <div className="flex flex-col gap-4">
+              <p className="text-sm text-ink-soft">{t.attendant.creditHint}</p>
+              {creditRows.map((row, index) => {
+                const patch = (changes: Partial<CreditRow>): void =>
+                  setCreditRows((prev) =>
+                    prev.map((r, i) => (i === index ? { ...r, ...changes } : r)),
+                  );
+                return (
+                  <div key={row.key} className="flex flex-col gap-2 rounded-xl border border-line bg-surface-alt p-3">
+                    <div className="flex flex-wrap items-end gap-2">
+                      <PickerField
+                        label={t.nav.customers}
+                        value={row.contract_id}
+                        options={[
+                          { value: NEW_CUSTOMER, label: `+ ${t.partners.newCustomer}` },
+                          ...contractOptions,
+                        ]}
+                        onChange={(value) => patch({ contract_id: value })}
+                        className="min-w-[16rem] flex-1"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCreditRows((prev) => prev.filter((_, i) => i !== index))
+                        }
+                        className="flex h-14 w-12 items-center justify-center rounded-xl text-danger-dark active:bg-danger-soft"
+                      >
+                        <Trash2 className="h-5 w-5" />
+                      </button>
+                    </div>
+                    {row.contract_id === NEW_CUSTOMER ? (
+                      <div className="flex flex-col gap-2 rounded-lg border border-dashed border-line-strong bg-white p-2">
+                        <span className="text-xs text-ink-soft">{t.attendant.creditNewCustomerHint}</span>
+                        <div className="flex flex-wrap items-end gap-2">
+                          <TextField
+                            label={t.attendant.creditCustomerName}
+                            value={row.new_name}
+                            onChange={(value) => patch({ new_name: value })}
+                            maxLength={128}
+                            className="min-w-[12rem] flex-1"
+                          />
+                          <TextField
+                            label={t.attendant.creditCustomerPhone}
+                            value={row.new_phone}
+                            onChange={(value) => patch({ new_phone: value })}
+                            maxLength={32}
+                            className="min-w-[9rem]"
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+                    <div className="flex flex-wrap items-end gap-2">
+                      <PickerField
+                        label={t.sales.fuel}
+                        value={row.fuel_id}
+                        options={[{ value: "", label: t.common.none }, ...fuelOptions]}
+                        onChange={(value) => patch({ fuel_id: value })}
+                        className="min-w-[10rem]"
+                      />
+                      <PickerField
+                        label={t.attendant.creditFuelBy}
+                        value={row.mode}
+                        options={[
+                          { value: "liters", label: t.pos.presetLiters },
+                          { value: "amount", label: t.pos.presetAmount },
+                        ]}
+                        onChange={(value) => patch({ mode: value as "liters" | "amount" })}
+                        className="min-w-[9rem]"
+                      />
+                      <NumberField
+                        name={`credit-val-${row.key}`}
+                        label={row.mode === "liters" ? t.pos.liters : t.common.amount}
+                        value={row.value}
+                        onChange={(value) => patch({ value })}
+                        maxDecimals={3}
+                        className="min-w-[10rem] flex-1"
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-end gap-2">
+                      <PickerField
+                        label={`${t.products.product} (${t.common.optional})`}
+                        value={row.product_id}
+                        options={[{ value: "", label: t.common.none }, ...productOptions]}
+                        onChange={(value) => patch({ product_id: value })}
+                        className="min-w-[16rem] flex-1"
+                      />
+                      <NumberField
+                        name={`credit-pqty-${row.key}`}
+                        label={t.common.qty}
+                        value={row.product_qty}
+                        onChange={(value) => patch({ product_qty: value })}
+                        maxDecimals={3}
+                        className="min-w-[8rem] flex-1"
+                      />
+                    </div>
+
+                    {/* Мөрийн дүн — түлш + бараа, хөнгөлөлт тооцсон */}
+                    <div className="num flex items-baseline justify-between gap-3 border-t border-line pt-2">
+                      <span className="text-sm text-ink-soft">{t.attendant.creditSales} ≈</span>
+                      <span className="text-base font-bold text-ink">
+                        {formatMNT(creditRowTotals[index]?.total ?? "0")}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+              <Button
+                variant="secondary"
+                size="md"
+                icon={<Plus />}
+                onClick={() =>
+                  setCreditRows((prev) => [
+                    ...prev,
+                    {
+                      key: nextKey(),
+                      contract_id: "",
+                      new_name: "",
+                      new_phone: "",
+                      fuel_id: fuelOptions[0]?.value ?? "",
+                      mode: "liters",
+                      value: "",
+                      product_id: "",
+                      product_qty: "",
+                    },
+                  ])
+                }
+              >
+                {t.attendant.addLine}
+              </Button>
+              <TotalBox
+                label={t.attendant.creditSales}
+                value={creditTotal}
+                hint={`${t.sales.fuel}: ${formatMNT(creditFuelTotal)} · ${t.products.title}: ${formatMNT(
+                  dSub(creditTotal, creditFuelTotal),
+                )}`}
+              />
+            </div>
+  );
+
+  /** Хаалтын wizard ба «Өдрийн бүртгэл» карт хоёулаа энэ хэсгийг харуулна. */
+  const stepArView = (): ReactNode => (
+            <div className="flex flex-col gap-3">
+              <p className="text-sm text-ink-soft">{t.attendant.arHint}</p>
+              {arRows.map((row, index) => {
+                const patch = (changes: Partial<ArRow>): void =>
+                  setArRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...changes } : r)));
+                return (
+                  <div key={row.key} className="flex flex-wrap items-end gap-2">
+                    <PickerField
+                      label={t.nav.customers}
+                      value={row.contract_id}
+                      options={[...newCustomerOptions, ...contractOptions]}
+                      onChange={(value) => patch({ contract_id: value })}
+                      className="min-w-[15rem] flex-1"
+                    />
+                    <NumberField
+                      name={`ar-amt-${row.key}`}
+                      label={t.common.amount}
+                      value={row.amount}
+                      onChange={(value) => patch({ amount: value })}
+                      suffix={t.units.mnt}
+                      className="min-w-[11rem] flex-1"
+                    />
+                    <PickerField
+                      label={t.attendant.arMethod}
+                      value={row.method}
+                      options={[
+                        { value: "cash", label: t.attendant.methodCash },
+                        { value: "card", label: t.attendant.methodCard },
+                        { value: "transfer", label: t.attendant.methodTransfer },
+                      ]}
+                      onChange={(value) => patch({ method: value as ArRow["method"] })}
+                      className="min-w-[9rem]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setArRows((prev) => prev.filter((_, i) => i !== index))}
+                      className="flex h-14 w-12 items-center justify-center rounded-xl text-danger-dark active:bg-danger-soft"
+                    >
+                      <Trash2 className="h-5 w-5" />
+                    </button>
+                  </div>
+                );
+              })}
+              <Button
+                variant="secondary"
+                size="md"
+                icon={<Plus />}
+                onClick={() =>
+                  setArRows((prev) => [
+                    ...prev,
+                    { key: nextKey(), contract_id: "", amount: "", method: "cash" },
+                  ])
+                }
+              >
+                {t.attendant.addLine}
+              </Button>
+              <TotalBox
+                label={t.attendant.stepAr}
+                value={arTotal}
+                hint={`${t.attendant.methodCash}: ${formatMNT(arCashTotal)} · ${
+                  t.attendant.methodCard
+                }/${t.attendant.methodTransfer}: ${formatMNT(dSub(arTotal, arCashTotal))}`}
+              />
+            </div>
+  );
+
+  /** Хаалтын wizard ба «Өдрийн бүртгэл» карт хоёулаа энэ хэсгийг харуулна. */
+  const stepExpenseView = (): ReactNode => (
+            <div className="flex flex-col gap-3">
+              <p className="text-sm text-ink-soft">{t.attendant.expenseHint}</p>
+              {expenseRows.map((row, index) => {
+                const patch = (changes: Partial<ExpenseRow>): void =>
+                  setExpenseRows((prev) =>
+                    prev.map((r, i) => (i === index ? { ...r, ...changes } : r)),
+                  );
+                return (
+                  <div key={row.key} className="flex flex-wrap items-end gap-2">
+                    <PickerField
+                      label={t.expenses.category}
+                      value={row.account_code}
+                      options={categoryOptions}
+                      onChange={(value) => patch({ account_code: value })}
+                      className="min-w-[14rem] flex-1"
+                    />
+                    <NumberField
+                      name={`exp-amt-${row.key}`}
+                      label={t.common.amount}
+                      value={row.amount}
+                      onChange={(value) => patch({ amount: value })}
+                      suffix={t.units.mnt}
+                      className="min-w-[11rem] flex-1"
+                    />
+                    <PickerField
+                      label={t.expenses.paymentMethod}
+                      value={row.payment_method}
+                      options={[
+                        { value: "cash", label: t.attendant.methodCash },
+                        { value: "card", label: t.attendant.methodCard },
+                        { value: "transfer", label: t.attendant.methodTransfer },
+                      ]}
+                      onChange={(value) =>
+                        patch({ payment_method: value as ExpenseRow["payment_method"] })
+                      }
+                      className="min-w-[11rem]"
+                    />
+                    <TextField
+                      label={t.common.note}
+                      value={row.description ?? ""}
+                      onChange={(value) => patch({ description: value })}
+                      className="min-w-[12rem] flex-1"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setExpenseRows((prev) => prev.filter((_, i) => i !== index))}
+                      className="flex h-14 w-12 items-center justify-center rounded-xl text-danger-dark active:bg-danger-soft"
+                    >
+                      <Trash2 className="h-5 w-5" />
+                    </button>
+                  </div>
+                );
+              })}
+              <Button
+                variant="secondary"
+                size="md"
+                icon={<Plus />}
+                onClick={() =>
+                  setExpenseRows((prev) => [
+                    ...prev,
+                    {
+                      key: nextKey(),
+                      account_code: categoryOptions[0]?.value ?? "",
+                      amount: "",
+                      payment_method: "cash",
+                      description: "",
+                    },
+                  ])
+                }
+              >
+                {t.attendant.addLine}
+              </Button>
+              <TotalBox
+                label={t.attendant.stepExpense}
+                value={expenseTotal}
+                hint={`${t.attendant.methodCash}: ${formatMNT(expenseCashTotal)} · ${
+                  t.attendant.nonCash
+                }: ${formatMNT(dSub(expenseTotal, expenseCashTotal))}`}
+              />
+            </div>
+  );
+
+  const elapsedMinutes = Math.max(0, Math.floor((now - new Date(shift.opened_at).getTime()) / 60000));
+  const elapsedLabel = `${Math.floor(elapsedMinutes / 60)} ${t.attendant.hoursShort} ${elapsedMinutes % 60} ${t.attendant.minutesShort}`;
+  const draftStatus = saveDraft.isPending
+    ? t.attendant.dayLogSaving
+    : draftDirty
+      ? t.attendant.dayLogUnsaved
+      : draftSavedAt
+        ? `${t.attendant.dayLogSaved} ${formatDateTime(draftSavedAt)}`
+        : "";
+
   // ---------------------------------------------------------- Нээлттэй ээлж
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 sm:gap-6">
       <PageHeader
         title={t.attendant.title}
         subtitle={
-          <span className="num">
-            {t.shift.number}
-            {shift.number} · {formatDateTime(shift.opened_at)} ·{" "}
-            {formatMNT(shift.opening_cash)}
+          <span className="num flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>
+              {t.shift.number}
+              {shift.number} · {shift.opened_by_name ?? ""}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Clock className="h-4 w-4" />
+              {t.attendant.startedAt}: <b className="text-ink">{formatDateTime(shift.opened_at)}</b> · {t.attendant.elapsed}:{" "}
+              <b className="text-ink">{elapsedLabel}</b>
+            </span>
+            <span>
+              {t.shift.openingCash}: {formatMNT(shift.opening_cash)}
+            </span>
           </span>
         }
         actions={
           <>
+            <Button
+              variant="secondary"
+              size="md"
+              icon={<Users />}
+              onClick={() => {
+                setBalanceQuery("");
+                setBalancesOpen(true);
+              }}
+            >
+              {t.attendant.customerBalances}
+            </Button>
             <PriceMarkButton shiftId={shift.id} />
             <Button
               variant="success"
@@ -1289,6 +1787,41 @@ export function AttendantShiftPage() {
           </>
         }
       />
+
+      {/* Өдрийн бүртгэл — хаалтын 4 алхмыг өдрийн турш бөглөнө (wizard нээлттэй үед давхардуулахгүй) */}
+      {!wizardOpen ? (
+        <Card
+          title={t.attendant.dayLog}
+          subtitle={t.attendant.dayLogHint}
+          actions={
+            draftStatus ? (
+              <span className={`text-xs font-semibold ${draftDirty ? "text-warning-dark" : "text-ink-soft"}`}>
+                {draftStatus}
+              </span>
+            ) : undefined
+          }
+        >
+          <div className="flex flex-col gap-4">
+            <TabBar<DayTab>
+              value={dayTab}
+              onChange={setDayTab}
+              items={[
+                { value: "oil", label: t.attendant.stepOil, icon: <Package className="h-4 w-4" />, badge: oilRows.length || null },
+                { value: "credit", label: t.attendant.stepCredit, icon: <FileText className="h-4 w-4" />, badge: creditRows.length || null },
+                { value: "ar", label: t.attendant.stepAr, icon: <HandCoins className="h-4 w-4" />, badge: arRows.length || null },
+                { value: "expense", label: t.attendant.stepExpense, icon: <Wallet className="h-4 w-4" />, badge: expenseRows.length || null },
+              ]}
+            />
+            {dayTab === "oil"
+              ? stepOilView()
+              : dayTab === "credit"
+                ? stepCreditView()
+                : dayTab === "ar"
+                  ? stepArView()
+                  : stepExpenseView()}
+          </div>
+        </Card>
+      ) : null}
 
       {/* Үнийн тэмдэглэлүүд */}
       {(marks ?? []).length > 0 ? (
@@ -1337,6 +1870,40 @@ export function AttendantShiftPage() {
           ))}
         </div>
       </Card>
+
+      {/* ---------------- Харилцагчийн авлагын үлдэгдэл ---------------- */}
+      <Modal
+        open={balancesOpen}
+        onClose={() => setBalancesOpen(false)}
+        size="md"
+        title={t.attendant.customerBalances}
+        subtitle={t.attendant.customerBalancesHint}
+      >
+        <div className="flex flex-col gap-3">
+          <SearchInput value={balanceQuery} onChange={setBalanceQuery} placeholder={t.attendant.customerSearch} />
+          <div className="num flex items-baseline justify-between rounded-xl bg-surface-alt px-4 py-2.5">
+            <span className="text-sm font-semibold text-ink-soft">{t.attendant.balanceTotal}</span>
+            <span className="text-xl font-bold text-ink">{formatMNT(customerBalanceTotal)}</span>
+          </div>
+          {customerBalances.length === 0 ? (
+            <p className="py-6 text-center text-sm text-ink-soft">{t.common.empty}</p>
+          ) : (
+            <ul className="flex flex-col divide-y divide-line">
+              {customerBalances.map((row) => (
+                <li key={row.id} className="flex items-center justify-between gap-3 py-2.5">
+                  <span className="min-w-0">
+                    <span className="block truncate text-[15px] font-semibold text-ink">{row.name}</span>
+                    {row.phone ? <span className="num block text-xs text-ink-soft">{row.phone}</span> : null}
+                  </span>
+                  <span className={`num shrink-0 text-base font-bold ${dIsPositive(row.balance) ? "text-danger-dark" : "text-ink-soft"}`}>
+                    {dIsPositive(row.balance) ? formatMNT(row.balance) : t.attendant.noBalance}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </Modal>
 
       {/* ---------------- Өдрийн хаалтын wizard ---------------- */}
       <Modal
@@ -1478,26 +2045,13 @@ export function AttendantShiftPage() {
               <div className="flex flex-col gap-3 rounded-xl border border-line p-3">
                 <FieldLabel>{`2. ${t.attendant.stepSettlement}`}</FieldLabel>
                 <p className="-mt-1 text-xs text-ink-soft">{t.attendant.settlementHint}</p>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <NumberField
-                    name="settle-vat"
-                    label={t.attendant.settlementVat}
-                    value={settlementVat}
-                    onChange={setSettlementVat}
-                    suffix={t.units.mnt}
-                  />
-                  <NumberField
-                    name="settle-novat"
-                    label={t.attendant.settlementNovat}
-                    value={settlementNovat}
-                    onChange={setSettlementNovat}
-                    suffix={t.units.mnt}
-                  />
-                </div>
-                <div className="num flex items-baseline justify-between gap-3 border-t border-line pt-2">
-                  <span className="text-sm text-ink-soft">{t.attendant.settlementTotal}</span>
-                  <span className="text-base font-bold text-ink">{formatMNT(settlementTotal)}</span>
-                </div>
+                <NumberField
+                  name="settle-total"
+                  label={t.attendant.settlementTotal}
+                  value={settlementInput}
+                  onChange={setSettlementInput}
+                  suffix={t.units.mnt}
+                />
                 <div className="flex">
                   <PhotoButton shiftId={shiftId} kind="settlement" />
                 </div>
@@ -1524,350 +2078,13 @@ export function AttendantShiftPage() {
             </div>
           ) : null}
 
-          {/* 2 — Тос, бараа */}
-          {step === 2 ? (
-            <div className="flex flex-col gap-3">
-              <p className="text-sm text-ink-soft">{t.attendant.oilHint}</p>
-              {oilRows.map((row, index) => (
-                <div key={row.key} className="flex flex-wrap items-end gap-2">
-                  <PickerField
-                    label={t.products.product}
-                    value={row.product_id}
-                    options={productOptions}
-                    onChange={(value) =>
-                      setOilRows((prev) =>
-                        prev.map((r, i) => (i === index ? { ...r, product_id: value } : r)),
-                      )
-                    }
-                    className="min-w-[16rem] flex-1"
-                  />
-                  <NumberField
-                    name={`oil-qty-${row.key}`}
-                    label={t.common.qty}
-                    value={row.qty}
-                    onChange={(value) =>
-                      setOilRows((prev) =>
-                        prev.map((r, i) => (i === index ? { ...r, qty: value } : r)),
-                      )
-                    }
-                    maxDecimals={3}
-                    className="min-w-[9rem] flex-1"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setOilRows((prev) => prev.filter((_, i) => i !== index))}
-                    className="flex h-14 w-12 items-center justify-center rounded-xl text-danger-dark active:bg-danger-soft"
-                  >
-                    <Trash2 className="h-5 w-5" />
-                  </button>
-                </div>
-              ))}
-              <Button
-                variant="secondary"
-                size="md"
-                icon={<Plus />}
-                onClick={() =>
-                  setOilRows((prev) => [...prev, { key: nextKey(), product_id: "", qty: "" }])
-                }
-              >
-                {t.attendant.addLine}
-              </Button>
-              <TotalBox label={t.attendant.oilSales} value={oilTotal} />
-            </div>
-          ) : null}
+          {step === 2 ? stepOilView() : null}
 
-          {/* 3 — Зээл */}
-          {step === 3 ? (
-            <div className="flex flex-col gap-4">
-              <p className="text-sm text-ink-soft">{t.attendant.creditHint}</p>
-              {creditRows.map((row, index) => {
-                const patch = (changes: Partial<CreditRow>): void =>
-                  setCreditRows((prev) =>
-                    prev.map((r, i) => (i === index ? { ...r, ...changes } : r)),
-                  );
-                return (
-                  <div key={row.key} className="flex flex-col gap-2 rounded-xl border border-line bg-surface-alt p-3">
-                    <div className="flex flex-wrap items-end gap-2">
-                      <PickerField
-                        label={t.nav.customers}
-                        value={row.contract_id}
-                        options={[
-                          { value: NEW_CUSTOMER, label: `+ ${t.partners.newCustomer}` },
-                          ...contractOptions,
-                        ]}
-                        onChange={(value) => patch({ contract_id: value })}
-                        className="min-w-[16rem] flex-1"
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setCreditRows((prev) => prev.filter((_, i) => i !== index))
-                        }
-                        className="flex h-14 w-12 items-center justify-center rounded-xl text-danger-dark active:bg-danger-soft"
-                      >
-                        <Trash2 className="h-5 w-5" />
-                      </button>
-                    </div>
-                    {row.contract_id === NEW_CUSTOMER ? (
-                      <div className="flex flex-col gap-2 rounded-lg border border-dashed border-line-strong bg-white p-2">
-                        <span className="text-xs text-ink-soft">{t.attendant.creditNewCustomerHint}</span>
-                        <div className="flex flex-wrap items-end gap-2">
-                          <TextField
-                            label={t.attendant.creditCustomerName}
-                            value={row.new_name}
-                            onChange={(value) => patch({ new_name: value })}
-                            maxLength={128}
-                            className="min-w-[12rem] flex-1"
-                          />
-                          <TextField
-                            label={t.attendant.creditCustomerPhone}
-                            value={row.new_phone}
-                            onChange={(value) => patch({ new_phone: value })}
-                            maxLength={32}
-                            className="min-w-[9rem]"
-                          />
-                        </div>
-                      </div>
-                    ) : null}
-                    <div className="flex flex-wrap items-end gap-2">
-                      <PickerField
-                        label={t.sales.fuel}
-                        value={row.fuel_id}
-                        options={[{ value: "", label: t.common.none }, ...fuelOptions]}
-                        onChange={(value) => patch({ fuel_id: value })}
-                        className="min-w-[10rem]"
-                      />
-                      <PickerField
-                        label={t.attendant.creditFuelBy}
-                        value={row.mode}
-                        options={[
-                          { value: "liters", label: t.pos.presetLiters },
-                          { value: "amount", label: t.pos.presetAmount },
-                        ]}
-                        onChange={(value) => patch({ mode: value as "liters" | "amount" })}
-                        className="min-w-[9rem]"
-                      />
-                      <NumberField
-                        name={`credit-val-${row.key}`}
-                        label={row.mode === "liters" ? t.pos.liters : t.common.amount}
-                        value={row.value}
-                        onChange={(value) => patch({ value })}
-                        maxDecimals={3}
-                        className="min-w-[10rem] flex-1"
-                      />
-                    </div>
-                    <div className="flex flex-wrap items-end gap-2">
-                      <PickerField
-                        label={`${t.products.product} (${t.common.optional})`}
-                        value={row.product_id}
-                        options={[{ value: "", label: t.common.none }, ...productOptions]}
-                        onChange={(value) => patch({ product_id: value })}
-                        className="min-w-[16rem] flex-1"
-                      />
-                      <NumberField
-                        name={`credit-pqty-${row.key}`}
-                        label={t.common.qty}
-                        value={row.product_qty}
-                        onChange={(value) => patch({ product_qty: value })}
-                        maxDecimals={3}
-                        className="min-w-[8rem] flex-1"
-                      />
-                    </div>
+          {step === 3 ? stepCreditView() : null}
 
-                    {/* Мөрийн дүн — түлш + бараа, хөнгөлөлт тооцсон */}
-                    <div className="num flex items-baseline justify-between gap-3 border-t border-line pt-2">
-                      <span className="text-sm text-ink-soft">{t.attendant.creditSales} ≈</span>
-                      <span className="text-base font-bold text-ink">
-                        {formatMNT(creditRowTotals[index]?.total ?? "0")}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-              <Button
-                variant="secondary"
-                size="md"
-                icon={<Plus />}
-                onClick={() =>
-                  setCreditRows((prev) => [
-                    ...prev,
-                    {
-                      key: nextKey(),
-                      contract_id: "",
-                      new_name: "",
-                      new_phone: "",
-                      fuel_id: fuelOptions[0]?.value ?? "",
-                      mode: "liters",
-                      value: "",
-                      product_id: "",
-                      product_qty: "",
-                    },
-                  ])
-                }
-              >
-                {t.attendant.addLine}
-              </Button>
-              <TotalBox
-                label={t.attendant.creditSales}
-                value={creditTotal}
-                hint={`${t.sales.fuel}: ${formatMNT(creditFuelTotal)} · ${t.products.title}: ${formatMNT(
-                  dSub(creditTotal, creditFuelTotal),
-                )}`}
-              />
-            </div>
-          ) : null}
+          {step === 4 ? stepArView() : null}
 
-          {/* 4 — Өглөг төлөлт */}
-          {step === 4 ? (
-            <div className="flex flex-col gap-3">
-              <p className="text-sm text-ink-soft">{t.attendant.arHint}</p>
-              {arRows.map((row, index) => {
-                const patch = (changes: Partial<ArRow>): void =>
-                  setArRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...changes } : r)));
-                return (
-                  <div key={row.key} className="flex flex-wrap items-end gap-2">
-                    <PickerField
-                      label={t.nav.customers}
-                      value={row.contract_id}
-                      options={[...newCustomerOptions, ...contractOptions]}
-                      onChange={(value) => patch({ contract_id: value })}
-                      className="min-w-[15rem] flex-1"
-                    />
-                    <NumberField
-                      name={`ar-amt-${row.key}`}
-                      label={t.common.amount}
-                      value={row.amount}
-                      onChange={(value) => patch({ amount: value })}
-                      suffix={t.units.mnt}
-                      className="min-w-[11rem] flex-1"
-                    />
-                    <PickerField
-                      label={t.attendant.arMethod}
-                      value={row.method}
-                      options={[
-                        { value: "cash", label: t.attendant.methodCash },
-                        { value: "card", label: t.attendant.methodCard },
-                        { value: "transfer", label: t.attendant.methodTransfer },
-                      ]}
-                      onChange={(value) => patch({ method: value as ArRow["method"] })}
-                      className="min-w-[9rem]"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setArRows((prev) => prev.filter((_, i) => i !== index))}
-                      className="flex h-14 w-12 items-center justify-center rounded-xl text-danger-dark active:bg-danger-soft"
-                    >
-                      <Trash2 className="h-5 w-5" />
-                    </button>
-                  </div>
-                );
-              })}
-              <Button
-                variant="secondary"
-                size="md"
-                icon={<Plus />}
-                onClick={() =>
-                  setArRows((prev) => [
-                    ...prev,
-                    { key: nextKey(), contract_id: "", amount: "", method: "cash" },
-                  ])
-                }
-              >
-                {t.attendant.addLine}
-              </Button>
-              <TotalBox
-                label={t.attendant.stepAr}
-                value={arTotal}
-                hint={`${t.attendant.methodCash}: ${formatMNT(arCashTotal)} · ${
-                  t.attendant.methodCard
-                }/${t.attendant.methodTransfer}: ${formatMNT(dSub(arTotal, arCashTotal))}`}
-              />
-            </div>
-          ) : null}
-
-          {/* 5 — Зарлага */}
-          {step === 5 ? (
-            <div className="flex flex-col gap-3">
-              <p className="text-sm text-ink-soft">{t.attendant.expenseHint}</p>
-              {expenseRows.map((row, index) => {
-                const patch = (changes: Partial<ExpenseRow>): void =>
-                  setExpenseRows((prev) =>
-                    prev.map((r, i) => (i === index ? { ...r, ...changes } : r)),
-                  );
-                return (
-                  <div key={row.key} className="flex flex-wrap items-end gap-2">
-                    <PickerField
-                      label={t.expenses.category}
-                      value={row.account_code}
-                      options={categoryOptions}
-                      onChange={(value) => patch({ account_code: value })}
-                      className="min-w-[14rem] flex-1"
-                    />
-                    <NumberField
-                      name={`exp-amt-${row.key}`}
-                      label={t.common.amount}
-                      value={row.amount}
-                      onChange={(value) => patch({ amount: value })}
-                      suffix={t.units.mnt}
-                      className="min-w-[11rem] flex-1"
-                    />
-                    <PickerField
-                      label={t.expenses.paymentMethod}
-                      value={row.payment_method}
-                      options={[
-                        { value: "cash", label: t.attendant.methodCash },
-                        { value: "card", label: t.attendant.methodCard },
-                        { value: "transfer", label: t.attendant.methodTransfer },
-                      ]}
-                      onChange={(value) =>
-                        patch({ payment_method: value as ExpenseRow["payment_method"] })
-                      }
-                      className="min-w-[11rem]"
-                    />
-                    <TextField
-                      label={t.common.note}
-                      value={row.description ?? ""}
-                      onChange={(value) => patch({ description: value })}
-                      className="min-w-[12rem] flex-1"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setExpenseRows((prev) => prev.filter((_, i) => i !== index))}
-                      className="flex h-14 w-12 items-center justify-center rounded-xl text-danger-dark active:bg-danger-soft"
-                    >
-                      <Trash2 className="h-5 w-5" />
-                    </button>
-                  </div>
-                );
-              })}
-              <Button
-                variant="secondary"
-                size="md"
-                icon={<Plus />}
-                onClick={() =>
-                  setExpenseRows((prev) => [
-                    ...prev,
-                    {
-                      key: nextKey(),
-                      account_code: categoryOptions[0]?.value ?? "",
-                      amount: "",
-                      payment_method: "cash",
-                      description: "",
-                    },
-                  ])
-                }
-              >
-                {t.attendant.addLine}
-              </Button>
-              <TotalBox
-                label={t.attendant.stepExpense}
-                value={expenseTotal}
-                hint={`${t.attendant.methodCash}: ${formatMNT(expenseCashTotal)} · ${
-                  t.attendant.nonCash
-                }: ${formatMNT(dSub(expenseTotal, expenseCashTotal))}`}
-              />
-            </div>
-          ) : null}
+          {step === 5 ? stepExpenseView() : null}
 
           {/* 6 — Тулгалт (тооцоо ирэх хүртэл ачаалж байна) */}
           {step === CONFIRM_STEP && !preview ? (
@@ -1886,19 +2103,19 @@ export function AttendantShiftPage() {
                */}
               {(() => {
                 const declared = declaredCash === "" ? "0" : declaredCash;
-                const arNonCash = dSub(arTotal, arCashTotal);
                 const expenseNonCash = dSub(expenseTotal, expenseCashTotal);
                 // Зээлээр өгсөн бараа: орлогод нэмээд зээлийн нийтээр хасна — ингэснээр
                 // зээлийн мөр зээлийн алхмын дүнтэй (түлш + бараа) яг таарна.
                 const goodsAll = dAdd(oilTotal, creditGoodsTotal);
+                // Тушаах ёстой: бэлэн зарлага л кассаас гардаг; терминал/шилжүүлгийн
+                // зарлага банкнаас гардаг тул тушаалтад нөлөөлөхгүй.
                 const mustTotal = dSub(
                   dSum([preview.opening_cash, preview.fuel_total, goodsAll, arTotal]),
-                  dSum([creditTotal, expenseTotal]),
+                  dSum([creditTotal, expenseCashTotal]),
                 );
-                const handedTotal = dSub(
-                  dSum([declared, settlementTotal, transferAmount, arNonCash]),
-                  expenseNonCash,
-                );
+                // Тушаасан: тоолсон бэлэн + терминал + шилжүүлэг — харилцагчийн өглөг
+                // төлөлт (бэлэн ч, картаар ч) эдгээр дүнд аль хэдийн багтсан тул давхар нэмэхгүй.
+                const handedTotal = dSum([declared, settlementTotal, transferAmount]);
                 const diff = dSub(handedTotal, mustTotal);
                 const diffNum = Number(diff);
                 const diffTone =
@@ -1939,7 +2156,12 @@ export function AttendantShiftPage() {
                             {t.sales.fuel}: {formatMNT(creditFuelTotal)} · {t.products.title}: {formatMNT(creditGoodsTotal)}
                           </span>
                         ) : null}
-                        <Row label={`− ${t.attendant.expenseAll}`} value={expenseTotal} negative />
+                        <Row label={`− ${t.attendant.expenseCash}`} value={expenseCashTotal} negative />
+                        {Number(expenseNonCash) > 0 ? (
+                          <span className="num -mt-1 text-right text-xs text-ink-soft">
+                            {t.attendant.expenseNonCashNote}: {formatMNT(expenseNonCash)}
+                          </span>
+                        ) : null}
                         <div className="num mt-1 flex items-baseline justify-between gap-3 border-t border-line-strong pt-2">
                           <span className="font-bold text-ink">= {t.attendant.mustHandover}</span>
                           <span className="text-lg font-bold text-ink">{formatMNT(mustTotal)}</span>
@@ -1954,11 +2176,10 @@ export function AttendantShiftPage() {
                         <Row label={`+ ${t.attendant.methodCash} (${t.shift.declaredCash})`} value={declared} />
                         <Row label={`+ ${t.attendant.methodCard}`} value={settlementTotal} />
                         <Row label={`+ ${t.attendant.methodTransfer}`} value={transferAmount} />
-                        {Number(arNonCash) > 0 ? (
-                          <Row label={`+ ${t.attendant.arNonCash}`} value={arNonCash} />
-                        ) : null}
-                        {Number(expenseNonCash) > 0 ? (
-                          <Row label={`− ${t.attendant.expenseNonCash}`} value={expenseNonCash} negative />
+                        {Number(arTotal) > 0 ? (
+                          <span className="text-xs text-ink-soft">
+                            {t.attendant.arInHandover}: {formatMNT(arTotal)}
+                          </span>
                         ) : null}
                         <div className="num mt-1 flex items-baseline justify-between gap-3 border-t border-line-strong pt-2">
                           <span className="font-bold text-ink">= {t.attendant.handedOver}</span>

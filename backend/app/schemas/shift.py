@@ -8,6 +8,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -317,6 +318,9 @@ class DailyCloseIn(BaseModel):
     declared_cash: Decimal = Field(ge=0)
     settlement_vat: Decimal = Field(default=ZERO, ge=0)
     settlement_novat: Decimal = Field(default=ZERO, ge=0)
+    #: Банкны терминалын нийт дүн (НӨАТ-тэй/гүй хуваахгүй). Өгвөл vat/novat-ыг
+    #: орлоно: settlement_vat = total, settlement_novat = 0.
+    settlement_total: Decimal | None = Field(default=None, ge=0)
     #: Дансаар шилжүүлсэн орлого — картын тооцооны адил бэлэн мөнгийг бууруулна.
     transfer_total: Decimal = Field(default=ZERO, ge=0)
     #: Шилжүүлэг аль банкны дансанд орсон бэ (хоосон бол салбарын данс, эсвэл
@@ -328,6 +332,19 @@ class DailyCloseIn(BaseModel):
     expenses: list[ExpenseLineIn] = Field(default_factory=list)
     tank_dips: list[TankDipIn] = Field(default_factory=list)
     note: str | None = None
+
+
+class CloseDraftIn(BaseModel):
+    """Хаалтын ноорог — frontend-ийн мөрүүд (тос/бараа, зээл, өглөг төлөлт, зарлага)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    draft: dict[str, Any]
+
+
+class CloseDraftOut(BaseModel):
+    draft: dict[str, Any] | None = None
+    updated_at: datetime | None = None
 
 
 class ClosingCorrectIn(BaseModel):
