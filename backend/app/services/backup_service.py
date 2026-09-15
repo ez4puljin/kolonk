@@ -168,6 +168,12 @@ def resolve_backup(filename: str, directory: str | Path | None = None) -> Path:
 # --------------------------------------------------------------------------- #
 # Дэд процесс
 # --------------------------------------------------------------------------- #
+#: Windows: Docker-гүй станцад worker далд (консолгүй) процессоор ажилладаг тул
+#: pg_dump/pg_restore дэд процесс ШИНЭ консол цонх нээж, цаг тутмын нөөцлөлт
+#: бүрд хар терминал гялсхийдэг байв. CREATE_NO_WINDOW үүнийг болиулна.
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+
+
 def _run_blocking(command: list[str], env: dict[str, str], timeout: float) -> tuple[int, str]:
     """``subprocess.run`` — тусдаа thread-д ажиллана."""
     try:
@@ -177,6 +183,7 @@ def _run_blocking(command: list[str], env: dict[str, str], timeout: float) -> tu
             capture_output=True,
             timeout=timeout,
             check=False,
+            creationflags=_NO_WINDOW,
         )
     except FileNotFoundError as exc:
         raise HTTPException(
