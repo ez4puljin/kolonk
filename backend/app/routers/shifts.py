@@ -111,7 +111,7 @@ async def close_shift(
     user: User = Depends(require_permission("shifts.close")),
 ) -> dict[str, Any]:
     """Ээлж хаах — тооцоо нийлүүлж, зөрүүг журналд бичээд бүрэн тайланг буцаана."""
-    shift = await shift_service.get_shift(db, shift_id)
+    shift = await _own_shift(db, user, shift_id)
     return await shift_service.close_shift(
         db,
         user,
@@ -157,6 +157,19 @@ async def _visible_shift(db: AsyncSession, user: User, shift_id: uuid.UUID):
     return shift
 
 
+async def _own_shift(db: AsyncSession, user: User, shift_id: uuid.UUID):
+    """Ээлжид БИЧИХ үйлдэл (хаалт, тулгалт, үнийн тэмдэглэл, зураг) — зөвхөн
+    нээсэн түгээгч өөрөө, эсвэл бүх ээлж хардаг (нягтлан/админ) хүн.
+
+    Урьд нь дэлгэц дээр л нуугддаг байсан тул API-аар өөр түгээгч бусдын
+    ээлжийг хааж чаддаг байв (2026-09 туршилтаар илэрсэн).
+    """
+    shift = await _visible_shift(db, user, shift_id)
+    if shift.opened_by != user.id and "shifts.view_all" not in user_permissions(user):
+        raise HTTPException(status_code=403, detail="Энэ ээлжийг нээсэн түгээгч л хааж, бүртгэл хийнэ")
+    return shift
+
+
 def _attachment_out(row: ShiftAttachment) -> dict[str, Any]:
     return {
         "id": row.id,
@@ -185,7 +198,7 @@ async def upload_shift_attachment(
     """Ээлжид зураг хавсаргана (миль, кассын тоолол, settlement-ийн баримт)."""
     if kind not in ATTACHMENT_KINDS:
         raise HTTPException(status_code=422, detail="Хавсралтын төрөл буруу байна")
-    shift = await shift_service.get_shift(db, shift_id)
+    shift = await _own_shift(db, user, shift_id)
 
     content = await file.read()
     if not content:
@@ -273,7 +286,7 @@ async def add_price_mark(
     user: User = Depends(require_permission("shifts.open", "shifts.close")),
 ) -> dict[str, Any]:
     """Өдрийн дундуур үнэ өөрчлөгдөхөд шинэ үнэ аль мильд эхэлснийг тэмдэглэнэ."""
-    shift = await shift_service.get_shift(db, shift_id)
+    shift = await _own_shift(db, user, shift_id)
     mark = await attendant_service.add_price_mark(
         db,
         user,
@@ -305,7 +318,7 @@ async def daily_preview(
     _user: User = Depends(require_permission("shifts.close")),
 ) -> dict[str, Any]:
     """Хаалтын өмнөх миль×үнэ тулгалт — юу ч бичихгүй."""
-    shift = await shift_service.get_shift(db, shift_id)
+    shift = await _own_shift(db, _user, shift_id)
     return await attendant_service.daily_preview(db, shift, payload.totalizer_readings)
 
 
@@ -350,7 +363,7 @@ async def daily_close(
     user: User = Depends(require_permission("shifts.close")),
 ) -> dict[str, Any]:
     """Түгээгчийн өдрийн хаалт — бүх бүртгэл + ээлж хаах нэг дор."""
-    shift = await shift_service.get_shift(db, shift_id)
+    shift = await _own_shift(db, user, shift_id)
     return await attendant_service.daily_close(db, user, shift, payload)
 
 

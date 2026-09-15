@@ -543,6 +543,17 @@ export function AttendantShiftPage() {
     [customersPage],
   );
 
+  /** Гэрээ бүрийн одоогийн авлага — өглөг төлөлт үлдэгдлээс илүү бол санамж харуулахад. */
+  const balanceByTarget = useMemo(() => {
+    const map = new Map<string, MoneyStr>();
+    for (const customer of customersPage?.items ?? []) {
+      for (const contract of customer.contracts) {
+        if (contract.status === "active") map.set(contract.id, contract.balance);
+      }
+    }
+    return map;
+  }, [customersPage]);
+
   const fuelOptions = useMemo(() => {
     const seen = new Map<string, string>();
     for (const { nozzle } of nozzles) {
@@ -1582,6 +1593,17 @@ export function AttendantShiftPage() {
               {arRows.map((row, index) => {
                 const patch = (changes: Partial<ArRow>): void =>
                   setArRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...changes } : r)));
+                // Энэ хаалтад тэр харилцагчид өгсөн зээл ч үлдэгдэлд нэмэгдэнэ.
+                const creditHere = dSum(
+                  creditRows.map((r, i) => {
+                    const sameNew = r.contract_id === NEW_CUSTOMER && row.contract_id === `${NEW_AR_PREFIX}${r.key}`;
+                    return sameNew || (r.contract_id !== NEW_CUSTOMER && r.contract_id === row.contract_id)
+                      ? (creditRowTotals[i]?.total ?? "0")
+                      : "0";
+                  }),
+                );
+                const available = dAdd(balanceByTarget.get(row.contract_id) ?? "0", creditHere);
+                const overpay = row.contract_id !== "" ? dSub(row.amount || "0", available) : "0";
                 return (
                   <div key={row.key} className="flex flex-wrap items-end gap-2">
                     <PickerField
@@ -1617,6 +1639,14 @@ export function AttendantShiftPage() {
                     >
                       <Trash2 className="h-5 w-5" />
                     </button>
+                    {dIsPositive(overpay) ? (
+                      <p className="num w-full rounded-lg bg-warning-soft px-3 py-2 text-xs font-semibold text-warning-dark">
+                        {t.attendant.arOverpay}:{" "}
+                        {t.attendant.arOverpayHint
+                          .replace("{balance}", formatMNT(available))
+                          .replace("{over}", formatMNT(overpay))}
+                      </p>
+                    ) : null}
                   </div>
                 );
               })}
