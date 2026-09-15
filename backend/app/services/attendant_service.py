@@ -897,9 +897,18 @@ async def daily_close(
     card_left = q2(card_left - oil_card)
     transfer_left = q2(transfer_left - oil_transfer)
     if card_left > ZERO or transfer_left > ZERO:
+        # Тоотой тайлбар — түгээгч аль дүн зөрснийг шууд харна.
+        available = q2(fuel_total + oil_total)
+        given = q2(sales_card + sales_transfer)
         raise HTTPException(
             status_code=422,
-            detail="Тушаасан карт/шилжүүлгийн дүн өдрийн борлуулалтаас их байна — дүнгээ шалгана уу",
+            detail=(
+                f"Тушаасан терминал + шилжүүлэг {given:,.0f}₮ (өглөг төлөлтийн {q2(ar_card + ar_transfer):,.0f}₮-ийг "
+                f"хассан) нь өдрийн бэлэн бус борлуулалтаас их байна: түлш (миль×үнэ − зээлээр өгсөн) "
+                f"{fuel_total:,.0f}₮ + тос, бараа {oil_total:,.0f}₮ = {available:,.0f}₮; илүү {q2(given - available):,.0f}₮. "
+                "Шалгах: өглөг төлөлтийн мөрүүдийн төлбөрийн хэлбэр (терминал/шилжүүлгээр ирсэн бол «Бэлэн мөнгө» биш), "
+                "терминал/шилжүүлгийн дүнд өнөөдрийн борлуулалтаас өөр мөнгө орсон эсэх, зээлийн литр."
+            ),
         )
 
     # --- 4. Авлагын төлбөрүүд (өглөг) ---
