@@ -83,6 +83,23 @@ if (-not (Test-Engine)) {
     Write-Log 'Docker engine бэлэн боллоо.'
 }
 
+# --- 1b. Docker Desktop «Pause» төлөвт байвал (Whale цэснээс санамсаргүй) ---
+# Engine хариу өгдөг ч контейнер ажиллахгүй, compose «manually paused» алдаа
+# өгнө. 2026-09-15 яг ийм шалтгаанаар бүх контейнер зогсож, watchdog 5 минут
+# тутам дэмий оролдож байв. `docker desktop restart` л буцааж асаана.
+$dstatus = (& docker desktop status 2>$null | Out-String)
+if ($dstatus -match 'Status\s+paused') {
+    Write-Log 'Docker Desktop зогсоолттой (paused) байна — restart хийж байна.'
+    & docker desktop restart 2>$null | Out-Null
+    $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Seconds 10
+        $dstatus = (& docker desktop status 2>$null | Out-String)
+        if ($dstatus -match 'Status\s+running' -and (Test-Engine)) { break }
+    }
+    Write-Log ('Docker Desktop төлөв: {0}' -f (($dstatus -replace '\s+', ' ').Trim()))
+}
+
 # --- 2. Контейнерууд бүрэн эсэхийг шалгах --------------------------------
 $expected = @('kolonk-db-1','kolonk-redis-1','kolonk-api-prod-1',
               'kolonk-worker-1','kolonk-nginx-1')

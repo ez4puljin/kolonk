@@ -34,8 +34,11 @@ if ($Remove) {
 
 Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
 
-$action = New-ScheduledTaskAction -Execute "powershell.exe" `
-    -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Root\watchdog.ps1`"" `
+# powershell.exe -WindowStyle Hidden ч гэсэн хар консол цонх агшин зуур
+# гялсхийж харагддаг (5 минут тутам «терминал нээгдээд хаагддаг» шалтгаан).
+# wscript + run-hidden.vbs цонх огт үүсгэхгүй.
+$action = New-ScheduledTaskAction -Execute "wscript.exe" `
+    -Argument "//B //Nologo `"$Root\run-hidden.vbs`" `"$Root\watchdog.ps1`"" `
     -WorkingDirectory $Root
 
 $user    = "$env:USERDOMAIN\$env:USERNAME"
@@ -47,7 +50,7 @@ $trigger.Repetition         = (New-ScheduledTaskTrigger -Once -At (Get-Date) `
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -StartWhenAvailable -MultipleInstances IgnoreNew `
-    -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -Hidden
 
 $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive
 

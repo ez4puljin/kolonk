@@ -36,8 +36,10 @@ if ($Remove) {
 Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
 
 # startup.bat-ын хийдэг зүйлийг цонхгүй хийнэ: start-dev.ps1 -Seed -Open -Quiet
-$action = New-ScheduledTaskAction -Execute "powershell.exe" `
-    -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Root\start-dev.ps1`" -Seed -Open -Quiet" `
+# wscript + run-hidden.vbs — powershell -WindowStyle Hidden гялсхийдэг консол
+# цонхгүйгээр ажиллуулна.
+$action = New-ScheduledTaskAction -Execute "wscript.exe" `
+    -Argument "//B //Nologo `"$Root\run-hidden.vbs`" `"$Root\start-dev.ps1`" -Seed -Open -Quiet" `
     -WorkingDirectory $Root
 
 # Нэвтрэхэд 30 секундийн дараа — сүлжээ, үйлчилгээнүүд амжиж асна.
@@ -48,7 +50,7 @@ $trigger.Delay = "PT30S"
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -StartWhenAvailable -MultipleInstances IgnoreNew `
-    -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 30) -Hidden
 
 $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive
 
