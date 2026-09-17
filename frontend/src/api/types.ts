@@ -2729,7 +2729,10 @@ export interface DailyClosing {
 export interface DailyClosingRow {
   shift_id: UUID;
   shift_number: number;
+  /** Ээлжийн огноо — батлахдаа зассан бол тэр, үгүй бол нээсэн огноо. */
   date: string;
+  /** Ээлж бодитоор нээгдсэн огноо. */
+  opened_date: string;
   attendant: string;
   opening_cash: MoneyStr;
   fuel_total: MoneyStr;

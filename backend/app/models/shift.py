@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -118,6 +118,8 @@ class ShiftClosing(UUIDPKMixin, TimestampMixin, Base):
     #: Хаалтад үүссэн тос/барааны борлуулалт.
     oil_sale_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("sales.id"))
     note: Mapped[str | None] = mapped_column(Text)
+    #: Батлахдаа зассан ээлжийн огноо (хоосон бол нээсэн огноо).
+    business_date: Mapped[date | None] = mapped_column(Date)
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id"))
     #: Нягтлан хянаж баталсан мөч — батлагдсан хаалтыг засах боломжгүй.
     approved_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id"))

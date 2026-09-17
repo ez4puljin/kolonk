@@ -31,7 +31,7 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import (
@@ -1165,10 +1165,21 @@ async def daily_closings_list(
         stmt = stmt.where(Shift.branch_id.in_(branch_ids))
     if attendant_ids:
         stmt = stmt.where(Shift.opened_by.in_(attendant_ids))
+    # Огноогоор шүүхдээ зассан бизнес огноог (байвал) харна.
     if date_from is not None:
-        stmt = stmt.where(Shift.opened_at >= day_start(date_from))
+        stmt = stmt.where(
+            or_(
+                ShiftClosing.business_date >= date_from,
+                and_(ShiftClosing.business_date.is_(None), Shift.opened_at >= day_start(date_from)),
+            )
+        )
     if date_to is not None:
-        stmt = stmt.where(Shift.opened_at <= day_end(date_to))
+        stmt = stmt.where(
+            or_(
+                ShiftClosing.business_date <= date_to,
+                and_(ShiftClosing.business_date.is_(None), Shift.opened_at <= day_end(date_to)),
+            )
+        )
     if status == "approved":
         stmt = stmt.where(ShiftClosing.approved_at.is_not(None))
     elif status == "pending":
@@ -1227,7 +1238,8 @@ async def daily_closings_list(
             {
                 "shift_id": shift.id,
                 "shift_number": shift.number,
-                "date": shift.opened_at.astimezone(STATION_TZ).date(),
+                "date": closing.business_date or shift.opened_at.astimezone(STATION_TZ).date(),
+                "opened_date": shift.opened_at.astimezone(STATION_TZ).date(),
                 "attendant": attendant.full_name if attendant else "",
                 "attendant_id": shift.opened_by,
                 "branch_id": shift.branch_id,
@@ -1328,8 +1340,9 @@ async def set_closing_approval(
     shift_id: uuid.UUID,
     approved: bool,
     note: str | None = None,
+    business_date: date | None = None,
 ) -> dict[str, Any]:
-    """Хаалтыг батлах / батламжийг буцаах."""
+    """Хаалтыг батлах / батламжийг буцаах. ``business_date`` — ээлжийн огноог засна."""
     closing, shift = await _closing_for(db, shift_id)
     if approved and closing.approved_at is not None:
         raise HTTPException(status_code=422, detail="Энэ хаалт аль хэдийн батлагдсан байна")
@@ -1339,6 +1352,10 @@ async def set_closing_approval(
     closing.approved_by = user.id if approved else None
     closing.approved_at = datetime.now(UTC) if approved else None
     closing.approval_note = (note or "").strip()[:500] or None
+    if approved and business_date is not None:
+        if business_date > shift.opened_at.astimezone(STATION_TZ).date():
+            raise HTTPException(status_code=422, detail="Ээлжийн огноо нээсэн огнооноос хойш байж болохгүй")
+        closing.business_date = business_date
     await db.flush()
 
     await audit(
@@ -1347,11 +1364,12 @@ async def set_closing_approval(
         action="shift.closing_approved" if approved else "shift.closing_unapproved",
         entity_type="shift",
         entity_id=shift.id,
-        after={"approved": approved, "note": note},
+        after={"approved": approved, "note": note, "business_date": str(business_date) if business_date else None},
     )
     return {
         "shift_id": shift.id,
         "approved": approved,
+        "business_date": closing.business_date,
         "approved_at": closing.approved_at,
         "approved_by_name": user.full_name if approved else "",
         "approval_note": closing.approval_note,

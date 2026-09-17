@@ -33,7 +33,7 @@ import { t } from "../../i18n/mn";
 import { dAbs, dIsZero, dSub, dSum, dToQty } from "../../lib/decimal";
 import { formatLiters, formatMNT } from "../../lib/format";
 import { useUiStore } from "../../stores/ui";
-import { NumberField, PickerField, TextField } from "../catalog/_shared";
+import { DateField, NumberField, PickerField, TextField } from "../catalog/_shared";
 
 type StatusFilter = "" | "approved" | "pending";
 
@@ -57,6 +57,7 @@ function withTotalsRow(rows: readonly DailyClosingRow[]): DailyClosingRow[] {
       shift_id: TOTALS_KEY,
       shift_number: 0,
       date: "",
+      opened_date: "",
       attendant: "",
       opening_cash: sumOf((row) => row.opening_cash),
       fuel_total: sumOf((row) => row.fuel_total),
@@ -264,14 +265,19 @@ export function DailyClosingsPage() {
   );
   const pendingCount = useMemo(() => rows.filter((r) => !r.approved).length, [rows]);
 
-  const setApproval = (row: DailyClosingRow, approved: boolean): void => {
+  // Батлахдаа ээлжийн огноог сонгуулна (хожуу хаасан ээлжийг зөв өдөрт нь).
+  const [approving, setApproving] = useState<DailyClosingRow | null>(null);
+  const [approveDate, setApproveDate] = useState("");
+
+  const setApproval = (row: DailyClosingRow, approved: boolean, businessDate?: string): void => {
     approval.mutate(
-      { shiftId: row.shift_id, approved },
+      { shiftId: row.shift_id, approved, business_date: approved ? businessDate || null : undefined },
       {
         onSuccess: () =>
-          toastSuccess(
-            approved ? t.dailyClosings.approvedToast : t.dailyClosings.unapprovedToast,
-          ),
+          {
+            toastSuccess(approved ? t.dailyClosings.approvedToast : t.dailyClosings.unapprovedToast);
+            setApproving(null);
+          },
         onError: (cause) => toastError(errorMessage(cause)),
       },
     );
@@ -287,7 +293,12 @@ export function DailyClosingsPage() {
           // бичихгүйн тулд энд зөвхөн ширээний дэлгэцэд гаргана.
           <span className="hidden font-black text-ink md:inline">{t.dailyClosings.grandTotal}</span>
         ) : (
-          <span className="num">{row.date}</span>
+          <span className="num">
+            {row.date}
+            {row.opened_date && row.opened_date !== row.date ? (
+              <span className="block text-xs text-ink-soft">{t.dailyClosings.openedOn}: {row.opened_date}</span>
+            ) : null}
+          </span>
         ),
       width: "7rem",
     },
@@ -429,7 +440,10 @@ export function DailyClosingsPage() {
                 variant="success"
                 size="md"
                 icon={<CircleCheck />}
-                onClick={() => setApproval(row, true)}
+                onClick={() => {
+                  setApproveDate(row.date);
+                  setApproving(row);
+                }}
               >
                 {t.dailyClosings.approve}
               </Button>
@@ -528,6 +542,46 @@ export function DailyClosingsPage() {
       />
 
       <CorrectModal row={editing} open={editing !== null} onClose={() => setEditing(null)} />
+      <Modal
+        open={approving !== null}
+        onClose={() => setApproving(null)}
+        size="sm"
+        title={t.dailyClosings.approve}
+        subtitle={approving ? `${approving.attendant} · ${approving.branch_name}` : undefined}
+        dismissible={!approval.isPending}
+        footer={
+          <>
+            <Button variant="secondary" size="md" disabled={approval.isPending} onClick={() => setApproving(null)}>
+              {t.common.cancel}
+            </Button>
+            <Button
+              variant="success"
+              size="md"
+              icon={<CircleCheck />}
+              loading={approval.isPending}
+              disabled={approveDate === ""}
+              onClick={() => approving && setApproval(approving, true, approveDate)}
+            >
+              {t.dailyClosings.approve}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <DateField
+            label={t.dailyClosings.approveDate}
+            value={approveDate}
+            onChange={setApproveDate}
+            max={approving?.opened_date}
+          />
+          <p className="text-xs text-ink-soft">{t.dailyClosings.approveDateHint}</p>
+          {approving ? (
+            <p className="num text-xs text-ink-soft">
+              {t.dailyClosings.openedOn}: {approving.opened_date}
+            </p>
+          ) : null}
+        </div>
+      </Modal>
     </div>
   );
 }

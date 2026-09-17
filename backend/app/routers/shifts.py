@@ -450,7 +450,7 @@ async def set_closing_approval(
 ) -> dict[str, Any]:
     """Хаалтыг батлах (`approved=true`) эсвэл батламжийг буцаах."""
     return await attendant_service.set_closing_approval(
-        db, user, shift_id=shift_id, approved=payload.approved, note=payload.note
+        db, user, shift_id=shift_id, approved=payload.approved, note=payload.note, business_date=payload.business_date
     )
 
 

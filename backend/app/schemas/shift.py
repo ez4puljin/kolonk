@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -363,6 +363,8 @@ class ClosingApprovalIn(BaseModel):
 
     approved: bool = True
     note: str | None = Field(default=None, max_length=500)
+    #: Батлахдаа ээлжийн огноог засна (хаалтыг хожуу хийсэн үед) — тайланд энэ огноо гарна.
+    business_date: date | None = None
 
 
 class DailyPreviewIn(BaseModel):

@@ -228,6 +228,8 @@ export function useClosingApprovalMutation() {
       shiftId: UUID;
       approved: boolean;
       note?: string;
+      /** Батлахдаа ээлжийн огноог засна (YYYY-MM-DD). */
+      business_date?: string | null;
     }) =>
       api.post<{ shift_id: UUID; approved: boolean }>(
         `/api/shifts/${shiftId}/closing/approval`,
