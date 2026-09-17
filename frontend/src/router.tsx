@@ -91,6 +91,7 @@ const PosBulkPage = lazyPage("PosBulkPage");
 const ShiftPage = lazyPage("ShiftPage");
 const ShiftReportPage = lazyPage("ShiftReportPage");
 const DailyClosingsPage = lazyPage("DailyClosingsPage");
+const MyShiftsPage = lazyPage("MyShiftsPage");
 const DashboardPage = lazyPage("DashboardPage");
 const OwnerDashboardPage = lazyPage("OwnerDashboardPage");
 const TanksPage = lazyPage("TanksPage");
@@ -304,6 +305,14 @@ export function AppRoutes() {
             element={
               <RequirePermission code={["shifts.view_all", "shifts.approve"]}>
                 <DailyClosingsPage />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="/my-shifts"
+            element={
+              <RequirePermission code={["shifts.close", "shifts.open"]}>
+                <MyShiftsPage />
               </RequirePermission>
             }
           />

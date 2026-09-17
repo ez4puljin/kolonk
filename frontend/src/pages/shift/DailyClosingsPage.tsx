@@ -58,6 +58,7 @@ function withTotalsRow(rows: readonly DailyClosingRow[]): DailyClosingRow[] {
       shift_number: 0,
       date: "",
       opened_date: "",
+      closed_date: null,
       attendant: "",
       opening_cash: sumOf((row) => row.opening_cash),
       fuel_total: sumOf((row) => row.fuel_total),
@@ -286,7 +287,7 @@ export function DailyClosingsPage() {
   const columns: Column<DailyClosingRow>[] = [
     {
       key: "date",
-      header: t.dailyClosings.date,
+      header: t.dailyClosings.workedDate,
       render: (row) =>
         isTotals(row) ? (
           // Утсанд карт болох тул гарчиг нь `attendant` багана — давхар
@@ -300,6 +301,13 @@ export function DailyClosingsPage() {
             ) : null}
           </span>
         ),
+      width: "7rem",
+    },
+    {
+      key: "closed_date",
+      header: t.dailyClosings.closedDate,
+      hideOnMobile: true,
+      render: (row) => (isTotals(row) ? "" : <span className="num">{row.closed_date ?? "—"}</span>),
       width: "7rem",
     },
     {

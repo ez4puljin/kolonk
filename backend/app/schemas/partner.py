@@ -47,8 +47,9 @@ class CustomerCreate(BaseModel):
     province: str | None = Field(default=None, max_length=64)
     district: str | None = Field(default=None, max_length=64)
     credit_limit: Decimal = Field(default=ZERO, ge=0)
-    #: Лимитгүй — зээлийн лимит шалгахгүй (нягтлан/админ тохируулна).
-    credit_unlimited: bool = False
+    #: Лимитгүй — зээлийн лимит шалгахгүй. Анхдагчаар ЛИМИТГҮЙ; лимит хэрэгтэй
+    #: бол нягтлан/админ унтраагаад дүнг оруулна.
+    credit_unlimited: bool = True
     type: CustomerType = CustomerType.B2B
     is_active: bool = True
     #: Аль салбарын харилцагч вэ (хоосон бол салбаргүй).

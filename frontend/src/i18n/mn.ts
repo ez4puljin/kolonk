@@ -201,6 +201,7 @@ export const t = {
     posStore: "Дэлгүүр",
     payment: "Төлбөр",
     shift: "Ээлж",
+    myShifts: "Миний ээлжүүд",
     shiftReport: "Ээлжийн тайлан",
     dailyClosings: "Ээлжийн тайлан",
     dashboard: "Хяналтын самбар",
@@ -455,6 +456,15 @@ export const t = {
     tank: "Сав",
   },
 
+  myShifts: {
+    title: "Миний ээлжүүд",
+    subtitle: "Өөрийн нээж, хаасан ээлжүүд — тайланг нь нээж харна",
+    openedAt: "Эхэлсэн",
+    closedAt: "Хаасан",
+    total: "Нийт ээлж",
+    closedCount: "Хаагдсан",
+    report: "Тайлан",
+  },
   dailyClosings: {
     title: "Ээлжийн тайлан",
     subtitle: "Салбар бүрийн түгээгчийн хаалт — илүүдэл/дутагдал хянаж батална",
@@ -478,6 +488,8 @@ export const t = {
     pendingCount: "Батлагдаагүй",
     approvedToast: "Хаалт батлагдлаа",
     approveDate: "Ээлжийн огноо",
+    workedDate: "Ажилласан огноо",
+    closedDate: "Хаалт хийсэн",
     approveDateHint: "Хаалтыг хожуу хийсэн бол ээлж бодитоор ажилласан өдрийг сонгоно — тайланд энэ огноо гарна. Нээсэн огнооноос хойш байж болохгүй.",
     openedOn: "Нээсэн",
     unapprovedToast: "Батламж буцаагдлаа",

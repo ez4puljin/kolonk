@@ -273,6 +273,7 @@ async def import_customers(
                     name=name,
                     phone=phone,
                     credit_limit=amount,
+                    credit_unlimited=True,
                     type=str(CustomerType.INDIVIDUAL),
                     is_active=True,
                 )

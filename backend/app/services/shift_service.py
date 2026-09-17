@@ -1265,11 +1265,14 @@ async def list_shifts(
     date_to: Any = None,
     status: str | None = None,
     branch_id: uuid.UUID | None = None,
+    opened_by: uuid.UUID | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
-    """Ээлжийн жагсаалт (шүүлт + хуудаслалт)."""
+    """Ээлжийн жагсаалт (шүүлт + хуудаслалт). ``opened_by`` — зөвхөн тэр хүний ээлж."""
     filters: list[Any] = []
+    if opened_by is not None:
+        filters.append(Shift.opened_by == opened_by)
     if date_from is not None:
         filters.append(Shift.opened_at >= day_start(date_from))
     if date_to is not None:

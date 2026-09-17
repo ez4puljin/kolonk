@@ -75,6 +75,8 @@ const NAV: readonly NavSection[] = [
       { to: "/pos", label: t.nav.pos, icon: Fuel, permissions: ["sales.create"] },
       { to: "/shift", label: t.nav.shift, icon: Gauge, permissions: ["shifts.open", "shifts.close", "shifts.view_all"] },
       { to: "/daily-closings", label: t.nav.dailyClosings, icon: CalendarCheck, permissions: ["shifts.view_all", "shifts.approve"] },
+      // Түгээгч — зөвхөн өөрийн ээлжүүд (бүх ээлж хардаг хүнд Ээлжийн тайлан байгаа).
+      { to: "/my-shifts", label: t.nav.myShifts, icon: CalendarCheck, permissions: ["shifts.close", "shifts.open"], hideIfPermissions: ["shifts.view_all"] },
       // Admin хяналттай хүнд энгийн самбарыг нуунa — хоёр самбар давхардуулахгүй.
       {
         to: "/dashboard",

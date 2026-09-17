@@ -446,6 +446,7 @@ async def _contract_for_new_customer(
     created_customer = customer is None
     if customer is None:
         customer = Customer(
+            credit_unlimited=True,
             branch_id=branch_id,
             last_name=last_name,
             name=name,
@@ -1156,10 +1157,14 @@ async def daily_closings_list(
     ``status``: ``approved`` (батлагдсан) / ``pending`` (хүлээгдэж буй).
     ``only_variance``: зөвхөн кассын зөрүүтэй мөрүүд.
     """
+    # Дараалал — ээлжийн АЖИЛЛАСАН огноогоор (батлахдаа зассан бол тэр).
+    worked_date = func.coalesce(
+        ShiftClosing.business_date, func.date(func.timezone(str(STATION_TZ), Shift.opened_at))
+    )
     stmt = (
         select(ShiftClosing, Shift)
         .join(Shift, Shift.id == ShiftClosing.shift_id)
-        .order_by(Shift.opened_at.desc())
+        .order_by(worked_date.desc(), Shift.opened_at.desc())
     )
     if branch_ids:
         stmt = stmt.where(Shift.branch_id.in_(branch_ids))
@@ -1240,6 +1245,7 @@ async def daily_closings_list(
                 "shift_number": shift.number,
                 "date": closing.business_date or shift.opened_at.astimezone(STATION_TZ).date(),
                 "opened_date": shift.opened_at.astimezone(STATION_TZ).date(),
+                "closed_date": shift.closed_at.astimezone(STATION_TZ).date() if shift.closed_at else None,
                 "attendant": attendant.full_name if attendant else "",
                 "attendant_id": shift.opened_by,
                 "branch_id": shift.branch_id,

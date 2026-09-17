@@ -1881,6 +1881,9 @@ export function AttendantShiftPage() {
         }
         actions={
           <>
+            <Button variant="secondary" size="md" icon={<FileText />} onClick={() => navigate("/my-shifts")}>
+              {t.nav.myShifts}
+            </Button>
             <Button
               variant="secondary"
               size="md"

@@ -376,9 +376,13 @@ async def list_shifts(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_permission("shifts.view_all")),
+    user: User = Depends(require_permission("shifts.view_all", "shifts.close")),
 ) -> dict[str, Any]:
-    """Ээлжийн жагсаалт — огноо/төлөв/салбараар шүүх, хуудаслах."""
+    """Ээлжийн жагсаалт — огноо/төлөв/салбараар шүүх, хуудаслах.
+
+    Бүх ээлж харах эрхгүй түгээгчид зөвхөн ӨӨРИЙН нээсэн ээлжүүд буцна.
+    """
+    only_own = "shifts.view_all" not in user_permissions(user)
     if status is not None and status not in tuple(ShiftStatus):
         raise HTTPException(status_code=422, detail="Ээлжийн төлөв буруу байна")
     if date_from is not None and date_to is not None and date_from > date_to:
@@ -389,6 +393,7 @@ async def list_shifts(
         date_to=date_to,
         status=status,
         branch_id=branch_id,
+        opened_by=user.id if only_own else None,
         limit=limit,
         offset=offset,
     )

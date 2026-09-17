@@ -70,7 +70,7 @@ const EMPTY_FORM: CustomerForm = {
   district: "",
   branch_id: "",
   credit_limit: "",
-  credit_unlimited: false,
+  credit_unlimited: true,
   type: "b2b",
   is_active: true,
 };

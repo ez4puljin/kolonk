@@ -2733,6 +2733,8 @@ export interface DailyClosingRow {
   date: string;
   /** Ээлж бодитоор нээгдсэн огноо. */
   opened_date: string;
+  /** Хаалт хийсэн огноо. */
+  closed_date: string | null;
   attendant: string;
   opening_cash: MoneyStr;
   fuel_total: MoneyStr;
