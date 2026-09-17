@@ -224,6 +224,7 @@ export function useClosingApprovalMutation() {
       shiftId,
       approved,
       note,
+      business_date,
     }: {
       shiftId: UUID;
       approved: boolean;
@@ -231,9 +232,9 @@ export function useClosingApprovalMutation() {
       /** Батлахдаа ээлжийн огноог засна (YYYY-MM-DD). */
       business_date?: string | null;
     }) =>
-      api.post<{ shift_id: UUID; approved: boolean }>(
+      api.post<{ shift_id: UUID; approved: boolean; business_date?: string | null }>(
         `/api/shifts/${shiftId}/closing/approval`,
-        { approved, note: note || null },
+        { approved, note: note || null, business_date: business_date ?? null },
       ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["shifts", "daily-closings"] });
