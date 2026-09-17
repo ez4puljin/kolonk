@@ -73,6 +73,10 @@ class ShiftSummary(BaseModel):
     cash_over_short: Decimal | None = None
     note: str | None = None
     sales_count: int = 0
+    #: Батлахдаа зассан ажилласан огноо (өдрийн хаалттай бол).
+    business_date: date | None = None
+    #: Нягтлан баталсан эсэх.
+    approved: bool = False
     sales_total: Decimal = ZERO
 
 

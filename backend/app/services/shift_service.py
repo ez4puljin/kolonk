@@ -1310,6 +1310,13 @@ async def list_shifts(
 
     shifts = [row[0] for row in rows]
     names = await _user_names(db, [s.opened_by for s in shifts] + [s.closed_by for s in shifts])
+    # Батлахдаа зассан ажилласан огноо, батламжийн төлөв — өдрийн хаалтаас.
+    from app.models.shift import ShiftClosing  # noqa: PLC0415
+
+    closings = {}
+    if shifts:
+        for c in (await db.scalars(select(ShiftClosing).where(ShiftClosing.shift_id.in_([s.id for s in shifts])))).all():
+            closings[c.shift_id] = c
 
     items: list[dict[str, Any]] = []
     for shift, sales_count, sales_total in rows:
@@ -1334,6 +1341,8 @@ async def list_shifts(
                 "note": shift.note,
                 "sales_count": int(sales_count or 0),
                 "sales_total": q2(_dec(sales_total)),
+                "business_date": closings[shift.id].business_date if shift.id in closings else None,
+                "approved": bool(closings[shift.id].approved_at) if shift.id in closings else False,
             }
         )
 

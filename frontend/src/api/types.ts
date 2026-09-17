@@ -453,6 +453,9 @@ export interface ShiftSummary {
   cash_over_short: MoneyStr | null;
   note: string | null;
   sales_count: number;
+  /** Батлахдаа зассан ажилласан огноо. */
+  business_date?: IsoDate | null;
+  approved?: boolean;
   sales_total: MoneyStr;
 }
 

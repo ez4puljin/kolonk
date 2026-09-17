@@ -19,7 +19,7 @@ import { StatusBadge } from "../../components/ui/StatusBadge";
 import { t } from "../../i18n/mn";
 import { SHIFT_STATUS_META, statusMeta } from "../../lib/constants";
 import { dSum } from "../../lib/decimal";
-import { formatDateTime, formatMNT } from "../../lib/format";
+import { formatDate, formatDateTime, formatMNT } from "../../lib/format";
 
 export function MyShiftsPage() {
   const navigate = useNavigate();
@@ -35,7 +35,18 @@ export function MyShiftsPage() {
       primary: true,
       render: (row) => <span className="num font-bold">№{row.number}</span>,
     },
-    { key: "opened", header: t.myShifts.openedAt, numeric: true, render: (row) => formatDateTime(row.opened_at) },
+    {
+      key: "worked",
+      header: t.dailyClosings.workedDate,
+      numeric: true,
+      render: (row) => (
+        <span className="num">
+          {row.business_date ?? formatDate(row.opened_at)}
+          {row.approved ? <span className="block text-xs text-success-dark">{t.dailyClosings.approved}</span> : null}
+        </span>
+      ),
+    },
+    { key: "opened", header: t.myShifts.openedAt, numeric: true, hideOnMobile: true, render: (row) => formatDateTime(row.opened_at) },
     {
       key: "closed",
       header: t.myShifts.closedAt,
