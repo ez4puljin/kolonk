@@ -43,6 +43,7 @@ import {
 import type {
   ArPaymentLineInput,
   CloseDraft,
+  CreditItemInput,
   CreditLineInput,
   DailyPreview,
   ExpenseLineInput,
@@ -399,17 +400,57 @@ const NEW_AR_PREFIX = "new:";
 /** Гэрээгүй бүртгэлтэй харилцагчийг заах угтвар — сервер гэрээг автоматаар нээнэ. */
 const CUSTOMER_PREFIX = "cust:";
 
+/** Зээлийн мөрийн нэг зүйл — түлш (литр/дүнгээр) эсвэл бараа (тоогоор). */
+interface CreditItem {
+  key: number;
+  kind: "fuel" | "product";
+  fuel_id: string;
+  mode: "liters" | "amount";
+  value: string;
+  product_id: string;
+  product_qty: string;
+}
+
 interface CreditRow {
   key: number;
   /** Гэрээний ID эсвэл NEW_CUSTOMER. */
   contract_id: string;
   new_name: string;
   new_phone: string;
-  fuel_id: string;
-  mode: "liters" | "amount";
-  value: string;
-  product_id: string;
-  product_qty: string;
+  /** Нэг харилцагчид олон төрлийн түлш, бараа. */
+  items: CreditItem[];
+}
+
+/** Хуучин ноорог (нэг түлш + нэг бараа талбартай) → items хэлбэрт. */
+function normalizeCreditRow(raw: Record<string, unknown>, keyFn: () => number): CreditRow {
+  const items: CreditItem[] = [];
+  if (Array.isArray(raw.items)) {
+    for (const it of raw.items as Record<string, unknown>[]) {
+      items.push({
+        key: keyFn(),
+        kind: it.kind === "product" ? "product" : "fuel",
+        fuel_id: String(it.fuel_id ?? ""),
+        mode: it.mode === "amount" ? "amount" : "liters",
+        value: String(it.value ?? ""),
+        product_id: String(it.product_id ?? ""),
+        product_qty: String(it.product_qty ?? ""),
+      });
+    }
+  } else {
+    if (raw.fuel_id) {
+      items.push({ key: keyFn(), kind: "fuel", fuel_id: String(raw.fuel_id), mode: raw.mode === "amount" ? "amount" : "liters", value: String(raw.value ?? ""), product_id: "", product_qty: "" });
+    }
+    if (raw.product_id) {
+      items.push({ key: keyFn(), kind: "product", fuel_id: "", mode: "liters", value: "", product_id: String(raw.product_id), product_qty: String(raw.product_qty ?? "") });
+    }
+  }
+  return {
+    key: keyFn(),
+    contract_id: String(raw.contract_id ?? ""),
+    new_name: String(raw.new_name ?? ""),
+    new_phone: String(raw.new_phone ?? ""),
+    items,
+  };
 }
 
 interface ArRow extends Omit<ArPaymentLineInput, "contract_id"> {
@@ -712,7 +753,7 @@ export function AttendantShiftPage() {
       const withKeys = <T extends object>(rows: T[] | undefined): (T & { key: number })[] =>
         (rows ?? []).map((row) => ({ ...row, key: nextKey() }));
       setOilRows(withKeys(draft.oil as OilRow[]));
-      setCreditRows(withKeys(draft.credit as unknown as CreditRow[]));
+      setCreditRows((draft.credit ?? []).map((row) => normalizeCreditRow(row, nextKey)));
       setArRows(withKeys(draft.ar as unknown as ArRow[]));
       setExpenseRows(withKeys(draft.expense as unknown as ExpenseRow[]));
       lastSavedDraft.current = JSON.stringify(draft);
@@ -882,22 +923,27 @@ export function AttendantShiftPage() {
   const creditRowTotals = useMemo(
     () =>
       creditRows.map((row) => {
-        const qty = dToQty(row.value);
         let fuel = "0";
-        if (row.fuel_id !== "" && qty > 0) {
-          if (row.mode === "amount") {
-            fuel = row.value || "0";
+        let goods = "0";
+        for (const item of row.items) {
+          if (item.kind === "fuel") {
+            const qty = dToQty(item.value);
+            if (item.fuel_id === "" || qty <= 0) continue;
+            if (item.mode === "amount") {
+              fuel = dAdd(fuel, item.value || "0");
+            } else {
+              const unit = dSub(
+                fuelPriceById.get(item.fuel_id) ?? "0",
+                contractDiscountById.get(row.contract_id) ?? "0",
+              );
+              fuel = dAdd(fuel, dMul(unit, qty));
+            }
           } else {
-            const unit = dSub(
-              fuelPriceById.get(row.fuel_id) ?? "0",
-              contractDiscountById.get(row.contract_id) ?? "0",
-            );
-            fuel = dMul(unit, qty);
+            const product = products.find((p) => p.id === item.product_id);
+            const productQty = dToQty(item.product_qty);
+            if (product && productQty > 0) goods = dAdd(goods, dMul(product.price, productQty));
           }
         }
-        const product = products.find((p) => p.id === row.product_id);
-        const productQty = dToQty(row.product_qty);
-        const goods = product && productQty > 0 ? dMul(product.price, productQty) : "0";
         return { fuel, goods, total: dAdd(fuel, goods) };
       }),
     [creditRows, products, fuelPriceById, contractDiscountById],
@@ -1004,18 +1050,14 @@ export function AttendantShiftPage() {
           : row.contract_id.startsWith(CUSTOMER_PREFIX)
             ? { customer_id: row.contract_id.slice(CUSTOMER_PREFIX.length) }
             : { contract_id: row.contract_id }),
-        items: [
-          ...(row.fuel_id !== "" && dToQty(row.value) > 0
-            ? [
-                row.mode === "liters"
-                  ? { fuel_id: row.fuel_id, qty: row.value }
-                  : { fuel_id: row.fuel_id, amount: row.value },
-              ]
-            : []),
-          ...(row.product_id !== "" && dToQty(row.product_qty) > 0
-            ? [{ product_id: row.product_id, qty: row.product_qty }]
-            : []),
-        ],
+        items: row.items.flatMap((item): CreditItemInput[] => {
+          if (item.kind === "fuel") {
+            if (item.fuel_id === "" || dToQty(item.value) <= 0) return [];
+            return [item.mode === "liters" ? { fuel_id: item.fuel_id, qty: item.value } : { fuel_id: item.fuel_id, amount: item.value }];
+          }
+          if (item.product_id === "" || dToQty(item.product_qty) <= 0) return [];
+          return [{ product_id: item.product_id, qty: item.product_qty }];
+        }),
       }))
       .filter((line) => line.items.length > 0);
 
@@ -1498,49 +1540,100 @@ export function AttendantShiftPage() {
                         </div>
                       </div>
                     ) : null}
-                    <div className="flex flex-wrap items-end gap-2">
-                      <PickerField
-                        label={t.sales.fuel}
-                        value={row.fuel_id}
-                        options={[{ value: "", label: t.common.none }, ...fuelOptions]}
-                        onChange={(value) => patch({ fuel_id: value })}
-                        className="min-w-[10rem]"
-                      />
-                      <PickerField
-                        label={t.attendant.creditFuelBy}
-                        value={row.mode}
-                        options={[
-                          { value: "liters", label: t.pos.presetLiters },
-                          { value: "amount", label: t.pos.presetAmount },
-                        ]}
-                        onChange={(value) => patch({ mode: value as "liters" | "amount" })}
-                        className="min-w-[9rem]"
-                      />
-                      <NumberField
-                        name={`credit-val-${row.key}`}
-                        label={row.mode === "liters" ? t.pos.liters : t.common.amount}
-                        value={row.value}
-                        onChange={(value) => patch({ value })}
-                        maxDecimals={3}
-                        className="min-w-[10rem] flex-1"
-                      />
-                    </div>
-                    <div className="flex flex-wrap items-end gap-2">
-                      <PickerField
-                        label={`${t.products.product} (${t.common.optional})`}
-                        value={row.product_id}
-                        options={[{ value: "", label: t.common.none }, ...productOptions]}
-                        onChange={(value) => patch({ product_id: value })}
-                        className="min-w-[16rem] flex-1"
-                      />
-                      <NumberField
-                        name={`credit-pqty-${row.key}`}
-                        label={t.common.qty}
-                        value={row.product_qty}
-                        onChange={(value) => patch({ product_qty: value })}
-                        maxDecimals={3}
-                        className="min-w-[8rem] flex-1"
-                      />
+                    {row.items.map((item, itemIndex) => {
+                      const patchItem = (changes: Partial<CreditItem>): void =>
+                        patch({ items: row.items.map((it, j) => (j === itemIndex ? { ...it, ...changes } : it)) });
+                      const removeItem = (): void => patch({ items: row.items.filter((_, j) => j !== itemIndex) });
+                      return (
+                        <div key={item.key} className="flex flex-wrap items-end gap-2 rounded-lg bg-white p-2">
+                          {item.kind === "fuel" ? (
+                            <>
+                              <PickerField
+                                label={t.sales.fuel}
+                                value={item.fuel_id}
+                                options={fuelOptions}
+                                onChange={(value) => patchItem({ fuel_id: value })}
+                                className="min-w-[10rem]"
+                              />
+                              <PickerField
+                                label={t.attendant.creditFuelBy}
+                                value={item.mode}
+                                options={[
+                                  { value: "liters", label: t.pos.presetLiters },
+                                  { value: "amount", label: t.pos.presetAmount },
+                                ]}
+                                onChange={(value) => patchItem({ mode: value as "liters" | "amount" })}
+                                className="min-w-[9rem]"
+                              />
+                              <NumberField
+                                name={`credit-val-${item.key}`}
+                                label={item.mode === "liters" ? t.pos.liters : t.common.amount}
+                                value={item.value}
+                                onChange={(value) => patchItem({ value })}
+                                maxDecimals={3}
+                                className="min-w-[10rem] flex-1"
+                              />
+                            </>
+                          ) : (
+                            <>
+                              <PickerField
+                                label={t.products.product}
+                                value={item.product_id}
+                                options={productOptions}
+                                onChange={(value) => patchItem({ product_id: value })}
+                                className="min-w-[16rem] flex-1"
+                              />
+                              <NumberField
+                                name={`credit-pqty-${item.key}`}
+                                label={t.common.qty}
+                                value={item.product_qty}
+                                onChange={(value) => patchItem({ product_qty: value })}
+                                maxDecimals={3}
+                                className="min-w-[8rem] flex-1"
+                              />
+                            </>
+                          )}
+                          <button
+                            type="button"
+                            onClick={removeItem}
+                            className="flex h-12 w-10 items-center justify-center rounded-lg text-danger-dark active:bg-danger-soft"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="secondary"
+                        size="md"
+                        icon={<Plus />}
+                        onClick={() =>
+                          patch({
+                            items: [
+                              ...row.items,
+                              { key: nextKey(), kind: "fuel", fuel_id: fuelOptions[0]?.value ?? "", mode: "liters", value: "", product_id: "", product_qty: "" },
+                            ],
+                          })
+                        }
+                      >
+                        {t.attendant.creditAddFuel}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="md"
+                        icon={<Plus />}
+                        onClick={() =>
+                          patch({
+                            items: [
+                              ...row.items,
+                              { key: nextKey(), kind: "product", fuel_id: "", mode: "liters", value: "", product_id: "", product_qty: "" },
+                            ],
+                          })
+                        }
+                      >
+                        {t.attendant.creditAddProduct}
+                      </Button>
                     </div>
 
                     {/* Мөрийн дүн — түлш + бараа, хөнгөлөлт тооцсон */}
@@ -1565,11 +1658,9 @@ export function AttendantShiftPage() {
                       contract_id: "",
                       new_name: "",
                       new_phone: "",
-                      fuel_id: fuelOptions[0]?.value ?? "",
-                      mode: "liters",
-                      value: "",
-                      product_id: "",
-                      product_qty: "",
+                      items: [
+                        { key: nextKey(), kind: "fuel", fuel_id: fuelOptions[0]?.value ?? "", mode: "liters", value: "", product_id: "", product_qty: "" },
+                      ],
                     },
                   ])
                 }
