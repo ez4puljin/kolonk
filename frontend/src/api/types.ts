@@ -1536,6 +1536,31 @@ export interface ArChargeCreate {
   /** opening — эхний үлдэгдэл/залруулга (3101); income — бусад орлого (4903). */
   kind: "opening" | "income";
   note?: string | null;
+  /** Эхний үлдэгдлийн огноог энэ утгаар солино (залруулга). */
+  opening_date?: IsoDate | null;
+}
+
+/** Харилцагчийн худалдан авалтын түүх — борлуулалтын мөр бүрээр. */
+export interface CustomerPurchaseRow {
+  date: IsoDateTime | null;
+  sale_number: number | null;
+  contract_no: string | null;
+  item_type: "fuel" | "product";
+  name: string;
+  qty: LitersStr;
+  unit_price: MoneyStr;
+  amount: MoneyStr;
+  /** Төлбөрийн хэлбэрүүд (Зээл, Бэлэн, Карт …). */
+  methods: string;
+}
+
+export interface CustomerPurchases {
+  customer_id: UUID;
+  customer_name: string;
+  rows: CustomerPurchaseRow[];
+  sales_count: number;
+  fuel_liters: LitersStr;
+  total: MoneyStr;
 }
 
 export interface ArPayment {

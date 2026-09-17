@@ -20,9 +20,10 @@ from app.database import get_db
 from app.money import q2
 from app.stationtime import day_end, day_start
 from app.deps import require_permission
-from app.enums import ContractStatus, CustomerType
+from app.enums import ContractStatus, CustomerType, SaleStatus
 from app.models.branch import Branch
 from app.models.partner import Contract, Customer
+from app.models.sale import Payment, Sale, SaleItem
 from app.models.user import User
 from app.schemas.partner import (
     ContractBrief,
@@ -34,6 +35,7 @@ from app.schemas.partner import (
 from app.schemas.sale import OkOut
 from app.services.audit_service import audit
 from app.services.contract_service import CONTRACT_STATUS_MN, credit_available
+from app.services.posting_rules import PAYMENT_METHOD_MN
 
 router = APIRouter(prefix="/api", tags=["customers"])
 
@@ -453,3 +455,86 @@ async def delete_contract_file(
         ip=_client_ip(request),
     )
     return _customer_out(customer, await _branch_names(db, [customer]))
+
+
+# --------------------------------------------------------------------------- #
+# Худалдан авалтын түүх
+# --------------------------------------------------------------------------- #
+@router.get("/customers/{customer_id}/purchases")
+async def customer_purchases(
+    customer_id: uuid.UUID,
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    limit: int = Query(default=500, ge=1, le=2000),
+    db: AsyncSession = Depends(get_db),
+    _user: User = CanRead,
+) -> dict:
+    """Харилцагчийн бүх худалдан авалт — мөр бүрээр (түлш/бараа, тоо, үнэ, төлбөрийн хэлбэр).
+
+    Гэрээгээр (зээлээр) авсан ба харилцагч заасан бэлэн/картын борлуулалт хоёулаа орно.
+    """
+    customer = await db.scalar(select(Customer).where(Customer.id == customer_id))
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Харилцагч олдсонгүй")
+    contract_ids = select(Contract.id).where(Contract.customer_id == customer_id)
+    conditions = [
+        or_(Sale.customer_id == customer_id, Sale.contract_id.in_(contract_ids)),
+        Sale.status != str(SaleStatus.DRAFT),
+    ]
+    if date_from is not None:
+        conditions.append(Sale.completed_at >= day_start(date_from))
+    if date_to is not None:
+        conditions.append(Sale.completed_at <= day_end(date_to))
+    sales = (
+        await db.scalars(
+            select(Sale).where(*conditions).order_by(Sale.completed_at.desc(), Sale.number.desc()).limit(limit)
+        )
+    ).all()
+    sale_ids = [s.id for s in sales]
+    items = (
+        await db.scalars(select(SaleItem).where(SaleItem.sale_id.in_(sale_ids)).order_by(SaleItem.line_no))
+    ).all() if sale_ids else []
+    payments = (
+        await db.scalars(select(Payment).where(Payment.sale_id.in_(sale_ids)))
+    ).all() if sale_ids else []
+    numbers = {}
+    if sale_ids:
+        rows = (await db.execute(select(Contract.id, Contract.contract_no).where(Contract.customer_id == customer_id))).all()
+        numbers = {r[0]: r[1] for r in rows}
+    pay_by_sale: dict[uuid.UUID, list[str]] = {}
+    for p in payments:
+        pay_by_sale.setdefault(p.sale_id, []).append(PAYMENT_METHOD_MN.get(str(p.method), str(p.method)))
+    items_by_sale: dict[uuid.UUID, list[SaleItem]] = {}
+    for it in items:
+        items_by_sale.setdefault(it.sale_id, []).append(it)
+
+    out_rows = []
+    fuel_liters = Decimal("0")
+    total = Decimal("0")
+    for sale in sales:
+        for it in items_by_sale.get(sale.id, []):
+            is_fuel = it.fuel_id is not None
+            if is_fuel:
+                fuel_liters += Decimal(it.qty or 0)
+            total += Decimal(it.amount or 0)
+            out_rows.append(
+                {
+                    "date": sale.completed_at,
+                    "sale_number": sale.number,
+                    "contract_no": numbers.get(sale.contract_id),
+                    "item_type": "fuel" if is_fuel else "product",
+                    "name": it.name_snapshot,
+                    "qty": str(it.qty),
+                    "unit_price": str(q2(it.unit_price)),
+                    "amount": str(q2(it.amount)),
+                    "methods": ", ".join(sorted(set(pay_by_sale.get(sale.id, [])))),
+                }
+            )
+    return {
+        "customer_id": str(customer.id),
+        "customer_name": customer.name,
+        "rows": out_rows,
+        "sales_count": len(sales),
+        "fuel_liters": str(fuel_liters),
+        "total": str(q2(total)),
+    }

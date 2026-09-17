@@ -13,6 +13,7 @@ import type {
   Customer,
   CustomerImportResult,
   CustomerCreate,
+  CustomerPurchases,
   CustomerUpdate,
   Paged,
   UUID,
@@ -153,6 +154,18 @@ export function useContract(id: UUID | null | undefined) {
   return useQuery({
     queryKey: partnerKeys.contractDetail(id ?? ""),
     queryFn: () => api.get<Contract>(`/api/contracts/${id}`),
+    enabled: Boolean(id),
+  });
+}
+
+/** Харилцагчийн худалдан авалтын түүх (зээлээр ба бэлэн/картаар). */
+export function useCustomerPurchases(id: UUID | null | undefined, dateFrom?: string, dateTo?: string) {
+  return useQuery({
+    queryKey: ["customers", "purchases", id ?? "", dateFrom ?? "", dateTo ?? ""],
+    queryFn: () =>
+      api.get<CustomerPurchases>(`/api/customers/${id}/purchases`, {
+        params: { date_from: dateFrom || undefined, date_to: dateTo || undefined },
+      }),
     enabled: Boolean(id),
   });
 }

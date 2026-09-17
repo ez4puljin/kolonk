@@ -7,7 +7,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { FileText, Plus, Wallet } from "lucide-react";
+import { FileText, Pencil, Plus, ShoppingBag, Wallet } from "lucide-react";
 
 import { errorMessage } from "../../api/client";
 import {
@@ -21,13 +21,23 @@ import {
   useArInvoices,
   useContracts,
   useContractStatement,
+  useCustomerPurchases,
   useCreateArChargeMutation,
   useCreateArPaymentMutation,
   useCustomers,
 } from "../../api/queries/partners";
 import { useSuppliers } from "../../api/queries/procurement";
-import type { ApInvoice, ArInvoice, CashAccount, Contract, Customer, StatementRow, UUID } from "../../api/types";
-import { PickerField } from "../catalog/_shared";
+import type {
+  ApInvoice,
+  ArInvoice,
+  CashAccount,
+  Contract,
+  Customer,
+  CustomerPurchaseRow,
+  StatementRow,
+  UUID,
+} from "../../api/types";
+import { DateField, PickerField } from "../catalog/_shared";
 import { BarChart, type BarDatum } from "../../components/charts/BarChart";
 import { PageHeader } from "../../components/layout/PageHeader";
 import { Button } from "../../components/ui/Button";
@@ -42,8 +52,8 @@ import { TabBar, type TabItem } from "../../components/ui/TabBar";
 import { TouchSelect } from "../../components/ui/TouchSelect";
 import { t } from "../../i18n/mn";
 import { INVOICE_STATUS_META, statusMeta } from "../../lib/constants";
-import { dAdd, dCmp, dIsZero, dSum, toDisplay } from "../../lib/decimal";
-import { formatDate, formatMNT, formatMoneyExact, todayInput } from "../../lib/format";
+import { dAdd, dCmp, dIsZero, dSub, dSum, toDisplay } from "../../lib/decimal";
+import { formatDate, formatDateTime, formatLiters, formatMNT, formatMoneyExact, todayInput } from "../../lib/format";
 import { useUiStore } from "../../stores/ui";
 
 type AparTab = "ap" | "ar";
@@ -780,6 +790,186 @@ const statementColumns: Column<StatementRow>[] = [
   },
 ];
 
+// --------------------------------------------------------------------------
+// Харилцагчийн худалдан авалтын түүх
+// --------------------------------------------------------------------------
+
+const purchaseColumns: Column<CustomerPurchaseRow>[] = [
+  { key: "date", header: t.common.date, primary: true, numeric: true, render: (row) => formatDateTime(row.date) },
+  { key: "no", header: t.common.code, hideOnMobile: true, render: (row) => (row.sale_number != null ? `№${row.sale_number}` : "—") },
+  { key: "name", header: t.partners.purchaseItem, render: (row) => <span className="font-semibold">{row.name}</span> },
+  { key: "qty", header: t.partners.purchaseQty, align: "right", numeric: true, render: (row) => (row.item_type === "fuel" ? formatLiters(row.qty, 3) : toDisplay(row.qty)) },
+  { key: "price", header: t.partners.purchaseUnitPrice, align: "right", numeric: true, hideOnMobile: true, render: (row) => formatMNT(row.unit_price) },
+  { key: "amount", header: t.common.amount, align: "right", numeric: true, render: (row) => <span className="font-bold">{formatMNT(row.amount)}</span> },
+  { key: "methods", header: t.partners.paymentMethods, hideOnMobile: true, render: (row) => row.methods || "—" },
+  { key: "contract", header: t.partners.contractNo, hideOnMobile: true, render: (row) => row.contract_no ?? "—" },
+];
+
+function PurchasesModal({ customer, onClose }: { customer: Customer | null; onClose: () => void }) {
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const query = useCustomerPurchases(customer?.id, dateFrom, dateTo);
+  const data = query.data;
+
+  return (
+    <Modal
+      open={customer !== null}
+      onClose={onClose}
+      size="xl"
+      title={t.partners.purchases}
+      subtitle={customer ? `${customer.full_name} · ${t.partners.purchasesHint}` : undefined}
+    >
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <DateField label={t.partners.purchaseFrom} value={dateFrom} onChange={setDateFrom} />
+          <DateField label={t.partners.purchaseTo} value={dateTo} onChange={setDateTo} />
+        </div>
+        {query.isLoading ? (
+          <div className="flex justify-center py-16 text-ink-soft">
+            <Spinner size="lg" label={t.common.loading} />
+          </div>
+        ) : data ? (
+          <>
+            <div className="grid grid-cols-1 gap-3 min-[520px]:grid-cols-3">
+              <StatBox label={t.partners.purchasesCount} value={data.sales_count} />
+              <StatBox label={t.partners.purchasesLiters} value={formatLiters(data.fuel_liters, 1)} tone="action" />
+              <StatBox label={t.partners.purchasesTotal} value={formatMNT(data.total)} tone="success" />
+            </div>
+            <DataTable
+              columns={purchaseColumns}
+              rows={data.rows}
+              rowKey={(row) => `${row.sale_number ?? ""}-${row.name}-${row.amount}-${row.date ?? ""}`}
+              emptyTitle={t.reports.noData}
+            />
+          </>
+        ) : (
+          <p className="py-8 text-center text-ink-soft">{t.reports.noData}</p>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+// --------------------------------------------------------------------------
+// Эхний үлдэгдэл засах — зөв дүнг оруулахад зөрүүг залруулга болгож бичнэ
+// --------------------------------------------------------------------------
+
+function OpeningFixModal({
+  target,
+  onClose,
+}: {
+  target: { customer: Customer; contract: Contract | null } | null;
+  onClose: () => void;
+}) {
+  const toastError = useUiStore((state) => state.toastError);
+  const toastSuccess = useUiStore((state) => state.toastSuccess);
+  const mutation = useCreateArChargeMutation();
+  const [value, setValue] = useState("0.00");
+  const [openingDate, setOpeningDate] = useState("");
+  const [touched, setTouched] = useState(false);
+
+  const current = target?.contract?.opening_balance ?? "0";
+  const balance = target?.contract?.balance ?? "0";
+  const shown = touched ? value : toDisplay(current);
+  const delta = dSub(shown === "" ? "0" : shown, current);
+  const wouldGoNegative = dCmp(dAdd(balance, delta), "0") < 0;
+  const valid = target !== null && !dIsZero(delta) && !wouldGoNegative;
+
+  const close = (): void => {
+    setTouched(false);
+    setValue("0.00");
+    setOpeningDate("");
+    onClose();
+  };
+
+  const submit = (): void => {
+    if (!target || !valid) return;
+    mutation.mutate(
+      {
+        ...(target.contract ? { contractId: target.contract.id } : { customerId: target.customer.id }),
+        amount: delta,
+        kind: "opening",
+        charge_date: openingDate || target.contract?.opening_date || null,
+        opening_date: openingDate || null,
+        note: t.partners.openingFix,
+      },
+      {
+        onSuccess: () => {
+          toastSuccess(t.common.saved);
+          close();
+        },
+        onError: (error: unknown) => toastError(errorMessage(error)),
+      },
+    );
+  };
+
+  return (
+    <Modal
+      open={target !== null}
+      onClose={close}
+      size="md"
+      title={t.partners.openingFix}
+      subtitle={target ? `${target.customer.full_name}${target.contract ? ` · ${target.contract.contract_no}` : ""}` : undefined}
+      footer={
+        <>
+          <Button variant="secondary" size="md" onClick={close}>
+            {t.common.cancel}
+          </Button>
+          <Button variant="success" size="lg" onClick={submit} disabled={!valid} loading={mutation.isPending}>
+            {t.common.save}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <p className="text-sm text-ink-soft">{t.partners.openingFixHint}</p>
+        <div className="grid grid-cols-2 gap-3 rounded-xl bg-surface-alt px-4 py-3">
+          <div className="flex flex-col">
+            <span className="text-xs font-semibold text-ink-soft">{t.partners.openingCurrent}</span>
+            <span className="num text-xl font-bold text-ink">{formatMNT(current)}</span>
+            {target?.contract?.opening_date ? (
+              <span className="num text-xs text-ink-soft">{formatDate(target.contract.opening_date)}</span>
+            ) : null}
+          </div>
+          <div className="flex flex-col">
+            <span className="text-xs font-semibold text-ink-soft">{t.partners.currentBalance}</span>
+            <span className="num text-xl font-bold text-ink">{formatMNT(balance)}</span>
+          </div>
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-semibold tracking-wide text-ink-soft uppercase">{t.partners.openingNew}</span>
+          <MoneyField
+            label={t.partners.openingNew}
+            value={shown}
+            onChange={(next) => {
+              setTouched(true);
+              setValue(next);
+            }}
+          />
+        </div>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold tracking-wide text-ink-soft uppercase">{t.partners.openingDate}</span>
+          <input
+            type="date"
+            value={openingDate}
+            onChange={(event) => setOpeningDate(event.target.value)}
+            className="num h-12 w-full rounded-xl border border-line-strong bg-white px-3 text-[15px] text-ink focus:border-action focus:outline-none"
+          />
+        </label>
+        <div className="num flex items-center justify-between rounded-xl border border-line px-4 py-3">
+          <span className="text-sm font-semibold text-ink-soft">{t.partners.openingDelta}</span>
+          <span className={`text-xl font-bold ${dCmp(delta, "0") < 0 ? "text-danger-dark" : "text-ink"}`}>
+            {dIsZero(delta) ? t.partners.openingNoChange : `${dCmp(delta, "0") > 0 ? "+" : ""}${formatMNT(delta)}`}
+          </span>
+        </div>
+        {wouldGoNegative ? (
+          <p className="rounded-xl bg-danger-soft px-4 py-3 text-sm font-medium text-danger-dark">{t.partners.openingBelowZero}</p>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
 function StatementModal({ contractId, onClose }: { contractId: UUID | null; onClose: () => void }) {
   const statementQuery = useContractStatement(contractId);
   const data = statementQuery.data;
@@ -828,6 +1018,8 @@ export function ApArPage() {
   const [statementContract, setStatementContract] = useState<UUID | null>(null);
   const [arChargeOpen, setArChargeOpen] = useState(false);
   const [arChargeTarget, setArChargeTarget] = useState<ArChargeTarget | null>(null);
+  const [purchasesCustomer, setPurchasesCustomer] = useState<Customer | null>(null);
+  const [openingFix, setOpeningFix] = useState<{ customer: Customer; contract: Contract | null } | null>(null);
   const [apCreateOpen, setApCreateOpen] = useState(false);
 
   const apQuery = useApInvoices({ limit: 200 });
@@ -1150,10 +1342,26 @@ export function ApArPage() {
             <Button
               variant="secondary"
               size="md"
+              icon={<ShoppingBag className="h-5 w-5" />}
+              onClick={() => setPurchasesCustomer(row.customer)}
+            >
+              {t.partners.purchases}
+            </Button>
+            <Button
+              variant="secondary"
+              size="md"
               icon={<Plus className="h-5 w-5" />}
               onClick={() => setArChargeTarget(primary ? { contractId: primary.id } : { customerId: row.customer.id })}
             >
               {t.partners.arCharge}
+            </Button>
+            <Button
+              variant="ghost"
+              size="md"
+              icon={<Pencil className="h-5 w-5" />}
+              onClick={() => setOpeningFix({ customer: row.customer, contract: primary })}
+            >
+              {t.partners.openingFix}
             </Button>
             {primary && dCmp(primary.balance, "0") > 0 ? (
               <Button
@@ -1290,6 +1498,8 @@ export function ApArPage() {
       />
       <ApInvoiceModal open={apCreateOpen} onClose={() => setApCreateOpen(false)} />
       <StatementModal contractId={statementContract} onClose={() => setStatementContract(null)} />
+      <PurchasesModal customer={purchasesCustomer} onClose={() => setPurchasesCustomer(null)} />
+      <OpeningFixModal target={openingFix} onClose={() => setOpeningFix(null)} />
     </div>
   );
 }

@@ -57,6 +57,9 @@ class ArChargeIn(BaseModel):
     #: opening — эхний үлдэгдэл/залруулга (3101); income — бусад орлого (4903).
     kind: str = Field(default="opening", pattern="^(opening|income)$")
     note: str | None = Field(default=None, max_length=255)
+    #: Эхний үлдэгдлийн огноог ЭНЭ утгаар солино (буруу оруулсныг засахад);
+    #: өгөхгүй бол charge_date-ээс эрт л бол шинэчилнэ.
+    opening_date: date | None = None
 
 
 @router.post("/contracts/{contract_id}/charges", response_model=ContractOut, status_code=201)
@@ -106,7 +109,9 @@ async def _apply_charge(
     # Тооцооны хуулга борлуулалт/төлбөрөөс тоологддог тул гар авлага эхний
     # үлдэгдлээр л илэрхийлэгдэнэ (харилцагчийн эцсийн үлдэгдэлтэй таарна).
     contract.opening_balance = q2(Decimal(contract.opening_balance or ZERO) + amount)
-    if contract.opening_date is None or as_of < contract.opening_date:
+    if payload.opening_date is not None:
+        contract.opening_date = payload.opening_date
+    elif contract.opening_date is None or as_of < contract.opening_date:
         contract.opening_date = as_of
     contract.balance = balance_after
     if q2(Decimal(contract.credit_limit or ZERO)) < balance_after:
