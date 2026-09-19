@@ -33,6 +33,8 @@ from app.schemas.shift import (
     CloseDraftOut,
     ClosingApprovalIn,
     ClosingCorrectIn,
+    OpeningReadingFixIn,
+    OpeningReadingFixOut,
     CurrentShiftOut,
     DailyCloseIn,
     DailyPreviewIn,
@@ -442,6 +444,24 @@ async def correct_closing(
         user,
         shift_id=shift_id,
         declared_cash=payload.declared_cash,
+        note=payload.note,
+    )
+
+
+@router.post("/shifts/{shift_id}/opening-reading", response_model=OpeningReadingFixOut)
+async def correct_opening_reading(
+    shift_id: uuid.UUID,
+    payload: OpeningReadingFixIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.approve")),
+) -> dict[str, Any]:
+    """Нээлттэй ээлжийн буруу бичсэн нээлтийн мильийг засна (админ/нягтлан)."""
+    return await shift_service.correct_opening_reading(
+        db,
+        user,
+        shift_id=shift_id,
+        nozzle_id=payload.nozzle_id,
+        reading=payload.reading,
         note=payload.note,
     )
 

@@ -360,6 +360,27 @@ class ClosingCorrectIn(BaseModel):
     note: str | None = Field(default=None, max_length=500)
 
 
+class OpeningReadingFixIn(BaseModel):
+    """Админы засвар — нээлттэй ээлжийн нээлтийн миль (буруу бичсэн үед)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    nozzle_id: uuid.UUID
+    reading: Decimal = Field(ge=0)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class OpeningReadingFixOut(BaseModel):
+    shift_id: uuid.UUID
+    nozzle_id: uuid.UUID
+    #: Өмнөх ээлжийн хаалтын миль (нээх мөчид хөлдөөсөн).
+    prev_reading: Decimal | None
+    old_reading: Decimal
+    reading: Decimal
+    #: Шинэ нээлт − өмнөх хаалт.
+    mile_gap_l: Decimal | None
+
+
 class ClosingApprovalIn(BaseModel):
     """Хаалт батлах / батламж буцаах."""
 

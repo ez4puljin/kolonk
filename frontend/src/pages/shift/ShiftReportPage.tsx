@@ -1,9 +1,9 @@
 import { Fragment, useState } from "react";
 import { useParams } from "react-router-dom";
-import { AlertTriangle, Download, Printer } from "lucide-react";
+import { AlertTriangle, Check, Download, Pencil, Printer } from "lucide-react";
 
 import { errorMessage } from "../../api/client";
-import { downloadShiftReport, useShiftReport } from "../../api/queries/shifts";
+import { downloadShiftReport, useCorrectOpeningReadingMutation, useShiftReport } from "../../api/queries/shifts";
 import { useSettings } from "../../api/queries/system";
 import type {
   MoneyStr,
@@ -19,16 +19,19 @@ import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { DataTable, type Column } from "../../components/ui/DataTable";
 import { EmptyState } from "../../components/ui/EmptyState";
+import { Modal } from "../../components/ui/Modal";
 import { Spinner } from "../../components/ui/Spinner";
 import { StatBox } from "../../components/ui/StatBox";
 import { StatusBadge } from "../../components/ui/StatusBadge";
+import { usePermission } from "../../hooks/usePermission";
 import { usePrint } from "../../hooks/usePrint";
 import { t } from "../../i18n/mn";
 import { dToNumber } from "../../lib/decimal";
 import { SHIFT_STATUS_META, statusMeta } from "../../lib/constants";
-import { dCmp, dIsPositive, dIsZero } from "../../lib/decimal";
+import { dCmp, dIsPositive, dIsZero, dSub } from "../../lib/decimal";
 import { formatDateTime, formatLiters, formatMNT, formatMoneyExact, formatNumber, formatPct } from "../../lib/format";
 import { useUiStore } from "../../stores/ui";
+import { NumberField, TextField } from "../catalog/_shared";
 
 function CashRow({ label, value, strong }: { label: string; value: MoneyStr | null; strong?: boolean }) {
   return (
@@ -41,13 +44,117 @@ function CashRow({ label, value, strong }: { label: string; value: MoneyStr | nu
   );
 }
 
+// --------------------------------------------------------------------------
+// Нээлтийн миль засах цонх (админ, зөвхөн нээлттэй ээлж)
+// --------------------------------------------------------------------------
+function OpeningFixModal({
+  shiftId,
+  row,
+  onClose,
+}: {
+  shiftId: string;
+  row: ShiftNozzleRow | null;
+  onClose: () => void;
+}) {
+  const fix = useCorrectOpeningReadingMutation();
+  const toastSuccess = useUiStore((state) => state.toastSuccess);
+  const toastError = useUiStore((state) => state.toastError);
+  const [reading, setReading] = useState("");
+  const [note, setNote] = useState("");
+  const [ready, setReady] = useState<string | null>(null);
+
+  // Цонх нээгдэх бүрд одоогийн мильээр урьдчилан бөглөнө.
+  if (row && ready !== row.nozzle_id) {
+    setReady(row.nozzle_id);
+    setReading(row.opening_reading ?? "");
+    setNote("");
+  }
+
+  const prev = row?.prev_close_reading ?? null;
+  const nextGap = prev !== null && reading.trim() !== "" ? dSub(reading, prev) : null;
+
+  return (
+    <Modal
+      open={row !== null}
+      onClose={onClose}
+      size="md"
+      title={t.shift.fixOpeningTitle}
+      subtitle={row ? `${row.pump_number} · ${row.pump_name} — ${row.nozzle_number} · ${row.fuel_name}` : undefined}
+      dismissible={!fix.isPending}
+      footer={
+        <>
+          <Button variant="secondary" size="md" onClick={onClose}>
+            {t.common.cancel}
+          </Button>
+          <Button
+            variant="primary"
+            size="md"
+            icon={<Check />}
+            loading={fix.isPending}
+            disabled={reading.trim() === ""}
+            onClick={() => {
+              if (!row) return;
+              fix.mutate(
+                { shiftId, nozzleId: row.nozzle_id, reading: reading.trim(), note },
+                {
+                  onSuccess: () => {
+                    toastSuccess(t.shift.fixOpeningToast);
+                    setReady(null);
+                    onClose();
+                  },
+                  onError: (cause) => toastError(errorMessage(cause)),
+                },
+              );
+            }}
+          >
+            {t.common.save}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <p className="text-sm text-ink-soft">{t.shift.fixOpeningHint}</p>
+
+        <div className="num grid grid-cols-2 gap-3 rounded-xl border border-line bg-surface-alt px-4 py-3 text-sm">
+          <span className="text-ink-soft">{t.attendant.prevClose}</span>
+          <span className="text-right font-semibold text-ink">{formatLiters(prev, 3)}</span>
+          <span className="text-ink-soft">{t.shift.fixOpeningCurrent}</span>
+          <span className="text-right font-semibold text-ink">{formatLiters(row?.opening_reading ?? null, 3)}</span>
+        </div>
+
+        <NumberField
+          name="fix-opening-reading"
+          label={t.shift.fixOpeningNew}
+          value={reading}
+          onChange={setReading}
+          suffix={t.units.liter}
+          maxDecimals={3}
+        />
+
+        <div className="num flex items-baseline justify-between rounded-xl border border-line-strong px-4 py-3">
+          <span className="text-sm font-semibold text-ink-soft">{t.attendant.mileGap}</span>
+          <span
+            className={`text-xl font-black ${nextGap === null || dIsZero(nextGap) ? "text-success-dark" : "text-warning-dark"}`}
+          >
+            {nextGap === null ? "—" : `${dIsPositive(nextGap) ? "+" : ""}${formatLiters(nextGap, 3)}`}
+          </span>
+        </div>
+
+        <TextField label={t.shift.fixOpeningNote} value={note} onChange={setNote} />
+      </div>
+    </Modal>
+  );
+}
+
 export function ShiftReportPage() {
   const { id } = useParams<{ id: string }>();
   const { data: report, isLoading, isError, error } = useShiftReport(id ?? null);
   const { data: settings } = useSettings();
   const { print, portal } = usePrint();
+  const { can } = usePermission();
   const toastError = useUiStore((state) => state.toastError);
   const [downloading, setDownloading] = useState(false);
+  const [fixRow, setFixRow] = useState<ShiftNozzleRow | null>(null);
 
   if (isLoading) {
     return (
@@ -72,6 +179,8 @@ export function ShiftReportPage() {
   const hasReadings = nozzles.some(
     (row) => dToNumber(row.opening_reading) > 0 || dToNumber(row.closing_reading) > 0,
   );
+  // Нээлтийн мильийг зөвхөн НЭЭЛТТЭЙ ээлжид, хаалт засах эрхтэй хүн засна.
+  const canFixOpening = shift.status === "open" && can("shifts.approve");
   const overShort = cash.cash_over_short;
   const balanced = overShort === null || dIsZero(overShort);
   const short = overShort !== null && dCmp(overShort, "0") < 0;
@@ -241,6 +350,21 @@ export function ShiftReportPage() {
       align: "right",
       numeric: true,
     },
+    ...(canFixOpening
+      ? [
+          {
+            key: "fix",
+            header: t.common.actions,
+            align: "right" as const,
+            render: (row: ShiftNozzleRow) =>
+              row.opening_reading !== null ? (
+                <Button variant="secondary" size="sm" icon={<Pencil />} onClick={() => setFixRow(row)}>
+                  {t.shift.fixOpening}
+                </Button>
+              ) : null,
+          } satisfies Column<ShiftNozzleRow>,
+        ]
+      : []),
   ];
 
   // Милийн залгамж зөрчигдсөн хошуунууд — тайлангийн дээд талд сануулна.
@@ -492,6 +616,7 @@ export function ShiftReportPage() {
           <DataTable columns={nozzleColumns} rows={nozzles} rowKey={(row) => row.nozzle_id} />
         </Card>
       ) : null}
+      {canFixOpening ? <OpeningFixModal shiftId={shift.id} row={fixRow} onClose={() => setFixRow(null)} /> : null}
 
       {/* Түгээгчийн оруулсан тоо + дарсан зураг — баримтын хэсэг. */}
       {id ? <AttendantRecord shiftId={id} report={report} /> : null}

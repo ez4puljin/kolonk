@@ -1884,6 +1884,12 @@ export function AttendantShiftPage() {
             <Button variant="secondary" size="md" icon={<FileText />} onClick={() => navigate("/my-shifts")}>
               {t.nav.myShifts}
             </Button>
+            {can("shifts.approve") ? (
+              // Админ/нягтлан — түгээгчийн буруу бичсэн нээлтийн мильийг тайлангийн хуудаснаас засна.
+              <Button variant="secondary" size="md" icon={<Gauge />} onClick={() => navigate(`/shift/report/${shift.id}`)}>
+                {t.shift.fixOpening}
+              </Button>
+            ) : null}
             <Button
               variant="secondary"
               size="md"

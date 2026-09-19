@@ -37,7 +37,7 @@ from app.models.accounting import JournalEntry, JournalLine
 from app.models.approval import Refund
 from app.models.fuel import Fuel, Pump, PumpNozzle, Tank, TotalizerReading
 from app.models.sale import Payment, Sale, SaleItem
-from app.models.shift import Shift, ShiftTankLevel
+from app.models.shift import Shift, ShiftPriceMark, ShiftTankLevel
 from app.models.user import User
 from app.money import q2, q3
 from app.stationtime import day_end, day_start
@@ -335,6 +335,89 @@ async def get_shift(db: AsyncSession, shift_id: uuid.UUID) -> Shift:
     if shift is None:
         raise HTTPException(status_code=404, detail="Ээлж олдсонгүй")
     return shift
+
+
+async def correct_opening_reading(
+    db: AsyncSession,
+    user: User,
+    *,
+    shift_id: uuid.UUID,
+    nozzle_id: uuid.UUID,
+    reading: Decimal,
+    note: str | None = None,
+) -> dict[str, Any]:
+    """Нээлттэй ээлжийн нээлтийн мильийг засна (админ).
+
+    Зөвхөн НЭЭЛТТЭЙ ээлжид — хаалт хийгдсэн бол борлуулалт (хаалт − нээлт)
+    аль хэдийн журналд бичигдсэн тул нээлтийг засвал бүх тооцоо зөрнө.
+    Хошууны одоогийн заалт (``totalizer``) нээлтийн мильтэй адил тул хамт
+    засна — хаалт үүнээс эхэлж шалгагдана. Өмнөх хаалтын хөлдөөсөн миль
+    хэвээр, милийн зөрүү шинэ утгаар дахин харагдана.
+    """
+    shift = await get_shift(db, shift_id)
+    if shift.status != str(ShiftStatus.OPEN):
+        raise HTTPException(
+            status_code=422,
+            detail="Зөвхөн нээлттэй ээлжийн нээлтийн мильийг засна — хаагдсан ээлжийн "
+            "борлуулалт нээлтийн мильээс бодогдсон байдаг",
+        )
+    opened = await db.scalar(
+        select(TotalizerReading).where(
+            TotalizerReading.shift_id == shift.id,
+            TotalizerReading.nozzle_id == nozzle_id,
+            TotalizerReading.reading_type == str(ReadingType.SHIFT_OPEN),
+        )
+    )
+    if opened is None:
+        raise HTTPException(status_code=404, detail="Энэ хошууны нээлтийн миль бүртгэгдээгүй байна")
+    nozzle = await db.scalar(select(PumpNozzle).where(PumpNozzle.id == nozzle_id))
+    if nozzle is None:
+        raise HTTPException(status_code=404, detail="Хошуу олдсонгүй")
+
+    new_reading = q3(_dec(reading, ZERO_L))
+    old_reading = q3(_dec(opened.reading, ZERO_L))
+    # Өдрийн дундуур үнийн тэмдэглэл хийсэн бол түүний миль нээлтээс бага байж болохгүй.
+    min_mark = await db.scalar(
+        select(func.min(ShiftPriceMark.reading)).where(
+            ShiftPriceMark.shift_id == shift.id, ShiftPriceMark.nozzle_id == nozzle_id
+        )
+    )
+    if min_mark is not None and new_reading > q3(_dec(min_mark, ZERO_L)):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Үнийн тэмдэглэлийн миль {q3(_dec(min_mark, ZERO_L))} — нээлтийн миль үүнээс их байж болохгүй",
+        )
+
+    opened.reading = new_reading
+    # Механик тоолуур бол үнэн — хошууны одоогийн заалтыг мөн засна.
+    nozzle.totalizer = new_reading
+    await db.flush()
+
+    previous = q3(_dec(opened.prev_reading, ZERO_L)) if opened.prev_reading is not None else None
+    gap = q3(new_reading - previous) if previous is not None else None
+    await audit(
+        db,
+        user_id=user.id,
+        action="shift.opening_reading_corrected",
+        entity_type="shift",
+        entity_id=shift.id,
+        before={"nozzle_id": str(nozzle_id), "reading": str(old_reading)},
+        after={
+            "nozzle_id": str(nozzle_id),
+            "reading": str(new_reading),
+            "prev_reading": str(previous) if previous is not None else None,
+            "mile_gap_l": str(gap) if gap is not None else None,
+            "note": (note or "").strip() or None,
+        },
+    )
+    return {
+        "shift_id": shift.id,
+        "nozzle_id": nozzle_id,
+        "prev_reading": previous,
+        "old_reading": old_reading,
+        "reading": new_reading,
+        "mile_gap_l": gap,
+    }
 
 
 async def _branch_for_shift(db: AsyncSession, user: User | None):

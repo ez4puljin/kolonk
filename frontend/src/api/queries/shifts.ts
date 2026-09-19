@@ -10,6 +10,7 @@ import type {
   DailyClosingRow,
   DailyPreview,
   MoneyStr,
+  OpeningReadingFix,
   Paged,
   PriceMark,
   PriceMarkInput,
@@ -212,6 +213,35 @@ export function useCorrectClosingMutation() {
     onSuccess: (_data, vars) => {
       void queryClient.invalidateQueries({ queryKey: ["shifts", "daily-closings"] });
       void queryClient.invalidateQueries({ queryKey: shiftKeys.report(vars.shiftId) });
+    },
+  });
+}
+
+/** Админы засвар — нээлттэй ээлжийн буруу бичсэн нээлтийн миль. */
+export function useCorrectOpeningReadingMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      shiftId,
+      nozzleId,
+      reading,
+      note,
+    }: {
+      shiftId: UUID;
+      nozzleId: UUID;
+      reading: string;
+      note?: string;
+    }) =>
+      api.post<OpeningReadingFix>(`/api/shifts/${shiftId}/opening-reading`, {
+        nozzle_id: nozzleId,
+        reading,
+        note: note || null,
+      }),
+    onSuccess: (_data, vars) => {
+      void queryClient.invalidateQueries({ queryKey: shiftKeys.report(vars.shiftId) });
+      void queryClient.invalidateQueries({ queryKey: shiftKeys.current() });
+      // Хошууны одоогийн заалт мөн засагддаг — хаалтын маягт үүнээс эхэлнэ.
+      void queryClient.invalidateQueries({ queryKey: ["pumps"] });
     },
   });
 }

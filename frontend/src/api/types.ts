@@ -506,6 +506,15 @@ export interface ShiftNozzleRow {
   sold_amount: MoneyStr;
 }
 
+export interface OpeningReadingFix {
+  shift_id: UUID;
+  nozzle_id: UUID;
+  prev_reading: LitersStr | null;
+  old_reading: LitersStr;
+  reading: LitersStr;
+  mile_gap_l: LitersStr | null;
+}
+
 export interface ShiftTankRow {
   tank_id: UUID;
   tank_name: string;
