@@ -381,6 +381,24 @@ class OpeningReadingFixOut(BaseModel):
     mile_gap_l: Decimal | None
 
 
+class OpeningCashFixIn(BaseModel):
+    """Админы засвар — ээлжийн эхний бэлэн мөнгө (буруу бичсэн үед)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    opening_cash: Decimal = Field(ge=0)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class OpeningCashFixOut(BaseModel):
+    shift_id: uuid.UUID
+    old_opening_cash: Decimal
+    opening_cash: Decimal
+    #: Хаагдсан ээлжид — дахин бодогдсон байвал зохих мөнгө, зөрүү.
+    expected_cash: Decimal | None
+    cash_over_short: Decimal | None
+
+
 class ClosingApprovalIn(BaseModel):
     """Хаалт батлах / батламж буцаах."""
 

@@ -33,6 +33,8 @@ from app.schemas.shift import (
     CloseDraftOut,
     ClosingApprovalIn,
     ClosingCorrectIn,
+    OpeningCashFixIn,
+    OpeningCashFixOut,
     OpeningReadingFixIn,
     OpeningReadingFixOut,
     CurrentShiftOut,
@@ -463,6 +465,19 @@ async def correct_opening_reading(
         nozzle_id=payload.nozzle_id,
         reading=payload.reading,
         note=payload.note,
+    )
+
+
+@router.post("/shifts/{shift_id}/opening-cash", response_model=OpeningCashFixOut)
+async def correct_opening_cash(
+    shift_id: uuid.UUID,
+    payload: OpeningCashFixIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.approve")),
+) -> dict[str, Any]:
+    """Буруу бичсэн эхний бэлэн мөнгийг засна (админ/нягтлан); хаагдсан бол зөрүү дахин бодогдоно."""
+    return await shift_service.correct_opening_cash(
+        db, user, shift_id=shift_id, opening_cash=payload.opening_cash, note=payload.note
     )
 
 

@@ -515,6 +515,14 @@ export interface OpeningReadingFix {
   mile_gap_l: LitersStr | null;
 }
 
+export interface OpeningCashFix {
+  shift_id: UUID;
+  old_opening_cash: MoneyStr;
+  opening_cash: MoneyStr;
+  expected_cash: MoneyStr | null;
+  cash_over_short: MoneyStr | null;
+}
+
 export interface ShiftTankRow {
   tank_id: UUID;
   tank_name: string;

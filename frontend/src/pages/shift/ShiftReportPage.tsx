@@ -3,7 +3,12 @@ import { useParams } from "react-router-dom";
 import { AlertTriangle, Check, Download, Pencil, Printer } from "lucide-react";
 
 import { errorMessage } from "../../api/client";
-import { downloadShiftReport, useCorrectOpeningReadingMutation, useShiftReport } from "../../api/queries/shifts";
+import {
+  downloadShiftReport,
+  useCorrectOpeningCashMutation,
+  useCorrectOpeningReadingMutation,
+  useShiftReport,
+} from "../../api/queries/shifts";
 import { useSettings } from "../../api/queries/system";
 import type {
   MoneyStr,
@@ -146,6 +151,108 @@ function OpeningFixModal({
   );
 }
 
+// --------------------------------------------------------------------------
+// Эхний бэлэн мөнгө засах цонх (админ; нээлттэй ба батлагдаагүй хаагдсан ээлж)
+// --------------------------------------------------------------------------
+function OpeningCashModal({
+  shiftId,
+  open,
+  current,
+  expected,
+  declared,
+  onClose,
+}: {
+  shiftId: string;
+  open: boolean;
+  current: MoneyStr;
+  expected: MoneyStr | null;
+  declared: MoneyStr | null;
+  onClose: () => void;
+}) {
+  const fix = useCorrectOpeningCashMutation();
+  const toastSuccess = useUiStore((state) => state.toastSuccess);
+  const toastError = useUiStore((state) => state.toastError);
+  const [value, setValue] = useState("");
+  const [note, setNote] = useState("");
+  const [ready, setReady] = useState(false);
+
+  if (open && !ready) {
+    setReady(true);
+    setValue(current);
+    setNote("");
+  }
+  if (!open && ready) setReady(false);
+
+  // Хаагдсан ээлжид: шинэ байвал зохих = хуучин + (шинэ эхний − хуучин эхний).
+  const delta = value.trim() === "" ? "0" : dSub(value, current);
+  const nextExpected = expected !== null ? dSub(expected, dSub("0", delta)) : null;
+  const nextDiff = nextExpected !== null && declared !== null ? dSub(declared, nextExpected) : null;
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="md"
+      title={t.shift.fixOpeningCashTitle}
+      dismissible={!fix.isPending}
+      footer={
+        <>
+          <Button variant="secondary" size="md" onClick={onClose}>
+            {t.common.cancel}
+          </Button>
+          <Button
+            variant="primary"
+            size="md"
+            icon={<Check />}
+            loading={fix.isPending}
+            disabled={value.trim() === ""}
+            onClick={() =>
+              fix.mutate(
+                { shiftId, openingCash: value.trim(), note },
+                {
+                  onSuccess: () => {
+                    toastSuccess(t.shift.fixOpeningCashToast);
+                    onClose();
+                  },
+                  onError: (cause) => toastError(errorMessage(cause)),
+                },
+              )
+            }
+          >
+            {t.common.save}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <p className="text-sm text-ink-soft">{t.shift.fixOpeningCashHint}</p>
+        <div className="num flex items-baseline justify-between rounded-xl border border-line bg-surface-alt px-4 py-3">
+          <span className="text-sm font-semibold text-ink-soft">{t.shift.fixOpeningCurrent}</span>
+          <span className="text-lg font-bold text-ink">{formatMNT(current)}</span>
+        </div>
+        <NumberField name="fix-opening-cash" label={t.shift.fixOpeningCashNew} value={value} onChange={setValue} suffix={t.units.mnt} />
+        {nextExpected !== null ? (
+          <div className="num grid grid-cols-2 gap-2 rounded-xl border border-line-strong px-4 py-3 text-sm">
+            <span className="text-ink-soft">{t.shift.expectedCash}</span>
+            <span className="text-right font-bold text-ink">{formatMNT(nextExpected)}</span>
+            {nextDiff !== null ? (
+              <>
+                <span className="text-ink-soft">{t.shift.overShort}</span>
+                <span
+                  className={`text-right text-lg font-black ${dCmp(nextDiff, "0") < 0 ? "text-danger-dark" : dIsPositive(nextDiff) ? "text-warning-dark" : "text-success-dark"}`}
+                >
+                  {formatMNT(nextDiff)}
+                </span>
+              </>
+            ) : null}
+          </div>
+        ) : null}
+        <TextField label={t.shift.fixOpeningNote} value={note} onChange={setNote} />
+      </div>
+    </Modal>
+  );
+}
+
 export function ShiftReportPage() {
   const { id } = useParams<{ id: string }>();
   const { data: report, isLoading, isError, error } = useShiftReport(id ?? null);
@@ -155,6 +262,7 @@ export function ShiftReportPage() {
   const toastError = useUiStore((state) => state.toastError);
   const [downloading, setDownloading] = useState(false);
   const [fixRow, setFixRow] = useState<ShiftNozzleRow | null>(null);
+  const [cashFixOpen, setCashFixOpen] = useState(false);
 
   if (isLoading) {
     return (
@@ -557,7 +665,16 @@ export function ShiftReportPage() {
           </Card>
         ) : null}
 
-        <Card title={t.dashboard.cashInDrawer}>
+        <Card
+          title={t.dashboard.cashInDrawer}
+          actions={
+            can("shifts.approve") ? (
+              <Button variant="secondary" size="sm" icon={<Pencil />} onClick={() => setCashFixOpen(true)}>
+                {t.shift.fixOpeningCash}
+              </Button>
+            ) : undefined
+          }
+        >
           <CashRow label={t.shift.openingCash} value={cash.opening_cash} />
           <CashRow label={t.tender.cash} value={cash.cash_sales} />
           <CashRow label={t.refunds.title} value={cash.refunds} />
@@ -617,6 +734,16 @@ export function ShiftReportPage() {
         </Card>
       ) : null}
       {canFixOpening ? <OpeningFixModal shiftId={shift.id} row={fixRow} onClose={() => setFixRow(null)} /> : null}
+      {can("shifts.approve") ? (
+        <OpeningCashModal
+          shiftId={shift.id}
+          open={cashFixOpen}
+          current={cash.opening_cash}
+          expected={shift.status === "open" ? null : cash.expected_cash}
+          declared={cash.declared_cash}
+          onClose={() => setCashFixOpen(false)}
+        />
+      ) : null}
 
       {/* Түгээгчийн оруулсан тоо + дарсан зураг — баримтын хэсэг. */}
       {id ? <AttendantRecord shiftId={id} report={report} /> : null}

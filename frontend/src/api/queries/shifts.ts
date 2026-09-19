@@ -10,6 +10,7 @@ import type {
   DailyClosingRow,
   DailyPreview,
   MoneyStr,
+  OpeningCashFix,
   OpeningReadingFix,
   Paged,
   PriceMark,
@@ -242,6 +243,24 @@ export function useCorrectOpeningReadingMutation() {
       void queryClient.invalidateQueries({ queryKey: shiftKeys.current() });
       // Хошууны одоогийн заалт мөн засагддаг — хаалтын маягт үүнээс эхэлнэ.
       void queryClient.invalidateQueries({ queryKey: ["pumps"] });
+    },
+  });
+}
+
+/** Админы засвар — ээлжийн эхний бэлэн мөнгө (нээлттэй ба хаагдсан). */
+export function useCorrectOpeningCashMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ shiftId, openingCash, note }: { shiftId: UUID; openingCash: string; note?: string }) =>
+      api.post<OpeningCashFix>(`/api/shifts/${shiftId}/opening-cash`, {
+        opening_cash: openingCash,
+        note: note || null,
+      }),
+    onSuccess: (_data, vars) => {
+      void queryClient.invalidateQueries({ queryKey: shiftKeys.report(vars.shiftId) });
+      void queryClient.invalidateQueries({ queryKey: shiftKeys.current() });
+      void queryClient.invalidateQueries({ queryKey: ["shifts", "daily-closings"] });
+      void queryClient.invalidateQueries({ queryKey: ["accounting"] });
     },
   });
 }

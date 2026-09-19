@@ -420,6 +420,73 @@ async def correct_opening_reading(
     }
 
 
+async def correct_opening_cash(
+    db: AsyncSession,
+    user: User,
+    *,
+    shift_id: uuid.UUID,
+    opening_cash: Decimal,
+    note: str | None = None,
+) -> dict[str, Any]:
+    """Ээлжийн эхний бэлэн мөнгийг засна (админ).
+
+    Нээлттэй ээлжид зөвхөн дүн солигдоно — хаалт үүнээс бодогдоно.
+    Хаагдсан ээлжид байвал зохих бэлэн мөнгө (эхний + бэлэн борлуулалт …)
+    зөрүүгээр шилжиж, кассын зөрүү дахин бодогдож, илүүдэл/дутагдлын
+    журналын бичилт дахин үүснэ. Батлагдсан хаалтыг эхлээд буцаана.
+    """
+    from app.models.shift import ShiftClosing  # noqa: PLC0415
+
+    shift = await get_shift(db, shift_id)
+    new_cash = q2(_dec(opening_cash))
+    if new_cash < ZERO:
+        raise HTTPException(status_code=422, detail="Эхний бэлэн мөнгө сөрөг байж болохгүй")
+    old_cash = q2(_dec(shift.opening_cash))
+    closing = await db.scalar(select(ShiftClosing).where(ShiftClosing.shift_id == shift.id))
+    if closing is not None and closing.approved_at is not None:
+        raise HTTPException(status_code=422, detail="Батлагдсан хаалт — эхлээд батламжийг буцаана уу")
+
+    before = {
+        "opening_cash": str(old_cash),
+        "expected_cash": str(_dec(shift.expected_cash)) if shift.expected_cash is not None else None,
+        "cash_over_short": str(_dec(shift.cash_over_short)) if shift.cash_over_short is not None else None,
+    }
+    shift.opening_cash = new_cash
+    expected: Decimal | None = None
+    over_short: Decimal | None = None
+    if shift.status != str(ShiftStatus.OPEN) and shift.expected_cash is not None:
+        # Байвал зохих мөнгө эхний мөнгөнөөс шууд хамаарна — зөрүүгээр шилжүүлнэ.
+        expected = q2(_dec(shift.expected_cash) + (new_cash - old_cash))
+        shift.expected_cash = expected
+        if shift.declared_cash is not None:
+            over_short = q2(_dec(shift.declared_cash) - expected)
+            await repost_cash_difference(db, user, shift=shift, over_short=over_short)
+            shift.cash_over_short = over_short
+    await db.flush()
+
+    await audit(
+        db,
+        user_id=user.id,
+        action="shift.opening_cash_corrected",
+        entity_type="shift",
+        entity_id=shift.id,
+        before=before,
+        after={
+            "opening_cash": str(new_cash),
+            "expected_cash": str(expected) if expected is not None else before["expected_cash"],
+            "cash_over_short": str(over_short) if over_short is not None else before["cash_over_short"],
+            "note": (note or "").strip() or None,
+        },
+    )
+    return {
+        "shift_id": shift.id,
+        "old_opening_cash": old_cash,
+        "opening_cash": new_cash,
+        "expected_cash": q2(_dec(shift.expected_cash)) if shift.expected_cash is not None else None,
+        "cash_over_short": q2(_dec(shift.cash_over_short)) if shift.cash_over_short is not None else None,
+    }
+
+
 async def _branch_for_shift(db: AsyncSession, user: User | None):
     """Ээлжийн салбар.
 
