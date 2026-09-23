@@ -456,7 +456,7 @@ export function FuelShipmentDetailPage() {
           </span>
         }
         actions={
-          <div className="flex flex-wrap gap-2">
+          <>
             <Button variant="ghost" size="lg" icon={<ArrowLeft />} onClick={() => navigate("/shipments")}>{t.common.back}</Button>
             {isDraft ? (
               <>
@@ -474,7 +474,7 @@ export function FuelShipmentDetailPage() {
                 <Button variant="warning" size="lg" icon={<Lock />} disabled={remainingTotal > 0 || remainingGoods > 0} onClick={() => setConfirming("close")}>{t.shipments.close}</Button>
               </>
             ) : null}
-          </div>
+          </>
         }
       />
 

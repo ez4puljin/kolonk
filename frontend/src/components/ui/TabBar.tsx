@@ -25,7 +25,7 @@ export function TabBar<V extends string | number>({
 }: TabBarProps<V>) {
   if (variant === "underline") {
     return (
-      <div className={`scroll-touch flex gap-1 overflow-x-auto border-b border-line ${className}`} role="tablist">
+      <div className={`scroll-touch scrollbar-none flex gap-1 overflow-x-auto border-b border-line ${className}`} role="tablist">
         {items.map((item) => {
           const active = item.value === value;
           return (
@@ -56,10 +56,16 @@ export function TabBar<V extends string | number>({
     );
   }
 
+  // 4 хүртэлх таб утсанд тэнцүү баганаар (дүрс дээр, бичиг доор) бүгд харагдана —
+  // өмнө нь хэвтээ гүйж, сүүлийн таб тасарч, доор нь бүдүүн гүйлгэх мөр гардаг байв.
+  const compact = items.length <= 4;
   return (
     <div
-      // Жижиг дэлгэцэнд хэвтээ гүйнэ, десктоп дээр мөр таслаж бүгд харагдана.
-      className={`scroll-touch flex gap-1.5 overflow-x-auto rounded-xl border border-line bg-surface-alt p-1.5 lg:flex-wrap lg:overflow-x-visible ${className}`}
+      className={
+        compact
+          ? `grid auto-cols-fr grid-flow-col gap-1 rounded-xl border border-line bg-surface-alt p-1 sm:flex sm:gap-1.5 sm:p-1.5 lg:flex-wrap ${className}`
+          : `scroll-touch scrollbar-none flex gap-1.5 overflow-x-auto rounded-xl border border-line bg-surface-alt p-1.5 lg:flex-wrap lg:overflow-x-visible ${className}`
+      }
       role="tablist"
     >
       {items.map((item) => {
@@ -72,7 +78,9 @@ export function TabBar<V extends string | number>({
             aria-selected={active}
             onClick={() => onChange(item.value)}
             className={[
-              "flex h-12 shrink-0 items-center gap-2 rounded-lg px-4 text-[15px] font-semibold whitespace-nowrap transition-colors",
+              compact
+                ? "relative flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-center text-[12px] leading-tight font-semibold transition-colors sm:h-12 sm:min-h-0 sm:shrink-0 sm:flex-row sm:gap-2 sm:px-4 sm:text-[15px] sm:whitespace-nowrap"
+                : "flex h-12 shrink-0 items-center gap-2 rounded-lg px-4 text-[15px] font-semibold whitespace-nowrap transition-colors",
               active ? "bg-white text-ink shadow-sm" : "text-ink-soft hover:bg-white/60",
             ].join(" ")}
           >

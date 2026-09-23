@@ -13,6 +13,7 @@ import { homeForRole } from "./lib/constants";
 import { useAuthStore } from "./stores/auth";
 import LoginPage from "./pages/LoginPage";
 import NotFoundPage from "./pages/NotFoundPage";
+import { isChunkLoadError, reloadForNewVersion } from "./lib/staleBuild";
 
 /**
  * Хуудсуудыг залгах.
@@ -79,7 +80,11 @@ function lazyPage(name: string) {
         const mod = loaded as Partial<PageModule>;
         return mod.default ? { default: mod.default } : placeholder();
       })
-      .catch(placeholder);
+      .catch((error: unknown): Promise<PageModule> => {
+        // Шинэ хувилбар гарсны дараа хуучин файл олдохгүй — дахин ачаалж шинэчилнэ.
+        if (isChunkLoadError(error) && reloadForNewVersion()) return new Promise<PageModule>(() => {});
+        return placeholder();
+      });
   });
 }
 

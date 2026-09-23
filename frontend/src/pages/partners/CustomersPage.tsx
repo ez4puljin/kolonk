@@ -86,6 +86,8 @@ export function CustomersPage() {
 
   // --- Шүүлтүүд (erxes-маягийн зүүн самбар) — бүгд сервер талд ---
   const [query, setQuery] = useState("");
+  /** Утсанд шүүлтийн самбар анхнаасаа хураалттай — жагсаалт эхний дэлгэцэнд харагдана. */
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [province, setProvince] = useState("");
   const [district, setDistrict] = useState("");
@@ -410,28 +412,28 @@ export function CustomersPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-6">
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".xlsx"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (!file) return;
+          importMutation.mutate(file, {
+            onSuccess: (result) => {
+              toastSuccess(t.common.saved);
+              setImportResult(result);
+            },
+            onError: (error) => toastError(errorMessage(error)),
+          });
+        }}
+      />
       <PageHeader
         title={t.partners.customers}
         actions={
-          <div className="flex flex-wrap gap-2">
-            <input
-              ref={importInputRef}
-              type="file"
-              accept=".xlsx"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                if (!file) return;
-                importMutation.mutate(file, {
-                  onSuccess: (result) => {
-                    toastSuccess(t.common.saved);
-                    setImportResult(result);
-                  },
-                  onError: (error) => toastError(errorMessage(error)),
-                });
-              }}
-            />
+          <>
             <Button
               variant="secondary"
               size="lg"
@@ -456,7 +458,7 @@ export function CustomersPage() {
             <Button variant="primary" size="lg" icon={<Plus />} onClick={() => openForm(null)}>
               {t.partners.newCustomer}
             </Button>
-          </div>
+          </>
         }
       />
 
@@ -498,9 +500,31 @@ export function CustomersPage() {
         ) : null}
       </Modal>
 
+      {/* Утас: хайлт + «Шүүлтүүр» товч; самбар дарахад нээгдэнэ. */}
+      <div className="flex gap-2 lg:hidden">
+        <SearchInput
+          value={query}
+          onChange={(next) => {
+            setQuery(next);
+            setOffset(0);
+          }}
+          className="min-w-0 flex-1"
+        />
+        <Button
+          variant={filtersOpen || hasFilters ? "primary" : "secondary"}
+          size="md"
+          icon={<Filter />}
+          onClick={() => setFiltersOpen((v) => !v)}
+          aria-expanded={filtersOpen}
+        >
+          {t.partners.filters}
+        </Button>
+      </div>
+
       <div className="grid items-start gap-6 lg:grid-cols-[17rem_minmax(0,1fr)]">
         {/* erxes-маягийн зүүн шүүлтийн самбар */}
         <Card
+          className={filtersOpen ? "" : "hidden lg:flex"}
           title={t.partners.filters}
           actions={
             hasFilters ? (
@@ -517,7 +541,7 @@ export function CustomersPage() {
                 setQuery(next);
                 setOffset(0);
               }}
-              className="w-full"
+              className="hidden w-full lg:flex"
             />
             <ChipGroup<TypeFilter>
               label={t.partners.type}
@@ -778,17 +802,17 @@ export function CustomersPage() {
               value={form.register_no}
               onChange={(value) => setForm({ ...form, register_no: value })}
             />
-            <TextField
+            <TextField kind="email"
               label={t.common.email}
               value={form.email}
               onChange={(value) => setForm({ ...form, email: value })}
             />
-            <TextField
+            <TextField kind="tel"
               label={t.partners.phone1}
               value={form.phone}
               onChange={(value) => setForm({ ...form, phone: value })}
             />
-            <TextField
+            <TextField kind="tel"
               label={t.partners.phone2}
               value={form.phone2}
               onChange={(value) => setForm({ ...form, phone2: value })}

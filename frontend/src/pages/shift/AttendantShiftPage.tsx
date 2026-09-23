@@ -1579,7 +1579,7 @@ export function AttendantShiftPage() {
                             maxLength={128}
                             className="min-w-[12rem] flex-1"
                           />
-                          <TextField
+                          <TextField kind="tel"
                             label={t.attendant.creditCustomerPhone}
                             value={row.new_phone}
                             onChange={(value) => patch({ new_phone: value })}
@@ -1918,10 +1918,13 @@ export function AttendantShiftPage() {
               {t.shift.number}
               {shift.number} · {shift.opened_by_name ?? ""}
             </span>
-            <span className="inline-flex items-center gap-1">
+            {/* Хэсэг бүр бүтнээрээ шилжинэ — утсанд үг, утга тусдаа баганад задардаг байв. */}
+            <span className="inline-flex items-center gap-1 whitespace-nowrap">
               <Clock className="h-4 w-4" />
-              {t.attendant.startedAt}: <b className="text-ink">{formatDateTime(shift.opened_at)}</b> · {t.attendant.elapsed}:{" "}
-              <b className="text-ink">{elapsedLabel}</b>
+              {t.attendant.startedAt}: <b className="text-ink">{formatDateTime(shift.opened_at)}</b>
+            </span>
+            <span className="whitespace-nowrap">
+              {t.attendant.elapsed}: <b className="text-ink">{elapsedLabel}</b>
             </span>
             <span>
               {t.shift.openingCash}: {formatMNT(shift.opening_cash)}
@@ -2093,6 +2096,7 @@ export function AttendantShiftPage() {
         onClose={() => setWizardOpen(false)}
         size="lg"
         title={`${t.attendant.dailyClose} — ${STEP_META[step].label}`}
+        subtitle={`${t.attendant.stepOf.replace("{n}", String(step + 1)).replace("{total}", String(STEP_META.length))}`}
         footer={
           <>
             <Button

@@ -460,7 +460,7 @@ export function UsersPage() {
               value={form.username}
               onChange={(value) => setForm({ ...form, username: value })}
             />
-            <TextField
+            <TextField kind="tel"
               label={t.common.phone}
               value={form.phone}
               onChange={(value) => setForm({ ...form, phone: value })}

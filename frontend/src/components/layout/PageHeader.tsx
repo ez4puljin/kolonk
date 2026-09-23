@@ -67,14 +67,27 @@ export function PageHeader({
           </span>
         ) : null}
 
-        <div className="min-w-0 flex-1">
+        {/* basis-72: товчнууд олон бол гарчгийг «Түгээ…» болтол шахахын оронд
+            товчнууд доод мөрөнд шилжинэ. */}
+        <div className="min-w-0 flex-1 basis-72">
           <h1 className="truncate text-xl leading-tight font-bold text-ink sm:text-2xl">{title}</h1>
           {subtitle ? <div className="mt-1 text-[13px] text-ink-soft sm:text-sm">{subtitle}</div> : null}
         </div>
 
         {/* Утсанд гарчгийн доор бүтэн өргөнөөр — товчнууд дэлгэцээс халихгүй. */}
+        {/* Утсанд 2 баганатай тор: товч бүр ижил өргөн, бичиг «…» болж тасрахгүй
+            2 мөрөнд хуваагдана; сондгой сүүлийн товч бүтэн мөр эзэлнэ.
+            Өмнө нь товч бүр өөр өөр өргөнтэй, нэг нэгээрээ доош жагсдаг байв. */}
         {actions ? (
-          <div className="no-print flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:gap-2.5">
+          <div
+            className={[
+              "no-print grid w-full grid-cols-2 items-stretch gap-2",
+              "[&>*]:w-full [&>*]:min-w-0 [&>*:last-child:nth-child(odd)]:col-span-2",
+              "[&>button]:h-auto [&>button]:min-h-12 [&>button]:px-3 [&>button]:py-2 [&>button_span.truncate]:whitespace-normal [&>button_span.truncate]:leading-tight",
+              "sm:flex sm:w-auto sm:shrink-0 sm:flex-wrap sm:items-center sm:gap-2.5",
+              "sm:[&>*]:w-auto sm:[&>button]:h-12 sm:[&>button]:px-5 sm:[&>button_span.truncate]:whitespace-nowrap",
+            ].join(" ")}
+          >
             {actions}
           </div>
         ) : null}

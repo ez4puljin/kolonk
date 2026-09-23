@@ -89,7 +89,7 @@ export function MyShiftsPage() {
         ),
     },
     {
-      key: "action",
+      key: "actions",
       header: t.common.actions,
       align: "right",
       render: (row) => (

@@ -30,6 +30,19 @@ function useClock(): Date {
   return now;
 }
 
+/** Утасны өргөн (<640px) — дээд мөрөнд богино шошго хэрэглэнэ. */
+function useNarrow(): boolean {
+  const query = "(max-width: 639px)";
+  const [narrow, setNarrow] = useState(() => typeof window !== "undefined" && window.matchMedia(query).matches);
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const onChange = (): void => setNarrow(media.matches);
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+  return narrow;
+}
+
 function stationName(value: unknown): string {
   return typeof value === "string" && value.trim() !== "" ? value : t.app.name;
 }
@@ -93,14 +106,14 @@ function BranchChip() {
         disabled={switchMutation.isPending}
         title={t.header.switchBranch}
         className={[
-          "inline-flex h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-colors disabled:opacity-60",
+          "inline-flex h-9 items-center gap-1 rounded-full border px-2.5 text-xs font-semibold transition-colors disabled:opacity-60 sm:gap-1.5 sm:px-3",
           user.branch
             ? "border-blue-400/40 bg-blue-500/15 text-blue-200 hover:bg-blue-500/25"
             : "border-brand-600 bg-brand-800 text-slate-300 hover:bg-brand-700",
         ].join(" ")}
       >
         {user.branch ? <Building2 className="h-3.5 w-3.5" /> : <Globe className="h-3.5 w-3.5" />}
-        <span className="max-w-32 truncate sm:max-w-44">{label}</span>
+        <span className="max-w-[5.5rem] truncate sm:max-w-44">{label}</span>
         <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
@@ -154,23 +167,24 @@ export function Header({ onLogout, loggingOut = false }: HeaderProps) {
   const { canAny } = usePermission();
 
   const { data: settings } = useSettings();
-  const { data: current } = useCurrentShift();
+  const { data: current, isLoading: shiftLoading } = useCurrentShift();
 
   const shift = current?.shift ?? null;
+  const narrow = useNarrow();
   const isAdmin = canAny(["settings.manage", "users.manage"]);
 
   return (
-    <header className="app-header no-print flex h-16 shrink-0 items-center gap-3 border-b border-brand-800 bg-brand-900 px-3 sm:px-5">
+    <header className="app-header no-print flex h-16 shrink-0 items-center gap-2 border-b border-brand-800 bg-brand-900 px-2 sm:gap-3 sm:px-5">
       <button
         type="button"
         onClick={toggleSidebar}
         aria-label={t.nav.menu}
-        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-slate-300 transition-colors hover:bg-brand-800 active:bg-brand-700 lg:hidden"
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-slate-300 transition-colors hover:bg-brand-800 active:bg-brand-700 sm:h-12 sm:w-12 lg:hidden"
       >
         <Menu className="h-6 w-6" />
       </button>
 
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="hidden min-w-0 items-center gap-3 sm:flex">
         <span className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-action text-sm font-black text-white sm:flex">
           К
         </span>
@@ -184,7 +198,7 @@ export function Header({ onLogout, loggingOut = false }: HeaderProps) {
         </div>
       </div>
 
-      <div className="ml-auto flex items-center gap-2 sm:gap-3">
+      <div className="ml-auto flex min-w-0 items-center gap-1 sm:gap-3">
         {/* Ажлын салбар — түгээгчид цоожтой, нягтлан/админд солигддог */}
         <BranchChip />
 
@@ -207,16 +221,16 @@ export function Header({ onLogout, loggingOut = false }: HeaderProps) {
           className="flex min-h-11 shrink-0 items-center"
           aria-label={t.nav.shift}
         >
-          {shift ? (
+          {shiftLoading ? null : shift ? (
             <StatusBadge
               dot
               tone="success"
-              label={`${t.shift.number}${shift.number}`}
+              label={`${narrow ? "№" : t.shift.number}${shift.number}`}
               size="sm"
               className="!bg-success/15 !text-success !border-success/40"
             />
           ) : (
-            <StatusBadge dot tone="warning" label={t.shift.noOpen} size="sm" className="!bg-warning/15 !text-warning !border-warning/40" />
+            <StatusBadge dot tone="warning" label={narrow ? t.shift.noOpenShort : t.shift.noOpen} size="sm" className="!bg-warning/15 !text-warning !border-warning/40" />
           )}
         </button>
 
@@ -232,7 +246,7 @@ export function Header({ onLogout, loggingOut = false }: HeaderProps) {
             onClick={() => navigate("/admin")}
             title={t.adminPanel.title}
             aria-label={t.adminPanel.title}
-            className="flex h-12 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-rose-300 transition-colors hover:bg-rose-500/15 active:bg-rose-500/25"
+            className="flex h-11 w-11 shrink-0 items-center justify-center gap-2 rounded-xl text-sm font-semibold text-rose-300 sm:h-12 sm:w-auto sm:px-3 transition-colors hover:bg-rose-500/15 active:bg-rose-500/25"
           >
             <ShieldCheck className="h-5 w-5" />
             <span className="hidden xl:inline">{t.adminPanel.title}</span>
@@ -245,7 +259,7 @@ export function Header({ onLogout, loggingOut = false }: HeaderProps) {
           disabled={loggingOut}
           aria-label={t.auth.logout}
           title={t.auth.logout}
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-slate-300 transition-colors hover:bg-danger hover:text-white active:bg-danger-dark disabled:opacity-50"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-slate-300 transition-colors sm:h-12 sm:w-12 hover:bg-danger hover:text-white active:bg-danger-dark disabled:opacity-50"
         >
           <LogOut className="h-5 w-5" />
         </button>

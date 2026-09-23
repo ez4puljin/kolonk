@@ -427,7 +427,7 @@ export function SuppliersPage() {
               value={form.register_no}
               onChange={(value) => setForm({ ...form, register_no: value })}
             />
-            <TextField
+            <TextField kind="tel"
               label={t.common.phone}
               value={form.phone}
               onChange={(value) => setForm({ ...form, phone: value })}

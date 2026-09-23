@@ -196,7 +196,7 @@ export function BranchesPage() {
             </div>
           </div>
           <TextField label={t.branches.address} value={address} onChange={setAddress} />
-          <TextField label={t.branches.phone} value={phone} onChange={setPhone} />
+          <TextField kind="tel" label={t.branches.phone} value={phone} onChange={setPhone} />
 
           <label className="flex min-h-14 cursor-pointer items-center gap-3 rounded-xl border-2 border-line bg-surface px-4">
             <input

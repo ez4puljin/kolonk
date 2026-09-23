@@ -174,7 +174,8 @@ export function DataTable<T>({
                     <dt className="text-[11px] font-semibold tracking-wide text-ink-faint uppercase">
                       {column.header}
                     </dt>
-                    <dd className={`truncate text-sm text-ink ${column.numeric ? "num" : ""}`}>
+                    {/* truncate биш — утсанд урт нэр, дүн «…» болж алдагддаг байв. */}
+                    <dd className={`min-w-0 text-sm text-ink [overflow-wrap:anywhere] ${column.numeric ? "num" : ""}`}>
                       {column.render(row)}
                     </dd>
                   </div>

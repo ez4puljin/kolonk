@@ -49,15 +49,15 @@ export function StatusBadge({
   return (
     <span
       className={[
-        "inline-flex shrink-0 items-center gap-2 rounded-full border font-semibold whitespace-nowrap",
+        "inline-flex max-w-full shrink-0 items-center gap-2 rounded-full border font-semibold whitespace-nowrap",
         sizing,
         CHIP[resolvedTone],
         className,
       ].join(" ")}
     >
-      {dot ? <span className={`h-2 w-2 rounded-full ${DOT[resolvedTone]}`} /> : null}
+      {dot ? <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[resolvedTone]}`} /> : null}
       {icon}
-      {text}
+      <span className="min-w-0 truncate">{text}</span>
     </span>
   );
 }

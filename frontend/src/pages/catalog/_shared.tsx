@@ -65,6 +65,8 @@ export interface TextFieldProps {
   disabled?: boolean;
   maxLength?: number;
   className?: string;
+  /** Утасны гар: `tel` — тоон гар, `email` — @ тэмдэгтэй гар. */
+  kind?: "text" | "tel" | "email";
 }
 
 export function TextField({
@@ -76,12 +78,16 @@ export function TextField({
   disabled = false,
   maxLength,
   className = "",
+  kind = "text",
 }: TextFieldProps) {
   return (
     <div className={`flex max-w-md flex-col gap-1.5 ${className}`}>
       <FieldLabel>{label}</FieldLabel>
       <input
-        type="text"
+        type={kind}
+        inputMode={kind === "tel" ? "tel" : kind === "email" ? "email" : undefined}
+        autoComplete={kind === "tel" ? "tel" : kind === "email" ? "email" : undefined}
+        autoCapitalize={kind === "text" ? undefined : "none"}
         value={value}
         disabled={disabled}
         maxLength={maxLength}
@@ -439,7 +445,7 @@ export interface SearchInputProps {
 
 export function SearchInput({ value, onChange, placeholder, className = "" }: SearchInputProps) {
   return (
-    <div className={`relative min-w-[14rem] ${className}`}>
+    <div className={`relative min-w-[9rem] sm:min-w-[14rem] ${className}`}>
       <Search className="pointer-events-none absolute top-1/2 left-3.5 h-5 w-5 -translate-y-1/2 text-ink-faint" />
       <input
         type="text"

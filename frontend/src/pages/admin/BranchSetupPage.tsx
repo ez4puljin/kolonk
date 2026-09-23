@@ -568,7 +568,7 @@ export function BranchSetupPage() {
         >
           <div className="grid gap-4 sm:grid-cols-2">
             <TextField label={t.branches.name} value={name} onChange={setName} />
-            <TextField label={t.branches.phone} value={phone} onChange={setPhone} />
+            <TextField kind="tel" label={t.branches.phone} value={phone} onChange={setPhone} />
             <div className="sm:col-span-2">
               <TextField label={t.branches.address} value={address} onChange={setAddress} />
             </div>
@@ -1125,7 +1125,7 @@ export function BranchSetupPage() {
             <TextField label={t.admin.username} value={cashierUsername} onChange={setCashierUsername} />
             <TextField label={t.auth.pin} value={cashierPin} onChange={setCashierPin} />
           </div>
-          <TextField label={t.common.phone} value={cashierPhone} onChange={setCashierPhone} />
+          <TextField kind="tel" label={t.common.phone} value={cashierPhone} onChange={setCashierPhone} />
           {cashierError ? (
             <p className="rounded-xl bg-danger-soft px-4 py-3 text-sm font-medium text-danger-dark">
               {cashierError}

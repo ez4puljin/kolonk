@@ -463,7 +463,8 @@ export function ShiftReportPage() {
     ...(canFixOpening
       ? [
           {
-            key: "fix",
+            // "actions" — утасны картад тусдаа мөрөнд бүтэн өргөнөөр гарна.
+            key: "actions",
             header: t.common.actions,
             align: "right" as const,
             render: (row: ShiftNozzleRow) =>

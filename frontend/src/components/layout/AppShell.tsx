@@ -264,7 +264,11 @@ export function AppShell() {
       .filter((item) => !item.children || item.children.length > 0),
   })).filter((section) => section.items.length > 0);
 
-  const mobileItems = MOBILE_NAV.filter(entryVisible).slice(0, 5);
+  // Тохиргоо ачаалж дуустал «Касс»-ыг доод самбарт гаргахгүй — касс унтраалттай
+  // станцад эхлээд гарч ирээд алга болж, бусад товч байраа сольдог байв.
+  const mobileItems = MOBILE_NAV.filter(
+    (item) => entryVisible(item) && !(posLoading && item.to.startsWith("/pos")),
+  ).slice(0, 5);
 
   const handleLogout = (): void => {
     logoutMutation.mutate(undefined, {

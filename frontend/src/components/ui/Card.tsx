@@ -36,14 +36,16 @@ export function Card({
   return (
     <section className={`flex flex-col overflow-hidden rounded-xl border ${shell} ${className}`}>
       {(title || actions) && (
-        <header className={`flex items-start gap-4 border-b px-4 py-3 sm:px-5 sm:py-4 ${divider}`}>
-          <div className="min-w-0 flex-1">
+        <header className={`flex flex-wrap items-start gap-x-4 gap-y-2 border-b px-4 py-3 sm:px-5 sm:py-4 ${divider}`}>
+          {/* flex-wrap: гарчиг/тайлбар урт бол баруун талын үйлдэл доош шилжинэ —
+              утсанд тайлбар 120px баганад шахагдаж 7 мөр болдог байв. */}
+          <div className="min-w-0 flex-1 basis-48">
             {title ? <h3 className="text-base font-bold">{title}</h3> : null}
             {/* Дэд гарчиг тайлбар учир `truncate` байхгүй: утсанд 500px текст
                 160px-д шахагдаж утга нь алдагддаг байв. */}
             {subtitle ? <p className={`mt-0.5 text-sm ${subtitleTone}`}>{subtitle}</p> : null}
           </div>
-          {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+          {actions ? <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
         </header>
       )}
 

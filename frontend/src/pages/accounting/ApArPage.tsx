@@ -1173,7 +1173,7 @@ export function ApArPage() {
       render: (row) => <StatusBadge size="sm" meta={statusMeta(INVOICE_STATUS_META, row.status)} />,
     },
     {
-      key: "action",
+      key: "actions",
       header: t.common.actions,
       align: "right",
       render: (row) =>
@@ -1240,7 +1240,7 @@ export function ApArPage() {
       render: (row) => <span className="font-bold">{formatMNT(row.amount_due)}</span>,
     },
     {
-      key: "action",
+      key: "actions",
       header: t.common.actions,
       align: "right",
       render: (row) => (
@@ -1322,7 +1322,7 @@ export function ApArPage() {
       render: (row) => <span className="font-bold">{formatMNT(row.balance)}</span>,
     },
     {
-      key: "action",
+      key: "actions",
       header: t.common.actions,
       align: "right",
       render: (row) => {
@@ -1404,7 +1404,7 @@ export function ApArPage() {
         title={t.accounting.apar}
         subtitle={`${t.common.total}: ${formatMNT(tab === "ar" ? arBalanceTotal : outstanding)}`}
         actions={
-          <div className="flex flex-wrap gap-2">
+          <>
             <Button variant={openOnly ? "primary" : "secondary"} size="md" onClick={() => setOpenOnly((v) => !v)}>
               {openOnly ? t.status.unpaid : t.common.all}
             </Button>
@@ -1417,7 +1417,7 @@ export function ApArPage() {
                 {t.partners.arCharge}
               </Button>
             )}
-          </div>
+          </>
         }
       >
         <TabBar variant="underline" value={tab} onChange={setTab} items={TABS} />

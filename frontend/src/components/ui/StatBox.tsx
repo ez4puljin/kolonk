@@ -39,10 +39,11 @@ const GRADIENT: Record<Tone, string> = {
   brand: "bg-gradient-to-br from-brand-800 to-brand-950 text-white border-transparent",
 };
 
+// Утсанд (2 баганад) жижиг — урт дүн хайрцгаас халихгүй.
 const VALUE_SIZE: Record<NonNullable<StatBoxProps["size"]>, string> = {
-  md: "text-3xl",
-  lg: "text-[40px] leading-none",
-  xl: "text-[56px] leading-none",
+  md: "text-[22px] leading-tight sm:text-3xl",
+  lg: "text-[26px] leading-none sm:text-[40px]",
+  xl: "text-[34px] leading-none sm:text-[56px]",
 };
 
 export function StatBox({
@@ -62,17 +63,17 @@ export function StatBox({
   const content = (
     <>
       <div className="flex items-start justify-between gap-3">
-        <span className="text-sm font-semibold text-white">{label}</span>
+        <span className="min-w-0 text-[13px] leading-snug font-semibold text-white sm:text-sm">{label}</span>
         {icon ? <span className="shrink-0 text-white/80">{icon}</span> : null}
       </div>
 
-      <div className="mt-2 flex items-baseline gap-2">
-        <span className={`num font-bold tracking-tight ${VALUE_SIZE[size]}`}>{value}</span>
+      <div className="mt-2 flex min-w-0 flex-wrap items-baseline gap-x-2">
+        <span className={`num min-w-0 font-bold tracking-tight [overflow-wrap:anywhere] ${VALUE_SIZE[size]}`}>{value}</span>
         {unit ? <span className="text-lg font-semibold text-white">{unit}</span> : null}
       </div>
 
       {(delta || hint) && (
-        <div className="mt-2 flex items-center gap-2 text-sm text-white/90">
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px] text-white/90 sm:text-sm">
           {delta ? <span className="font-semibold">{delta}</span> : null}
           {hint ? <span>{hint}</span> : null}
         </div>
@@ -81,7 +82,7 @@ export function StatBox({
   );
 
   const shell =
-    "relative overflow-hidden rounded-2xl border px-4 py-4 shadow-sm sm:px-6 sm:py-5 " +
+    "relative min-w-0 overflow-hidden rounded-2xl border px-3.5 py-3 shadow-sm sm:px-6 sm:py-5 " +
     `${GRADIENT[tone]} ${className}`;
 
   if (interactive) {
@@ -89,6 +90,7 @@ export function StatBox({
       <button
         type="button"
         onClick={onClick}
+        data-statbox=""
         className={`${shell} touch-target w-full text-left transition-transform hover:-translate-y-0.5 active:translate-y-0`}
       >
         {content}
@@ -96,7 +98,11 @@ export function StatBox({
     );
   }
 
-  return <div className={shell}>{content}</div>;
+  return (
+    <div data-statbox="" className={shell}>
+      {content}
+    </div>
+  );
 }
 
 export default StatBox;
