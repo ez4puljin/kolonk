@@ -216,6 +216,28 @@
     }
   }
 
+  /* Цонхны өндөр — Android Chrome, iOS Safari дээр vh нь хаягийн мөр
+     НУУГДСАН үеийн өндөр тул мөр харагдаж байхад цонхны доод «Хадгалах»
+     товч дэлгэцээс гардаг байв. dvh = одоо харагдаж буй өндөр
+     (дэмждэггүй хуучин хөтөчид vh руу буцна). */
+  .modal-max-h {
+    max-height: 92vh;
+    max-height: 92dvh;
+  }
+  .modal-full-h {
+    height: 92vh;
+    height: 92dvh;
+  }
+
+  /* Утасны гар нээлттэй (текст бичиж байна) — доод цэсийг нууна. Android
+     дээр хуудас гарын дээгүүр багасдаг (viewport interactive-widget) тул цэс
+     гарын дээр гарч, бичих талбарыг таглаж байв. */
+  @media (max-width: 1023px) {
+    body:has(input:not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):focus, textarea:focus, select:focus) .mobile-bottom-nav {
+      display: none;
+    }
+  }
+
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }

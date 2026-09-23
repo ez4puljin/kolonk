@@ -38,6 +38,7 @@ import { usePumpSocket } from "../../hooks/usePumpSocket";
 import { usePermission } from "../../hooks/usePermission";
 import { t } from "../../i18n/mn";
 import { useUiStore } from "../../stores/ui";
+import { useBackGuard } from "../ui/Modal";
 import { Spinner } from "../ui/Spinner";
 import { Toaster } from "../ui/Toast";
 import { Header } from "./Header";
@@ -224,6 +225,8 @@ export function AppShell() {
   }, []);
   const navCollapsed = navPinnedCollapsed || narrowDesktop;
   const setSidebar = useUiStore((state) => state.setSidebar);
+  // Android BACK: нээлттэй цэсийг хаана (өмнө нь өмнөх хуудас руу шилждэг байв).
+  useBackGuard(sidebarOpen, () => setSidebar(false));
 
   const logoutMutation = useLogoutMutation();
 
@@ -296,6 +299,7 @@ export function AppShell() {
                 icon={item.icon}
                 collapsed={collapsed}
                 onNavigate={onNavigate}
+                replace={Boolean(onNavigate)}
                 children={item.children.map((child) => ({
                   to: child.to,
                   label: child.label,
@@ -313,6 +317,7 @@ export function AppShell() {
                 end={item.end}
                 collapsed={collapsed}
                 onNavigate={onNavigate}
+                replace={Boolean(onNavigate)}
               />
             ),
           )}
@@ -403,7 +408,7 @@ export function AppShell() {
 
       {/* Доод самбар — <1024px */}
       {mobileItems.length > 0 ? (
-        <nav className="no-print safe-bottom fixed inset-x-0 bottom-0 z-30 flex border-t border-brand-800 bg-brand-900/95 backdrop-blur lg:hidden">
+        <nav className="mobile-bottom-nav no-print safe-bottom fixed inset-x-0 bottom-0 z-30 flex border-t border-brand-800 bg-brand-900/95 backdrop-blur lg:hidden">
           {mobileItems.map((item) => {
             const Icon = item.icon;
             const active = item.end

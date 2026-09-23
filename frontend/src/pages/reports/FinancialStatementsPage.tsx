@@ -640,7 +640,7 @@ export function FinancialStatementsPage() {
                   {check.ok ? <Check className="h-5 w-5" /> : <X className="h-5 w-5" />}
                 </span>
                 <span className="min-w-0 flex-1 text-[15px] font-semibold text-ink">{check.name}</span>
-                <span className="num flex shrink-0 flex-wrap items-center gap-x-4 gap-y-0.5 text-sm">
+                <span className="num flex min-w-0 max-w-full flex-wrap items-center gap-x-4 gap-y-0.5 text-sm">
                   <span className="text-ink-soft">
                     {`${t.accounting.expected}: ${formatMoneyExact(check.expected, false)}`}
                   </span>

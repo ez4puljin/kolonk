@@ -17,13 +17,14 @@ export interface NavGroupProps {
   children: readonly NavChild[];
   collapsed?: boolean;
   onNavigate?: () => void;
+  replace?: boolean;
 }
 
 /** Дэд цэстэй нэгж — «Customer → Харилцагч, Нийлүүлэгч» гэх мэт.
 
 Дэд зам идэвхтэй бол автоматаар дэлгээтэй эхэлнэ.  Цэс хураастай үед
 дэд цэсүүд нь шууд дүрсээрээ харагдана (нэмэлт товшилт шаардахгүй). */
-export function NavGroup({ label, icon: Icon, children, collapsed = false, onNavigate }: NavGroupProps) {
+export function NavGroup({ label, icon: Icon, children, collapsed = false, onNavigate, replace = false }: NavGroupProps) {
   const location = useLocation();
   const childActive = children.some((child) => location.pathname.startsWith(child.to));
   const [open, setOpen] = useState(childActive);
@@ -41,6 +42,7 @@ export function NavGroup({ label, icon: Icon, children, collapsed = false, onNav
             end={child.end}
             collapsed
             onNavigate={onNavigate}
+            replace={replace}
           />
         ))}
       </>
@@ -77,6 +79,7 @@ export function NavGroup({ label, icon: Icon, children, collapsed = false, onNav
               icon={child.icon}
               end={child.end}
               onNavigate={onNavigate}
+            replace={replace}
             />
           ))}
         </div>

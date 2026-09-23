@@ -19,12 +19,27 @@ export interface ModalProps {
   className?: string;
 }
 
+/**
+ * Утасны BACK товчоор хаагддаг бусад давхарга (гар утасны хажуугийн цэс гэх
+ * мэт) — цонхтой НЭГ хамгаалалтын дарааллыг хуваалцана.
+ */
+export function useBackGuard(open: boolean, close: () => void): void {
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  useEffect(() => {
+    if (!open) return;
+    const entry: GuardEntry = { close: () => closeRef.current(), dismissible: true };
+    acquireGuard(entry);
+    return () => releaseGuard(entry);
+  }, [open]);
+}
+
 const SIZES: Record<ModalSize, string> = {
   sm: "max-w-sm",
   md: "max-w-lg",
   lg: "max-w-3xl",
   xl: "max-w-5xl",
-  full: "max-w-[96vw] h-[92vh]",
+  full: "max-w-[96vw] modal-full-h",
 };
 
 /* -------------------------------------------------------------------------- *
@@ -95,6 +110,12 @@ function releaseGuard(entry: GuardEntry): void {
   const index = modalStack.indexOf(entry);
   if (index === -1) return;
   modalStack.splice(index, 1);
+  // Хамгаалах бичлэгийг шинэ хуудсаар орлуулсан (цэснээс хуудас сонгосон) —
+  // буцаах зүйлгүй; дараагийн цонх шинэ хамгаалалт түлхэх ёстой.
+  if (modalStack.length === 0 && guarded && !pendingBack && !hasGuardState()) {
+    guarded = false;
+    return;
+  }
   // Сүүлчийн цонх хаагдсан үед л бичлэгээ буцаана — эс бөгөөс түүхэнд хог
   // үлдэж, дараагийн back юу ч хийхгүй өнгөрнө.
   if (modalStack.length === 0 && guarded && !pendingBack && hasGuardState()) {
@@ -159,7 +180,7 @@ export function Modal({
         className={[
           "animate-pop relative flex w-full flex-col overflow-hidden bg-surface shadow-2xl",
           "rounded-t-3xl sm:rounded-2xl",
-          "max-h-[92vh]",
+          "modal-max-h",
           SIZES[size],
           className,
         ].join(" ")}

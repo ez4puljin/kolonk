@@ -12,6 +12,8 @@ export interface NavItemProps {
   badge?: number | null;
   collapsed?: boolean;
   onNavigate?: () => void;
+  /** Гар утасны цэснээс — «Буцах» хамгаалах бичлэгийг шинэ хуудсаар орлуулна. */
+  replace?: boolean;
 }
 
 export function NavItem({
@@ -23,11 +25,13 @@ export function NavItem({
   badge,
   collapsed = false,
   onNavigate,
+  replace = false,
 }: NavItemProps) {
   return (
     <NavLink
       to={to}
       end={end}
+      replace={replace}
       onClick={onNavigate}
       title={collapsed ? label : undefined}
       className={({ isActive }) =>
