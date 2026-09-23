@@ -195,10 +195,14 @@ async def compute_dispensed(
     """
     opens = (
         await db.scalars(
-            select(TotalizerReading).where(
+            select(TotalizerReading)
+            .where(
                 TotalizerReading.shift_id == shift.id,
                 TotalizerReading.reading_type == str(ReadingType.SHIFT_OPEN),
             )
+            # Тогтвортой дараалал: зээлийн литрийг хуваарилах дараалал preview
+            # (түгээгчийн тулгалт) ба хаалт хоёрт яг ижил байх ёстой.
+            .order_by(TotalizerReading.created_at, TotalizerReading.nozzle_id)
         )
     ).all()
     if not opens:
@@ -297,18 +301,6 @@ def _readings_map(items: list[Any]) -> dict[uuid.UUID, Decimal]:
     return out
 
 
-async def _load_contract_prices(
-    db: AsyncSession, shift: Shift, fuel_ids: set[uuid.UUID]
-) -> dict[uuid.UUID, Decimal]:
-    prices: dict[uuid.UUID, Decimal] = {}
-    if not fuel_ids:
-        return prices
-    fuels = (await db.scalars(select(Fuel).where(Fuel.id.in_(fuel_ids)))).all()
-    for fuel in fuels:
-        prices[fuel.id] = await effective_fuel_price(db, fuel, shift.branch_id)
-    return prices
-
-
 class _SegmentSlots:
     """Милийн зөрүүний сегментүүд — савтайгаа хамт.
 
@@ -320,32 +312,100 @@ class _SegmentSlots:
     def __init__(self, calcs: list[NozzleCalc]) -> None:
         #: (calc, seg, үлдэгдэл литр) — calc бүрийн сегментүүд дарааллаараа.
         self.slots: list[dict[str, Any]] = [
-            {"calc": calc, "seg": seg, "remaining": seg.liters}
+            # remaining_amount — сегментийн үлдсэн ДҮН (хөнгөлөлтгүй); зээл хасагдсаны
+            # дараах үлдэгдлийг нэгдсэн борлуулалт яг энэ дүнгээр авна → дугуйлалтын
+            # зөрүүгүйгээр зээл + нэгдсэн = миль×үнэ.
+            {"calc": calc, "seg": seg, "remaining": seg.liters, "remaining_amount": seg.amount}
             for calc in calcs
             for seg in calc.segments
         ]
 
-    def take_credit(self, fuel_id: uuid.UUID, liters: Decimal) -> list[tuple[uuid.UUID, Decimal]]:
-        """``liters``-ийг тухайн түлшний сегментүүдээс (сүүлээс нь) хасаж,
-        аль савнаас хэдэн литр гарснийг буцаана."""
-        need = q3(liters)
-        taken: dict[uuid.UUID, Decimal] = {}
+    def _credit_slots(self, fuel_id: uuid.UUID):
+        """Тухайн түлшний үлдэгдэлтэй сегментүүд — СҮҮЛЭЭС нь (хамгийн сүүлийн үнэ эхэнд)."""
         for slot in reversed(self.slots):
+            if slot["calc"].nozzle.fuel_id == fuel_id and slot["remaining"] > ZERO_L:
+                yield slot
+
+    @staticmethod
+    def _merge(parts: list[tuple[uuid.UUID, Decimal, Decimal, Decimal]]):
+        """(сав, үнэ)-ээр нэгтгэнэ — нэг сав, нэг үнэ нэг мөр."""
+        merged: dict[tuple[uuid.UUID, Decimal], list[Decimal]] = {}
+        for tank_id, price, liters, amount in parts:
+            row = merged.setdefault((tank_id, price), [ZERO_L, ZERO])
+            row[0] = q3(row[0] + liters)
+            row[1] = q2(row[1] + amount)
+        return [(tank, price, row[0], row[1]) for (tank, price), row in merged.items()]
+
+    def take_credit(
+        self, fuel_id: uuid.UUID, liters: Decimal, discount: Decimal
+    ) -> list[tuple[uuid.UUID, Decimal, Decimal, Decimal]]:
+        """``liters``-ийг тухайн түлшний сегментүүдээс (сүүлээс нь) хасна.
+
+        Литр бүр ӨӨРИЙН сегментийн үнээр (− гэрээний хөнгөлөлт) үнэлэгдэнэ —
+        ингэснээр зээл + нэгдсэн борлуулалт = миль×үнэ яг таарна, үнийн
+        тэмдэглэл хийсэн өдөр хүсэлт батлагдсан эсэхээс үл хамаарна.
+
+        Буцаана: [(сав, литрийн үнэ, литр, дүн)].
+        """
+        need = q3(liters)
+        parts: list[tuple[uuid.UUID, Decimal, Decimal, Decimal]] = []
+        for slot in self._credit_slots(fuel_id):
             if need <= ZERO_L:
                 break
-            if slot["calc"].nozzle.fuel_id != fuel_id or slot["remaining"] <= ZERO_L:
-                continue
+            price = slot["seg"].price
+            unit = q2(price - discount)
+            if unit <= ZERO:
+                raise HTTPException(status_code=422, detail="Гэрээний хөнгөлөлт түлшний үнээс их байна")
             take = min(slot["remaining"], need)
+            gross = slot["remaining_amount"] if take >= slot["remaining"] else q2(take * price)
             slot["remaining"] = q3(slot["remaining"] - take)
+            slot["remaining_amount"] = q2(slot["remaining_amount"] - gross)
             need = q3(need - take)
-            tank_id = slot["calc"].nozzle.tank_id
-            taken[tank_id] = q3(taken.get(tank_id, ZERO_L) + take)
+            parts.append((slot["calc"].nozzle.tank_id, price, take, q2(take * unit)))
         if need > ZERO_L:
             raise HTTPException(
                 status_code=422,
                 detail="Зээлээр өгсөн литр милийн зөрүүнээс их байна — милээ шалгана уу",
             )
-        return list(taken.items())
+        return self._merge(parts)
+
+    def take_credit_amount(
+        self, fuel_id: uuid.UUID, amount: Decimal, discount: Decimal
+    ) -> list[tuple[uuid.UUID, Decimal, Decimal, Decimal]]:
+        """Дүнгээр оруулсан зээл — дүнг сегментүүдээс (сүүлээс нь) тэдгээрийн
+        үнээр литр болгож хасна. Оруулсан дүн яг хадгалагдана."""
+        left = q2(amount)
+        parts: list[tuple[uuid.UUID, Decimal, Decimal, Decimal]] = []
+        for slot in self._credit_slots(fuel_id):
+            if left <= ZERO:
+                break
+            price = slot["seg"].price
+            unit = q2(price - discount)
+            if unit <= ZERO:
+                raise HTTPException(status_code=422, detail="Гэрээний хөнгөлөлт түлшний үнээс их байна")
+            capacity = q2(slot["remaining"] * unit)
+            if left <= capacity:
+                take = min(q3(left / unit), slot["remaining"])
+                part_amount = left
+                gross = (
+                    slot["remaining_amount"]
+                    if take >= slot["remaining"]
+                    else q2(left + take * discount)
+                )
+            else:
+                take = slot["remaining"]
+                part_amount = capacity
+                gross = slot["remaining_amount"]
+            slot["remaining"] = q3(slot["remaining"] - take)
+            slot["remaining_amount"] = q2(slot["remaining_amount"] - gross)
+            left = q2(left - part_amount)
+            parts.append((slot["calc"].nozzle.tank_id, price, take, part_amount))
+        if left > ZERO:
+            raise HTTPException(
+                status_code=422,
+                detail="Зээлээр өгсөн дүн милийн зөрүүний дүнгээс их байна — милээ шалгана уу",
+            )
+        return self._merge(parts)
 
 
 async def _next_contract_no(db: AsyncSession, prefix: str) -> str:
@@ -518,14 +578,6 @@ async def _create_credit_sales(
     total = ZERO
     sale_ids: list[uuid.UUID] = []
 
-    fuel_ids = {
-        uuid.UUID(str(item.fuel_id))
-        for line in credit_lines or []
-        for item in line.items
-        if item.fuel_id is not None
-    }
-    base_prices = await _load_contract_prices(db, shift, fuel_ids)
-
     #: Энэ хаалтад шинээр нээсэн гэрээнүүд → лимит автоматаар (True) эсвэл
     #: түгээгчийн оруулсан лимит (False — хэтэрвэл ердийн лимитийн алдаа).
     opened: dict[uuid.UUID, bool] = {}
@@ -555,36 +607,26 @@ async def _create_credit_sales(
         line_total = ZERO
         for item in line.items:
             if item.fuel_id is not None:
-                base = base_prices.get(item.fuel_id, ZERO)
-                unit = q2(base - discount)
-                if unit <= ZERO:
-                    raise HTTPException(status_code=422, detail="Түлшний үнэ тодорхойгүй байна")
-                entered_amount: Decimal | None = None
+                # Литр (эсвэл дүн)-ийг милийн зөрүүний сегментүүдээс зөв савнаас
+                # нь, ТЭР сегментийн үнээр авна (хаалтын мөчийн жагсаалтын үнээр биш).
                 if item.amount is not None and _d(item.amount) > ZERO:
-                    entered_amount = q2(_d(item.amount))
-                    qty = q3(entered_amount / unit)
+                    splits = slots.take_credit_amount(item.fuel_id, q2(_d(item.amount)), discount)
                 elif item.qty is not None and _d(item.qty) > ZERO_L:
-                    qty = q3(_d(item.qty))
+                    splits = slots.take_credit(item.fuel_id, q3(_d(item.qty)), discount)
                 else:
                     raise HTTPException(
                         status_code=422, detail="Зээлийн түлшний литр эсвэл дүнг оруулна уу"
                     )
-
-                # Литрийг милийн зөрүүний сегментүүдээс зөв савнаас нь авна.
-                splits = slots.take_credit(item.fuel_id, qty)
-                split_amounts = [q2(liters * unit) for _tank, liters in splits]
-                if entered_amount is not None and split_amounts:
-                    # Оруулсан дүнг яг барина: зөрүүг сүүлийн мөрөнд шингээнэ.
-                    drift = q2(entered_amount - sum(split_amounts, ZERO))
-                    split_amounts[-1] = q2(split_amounts[-1] + drift)
-                for (tank_id, liters), amount in zip(splits, split_amounts, strict=True):
+                for tank_id, price, liters, amount in splits:
+                    if liters <= ZERO_L:
+                        continue
                     items.append(
                         SaleItemIn(
                             item_type=ItemType.FUEL,
                             fuel_id=item.fuel_id,
                             tank_id=tank_id,
                             qty=liters,
-                            unit_price=base,
+                            unit_price=price,
                             amount=amount,
                         )
                     )
@@ -761,7 +803,8 @@ async def _create_fuel_sale(
         if liters <= ZERO_L:
             continue
         calc, seg = slot["calc"], slot["seg"]
-        amount = q2(liters * seg.price)
+        # Сегментийн үлдсэн дүн — зээлд очсон дүнг хассан яг үлдэгдэл.
+        amount = q2(slot["remaining_amount"])
         items.append(
             SaleItemIn(
                 item_type=ItemType.FUEL,
@@ -770,6 +813,7 @@ async def _create_fuel_sale(
                 tank_id=calc.nozzle.tank_id,
                 qty=liters,
                 unit_price=seg.price,
+                amount=amount,
             )
         )
         total = q2(total + amount)

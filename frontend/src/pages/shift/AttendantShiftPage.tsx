@@ -64,7 +64,7 @@ import { StatBox } from "../../components/ui/StatBox";
 import { TabBar } from "../../components/ui/TabBar";
 import { usePermission } from "../../hooks/usePermission";
 import { t } from "../../i18n/mn";
-import { dAdd, dIsPositive, dIsZero, dMul, dSub, dSum, dToQty } from "../../lib/decimal";
+import { dAdd, dCmp, dDiv, dIsPositive, dIsZero, dMul, dSub, dSum, dToQty } from "../../lib/decimal";
 import { formatDateTime, formatLiters, formatMNT, formatNumber } from "../../lib/format";
 import { useBranches } from "../../api/queries/branches";
 import { cameraAvailable, isFreshCapture, stampClock, stampFile } from "../../lib/photo";
@@ -920,34 +920,77 @@ export function AttendantShiftPage() {
    * Зээлийн мөр бүрийн дүн: түлш (дүнгээр бол шууд, литрээр бол литр×үнэ) +
    * бараа (тоо×үнэ). Түлшний үнээс гэрээний хөнгөлөлтийг хасна — сервер мөн адил.
    */
-  const creditRowTotals = useMemo(
-    () =>
-      creditRows.map((row) => {
-        let fuel = "0";
-        let goods = "0";
-        for (const item of row.items) {
-          if (item.kind === "fuel") {
-            const qty = dToQty(item.value);
-            if (item.fuel_id === "" || qty <= 0) continue;
-            if (item.mode === "amount") {
-              fuel = dAdd(fuel, item.value || "0");
-            } else {
-              const unit = dSub(
-                fuelPriceById.get(item.fuel_id) ?? "0",
-                contractDiscountById.get(row.contract_id) ?? "0",
-              );
-              fuel = dAdd(fuel, dMul(unit, qty));
-            }
-          } else {
-            const product = products.find((p) => p.id === item.product_id);
-            const productQty = dToQty(item.product_qty);
-            if (product && productQty > 0) goods = dAdd(goods, dMul(product.price, productQty));
+  const creditRowTotals = useMemo(() => {
+    /*
+     * Хаалтын өмнөх тооцоо (preview) байвал зээлийн литрийг сервертэй ЯГ адил
+     * милийн сегментүүдээс (сүүлээс нь) хуваарилж, тухайн сегментийн үнээр
+     * үнэлнэ — үнийн тэмдэглэлтэй өдөр хүсэлт батлагдаагүй байсан ч тулгалт
+     * зөв гарна. Preview байхгүй (өдрийн дундуур) бол одоогийн үнээр ойролцоо.
+     */
+    const slots = preview
+      ? preview.nozzles.flatMap((n) =>
+          n.segments.map((seg) => ({ fuel_id: n.fuel_id, price: seg.price, remaining: dToQty(seg.liters) })),
+        )
+      : null;
+    const round3 = (value: number): number => Math.round(value * 1000) / 1000;
+
+    return creditRows.map((row) => {
+      const discount = contractDiscountById.get(row.contract_id) ?? "0";
+      let fuel = "0";
+      let goods = "0";
+      for (const item of row.items) {
+        if (item.kind === "fuel") {
+          const qty = dToQty(item.value);
+          if (item.fuel_id === "" || qty <= 0) continue;
+          if (!slots) {
+            const unit = dSub(fuelPriceById.get(item.fuel_id) ?? "0", discount);
+            fuel = dAdd(fuel, item.mode === "amount" ? item.value || "0" : dMul(unit, qty));
+            continue;
           }
+          if (item.mode === "amount") {
+            let left = item.value || "0";
+            for (let i = slots.length - 1; i >= 0 && dCmp(left, "0") > 0; i--) {
+              const slot = slots[i];
+              if (slot.fuel_id !== item.fuel_id || slot.remaining <= 0) continue;
+              const unit = dSub(slot.price, discount);
+              if (dCmp(unit, "0") <= 0) continue;
+              const capacity = dMul(unit, slot.remaining);
+              if (dCmp(left, capacity) <= 0) {
+                slot.remaining = round3(slot.remaining - Math.min(dToQty(dDiv(left, unit, 3)), slot.remaining));
+                fuel = dAdd(fuel, left);
+                left = "0";
+              } else {
+                slot.remaining = 0;
+                fuel = dAdd(fuel, capacity);
+                left = dSub(left, capacity);
+              }
+            }
+            // Милээс хэтэрсэн дүн — сервер татгалзана; энд оруулсан дүнгээр нь тоолно.
+            fuel = dAdd(fuel, left);
+          } else {
+            let need = qty;
+            for (let i = slots.length - 1; i >= 0 && need > 0; i--) {
+              const slot = slots[i];
+              if (slot.fuel_id !== item.fuel_id || slot.remaining <= 0) continue;
+              const take = Math.min(slot.remaining, need);
+              slot.remaining = round3(slot.remaining - take);
+              need = round3(need - take);
+              fuel = dAdd(fuel, dMul(dSub(slot.price, discount), take));
+            }
+            if (need > 0) {
+              // Милээс хэтэрсэн литр — сервер татгалзана; энд одоогийн үнээр тоолно.
+              fuel = dAdd(fuel, dMul(dSub(fuelPriceById.get(item.fuel_id) ?? "0", discount), need));
+            }
+          }
+        } else {
+          const product = products.find((p) => p.id === item.product_id);
+          const productQty = dToQty(item.product_qty);
+          if (product && productQty > 0) goods = dAdd(goods, dMul(product.price, productQty));
         }
-        return { fuel, goods, total: dAdd(fuel, goods) };
-      }),
-    [creditRows, products, fuelPriceById, contractDiscountById],
-  );
+      }
+      return { fuel, goods, total: dAdd(fuel, goods) };
+    });
+  }, [creditRows, products, fuelPriceById, contractDiscountById, preview]);
 
   /** Кассад зөвхөн ТҮЛШНИЙ хэсэг нөлөөлнө — бараа миль×үнэд ороогүй тул хасахгүй. */
   const creditFuelTotal = useMemo(
