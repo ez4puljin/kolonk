@@ -12,6 +12,7 @@ import {
 } from "../../api/queries/approvals";
 import type { PriceChange, Refund } from "../../api/types";
 import { PageHeader } from "../../components/layout/PageHeader";
+import { OpenShiftPriceAlerts } from "../../components/shift/OpenShiftPriceAlerts";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
@@ -246,6 +247,7 @@ export function ApprovalsPage() {
           ]}
         />
       </PageHeader>
+      <OpenShiftPriceAlerts />
 
       {tab === "prices" ? (
         <Card flush>

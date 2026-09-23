@@ -520,6 +520,16 @@ export interface PriceAlert {
   has_mark: boolean;
 }
 
+export interface OpenShiftPriceAlert {
+  shift_id: UUID;
+  shift_number: number;
+  branch_id: UUID | null;
+  branch_name: string;
+  attendant: string;
+  opened_at: string;
+  alerts: PriceAlert[];
+}
+
 export interface OpeningReadingFix {
   shift_id: UUID;
   nozzle_id: UUID;

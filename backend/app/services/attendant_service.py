@@ -1228,6 +1228,38 @@ async def price_alerts(db: AsyncSession, shift: Shift) -> list[dict[str, Any]]:
     return out
 
 
+async def open_shift_price_alerts(db: AsyncSession) -> list[dict[str, Any]]:
+    """Бүх нээлттэй ээлжийн үнийн анхааруулга — админ/нягтлангийн самбарт."""
+    shifts = (
+        await db.scalars(
+            select(Shift).where(Shift.status == str(ShiftStatus.OPEN)).order_by(Shift.opened_at)
+        )
+    ).all()
+    out: list[dict[str, Any]] = []
+    for shift in shifts:
+        alerts = await price_alerts(db, shift)
+        if not alerts:
+            continue
+        attendant = await db.scalar(select(User).where(User.id == shift.opened_by))
+        branch = (
+            await db.scalar(select(Branch).where(Branch.id == shift.branch_id))
+            if shift.branch_id
+            else None
+        )
+        out.append(
+            {
+                "shift_id": shift.id,
+                "shift_number": shift.number,
+                "branch_id": shift.branch_id,
+                "branch_name": branch.name if branch else "",
+                "attendant": (attendant.full_name or attendant.username) if attendant else "",
+                "opened_at": shift.opened_at,
+                "alerts": alerts,
+            }
+        )
+    return out
+
+
 async def price_marks_out(db: AsyncSession, shift: Shift) -> list[dict[str, Any]]:
     marks = (
         await db.scalars(

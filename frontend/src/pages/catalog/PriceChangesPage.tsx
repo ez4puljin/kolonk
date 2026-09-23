@@ -13,6 +13,7 @@ import { useFuels } from "../../api/queries/fuels";
 import { useProducts } from "../../api/queries/products";
 import type { ApprovalStatus, PriceChange, PriceTargetType } from "../../api/types";
 import { PageHeader } from "../../components/layout/PageHeader";
+import { OpenShiftPriceAlerts } from "../../components/shift/OpenShiftPriceAlerts";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
@@ -282,6 +283,7 @@ export function PriceChangesPage() {
           ]}
         />
       </PageHeader>
+      <OpenShiftPriceAlerts />
 
       <Card flush>
         <DataTable

@@ -131,6 +131,9 @@ export function useApprovePriceChangeMutation() {
       invalidateAfterDecision((key) => {
         void queryClient.invalidateQueries({ queryKey: key });
       });
+      // Нээлттэй ээлжид үнийн тэмдэглэлийн анхааруулга шууд гарна.
+      void queryClient.invalidateQueries({ queryKey: ["shifts", "price-alerts"] });
+      void queryClient.invalidateQueries({ queryKey: ["pumps"] });
     },
   });
 }

@@ -244,6 +244,18 @@ class PriceAlertOut(BaseModel):
     has_mark: bool = False
 
 
+class OpenShiftPriceAlertOut(BaseModel):
+    """Үнийн тэмдэглэл дутуу нээлттэй ээлж (админд)."""
+
+    shift_id: uuid.UUID
+    shift_number: int
+    branch_id: uuid.UUID | None = None
+    branch_name: str = ""
+    attendant: str = ""
+    opened_at: datetime
+    alerts: list[PriceAlertOut]
+
+
 class CreditItemIn(BaseModel):
     """Зээлийн борлуулалтын нэг мөр — түлш (литр эсвэл дүнгээр) эсвэл бараа."""
 

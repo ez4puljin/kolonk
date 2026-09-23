@@ -16,6 +16,7 @@ import type { IsoDate, LitersStr, MoneyStr, Paged, ShiftSummary, UUID } from "..
 import { BarChart, type BarDatum } from "../../components/charts/BarChart";
 import { DonutChart, type DonutSlice } from "../../components/charts/DonutChart";
 import { PageHeader } from "../../components/layout/PageHeader";
+import { OpenShiftPriceAlerts } from "../../components/shift/OpenShiftPriceAlerts";
 import { Card } from "../../components/ui/Card";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { ProgressBar } from "../../components/ui/ProgressBar";
@@ -262,6 +263,7 @@ export function OwnerDashboard() {
         title={t.dashboard.ownerTitle}
         subtitle={`${formatDate(data.date)} · ${t.common.year}: ${formatMNT(data.year.sales_total)}`}
       />
+      <OpenShiftPriceAlerts />
 
       {/* Салбарын сонголт — олон салбартай үед */}
       {branches.length > 1 ? (
