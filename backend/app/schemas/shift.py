@@ -227,6 +227,23 @@ class PriceMarkOut(BaseModel):
     created_at: datetime | None = None
 
 
+class PriceAlertOut(BaseModel):
+    """Нээлттэй ээлжид үнэ батлагдсан ч тэмдэглэл ороогүй хошуу."""
+
+    nozzle_id: uuid.UUID
+    nozzle_number: int
+    pump_name: str
+    fuel_id: uuid.UUID
+    fuel_name: str
+    #: Систем одоо энэ хошуунд бодож буй үнэ (нээлтийн эсвэл сүүлийн тэмдэглэлийн).
+    used_price: Decimal
+    #: Батлагдаж мөрдөгдөж буй үнэ.
+    current_price: Decimal
+    approved_at: datetime | None = None
+    #: Тэмдэглэл оруулсан ч үнэ нь буруу бол True.
+    has_mark: bool = False
+
+
 class CreditItemIn(BaseModel):
     """Зээлийн борлуулалтын нэг мөр — түлш (литр эсвэл дүнгээр) эсвэл бараа."""
 

@@ -1139,6 +1139,95 @@ async def closing_out(db: AsyncSession, shift: Shift) -> dict[str, Any] | None:
     }
 
 
+async def price_alerts(db: AsyncSession, shift: Shift) -> list[dict[str, Any]]:
+    """Нээлттэй ээлжид үнэ батлагдсан ч тэмдэглэл ороогүй хошуунууд.
+
+    Ээлж нээхэд хошуу бүрийн үнэ хөлддөг; ээлжийн дундуур батлагдсан үнэ зөвхөн
+    түгээгчийн «үнийн тэмдэглэл»-ээр миль×үнэ тооцоонд орно. Хошууны одоо
+    бодогдож буй үнэ (сүүлийн тэмдэглэл, эсвэл нээлтийн үнэ) мөрдөж буй үнээс
+    өөр бол анхааруулна — тэмдэглэлгүй бол үнийн зөрүү кассын зөрүү болно.
+    """
+    if shift.status != str(ShiftStatus.OPEN):
+        return []
+    opens = (
+        await db.scalars(
+            select(TotalizerReading).where(
+                TotalizerReading.shift_id == shift.id,
+                TotalizerReading.reading_type == str(ReadingType.SHIFT_OPEN),
+                TotalizerReading.price_per_liter.is_not(None),
+            )
+        )
+    ).all()
+    if not opens:
+        return []
+    marks = (
+        await db.scalars(
+            select(ShiftPriceMark)
+            .where(ShiftPriceMark.shift_id == shift.id)
+            .order_by(ShiftPriceMark.reading, ShiftPriceMark.created_at)
+        )
+    ).all()
+    last_mark: dict[uuid.UUID, ShiftPriceMark] = {}
+    for mark in marks:
+        last_mark[mark.nozzle_id] = mark
+
+    rows = (
+        await db.execute(
+            select(PumpNozzle, Pump)
+            .join(Pump, PumpNozzle.pump_id == Pump.id)
+            .where(PumpNozzle.id.in_([o.nozzle_id for o in opens]))
+        )
+    ).all()
+    pairs = {nozzle.id: (nozzle, pump) for nozzle, pump in rows}
+    effective: dict[uuid.UUID, Decimal] = {}
+
+    from app.enums import ApprovalStatus  # noqa: PLC0415
+    from app.models.approval import PriceChange  # noqa: PLC0415
+
+    out: list[dict[str, Any]] = []
+    for open_row in opens:
+        pair = pairs.get(open_row.nozzle_id)
+        if pair is None:
+            continue
+        nozzle, pump = pair
+        fuel = nozzle.fuel
+        if fuel is None:
+            continue
+        if fuel.id not in effective:
+            effective[fuel.id] = await effective_fuel_price(db, fuel, shift.branch_id)
+        now_price = effective[fuel.id]
+        mark = last_mark.get(nozzle.id)
+        used_price = q2(_d(mark.new_price)) if mark is not None else q2(_d(open_row.price_per_liter))
+        if used_price == now_price:
+            continue
+        change = await db.scalar(
+            select(PriceChange)
+            .where(
+                PriceChange.fuel_id == fuel.id,
+                PriceChange.status == str(ApprovalStatus.APPROVED),
+                PriceChange.applied_at.is_not(None),
+                (PriceChange.branch_id == shift.branch_id) | PriceChange.branch_id.is_(None),
+            )
+            .order_by(PriceChange.applied_at.desc())
+            .limit(1)
+        )
+        out.append(
+            {
+                "nozzle_id": nozzle.id,
+                "nozzle_number": nozzle.nozzle_number,
+                "pump_name": pump.name,
+                "fuel_id": fuel.id,
+                "fuel_name": fuel.name_mn,
+                "used_price": used_price,
+                "current_price": now_price,
+                "approved_at": change.applied_at if change is not None else None,
+                "has_mark": mark is not None,
+            }
+        )
+    out.sort(key=lambda r: (r["pump_name"], r["nozzle_number"]))
+    return out
+
+
 async def price_marks_out(db: AsyncSession, shift: Shift) -> list[dict[str, Any]]:
     marks = (
         await db.scalars(

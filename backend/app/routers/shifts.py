@@ -34,6 +34,7 @@ from app.schemas.shift import (
     ClosingApprovalIn,
     ClosingCorrectIn,
     OpeningCashFixIn,
+    PriceAlertOut,
     OpeningCashFixOut,
     OpeningReadingFixIn,
     OpeningReadingFixOut,
@@ -302,6 +303,17 @@ async def add_price_mark(
     )
     rows = await attendant_service.price_marks_out(db, shift)
     return next(r for r in rows if r["id"] == mark.id)
+
+
+@router.get("/shifts/{shift_id}/price-alerts", response_model=list[PriceAlertOut])
+async def list_price_alerts(
+    shift_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[dict[str, Any]]:
+    """Үнэ батлагдсан ч үнийн тэмдэглэл ороогүй хошуунууд (нээлттэй ээлж)."""
+    shift = await _visible_shift(db, user, shift_id)
+    return await attendant_service.price_alerts(db, shift)
 
 
 @router.get("/shifts/{shift_id}/price-marks", response_model=list[PriceMarkOut])

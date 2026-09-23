@@ -506,6 +506,20 @@ export interface ShiftNozzleRow {
   sold_amount: MoneyStr;
 }
 
+export interface PriceAlert {
+  nozzle_id: UUID;
+  nozzle_number: number;
+  pump_name: string;
+  fuel_id: UUID;
+  fuel_name: string;
+  /** Систем одоо энэ хошуунд бодож буй үнэ. */
+  used_price: MoneyStr;
+  /** Батлагдаж мөрдөгдөж буй үнэ. */
+  current_price: MoneyStr;
+  approved_at: string | null;
+  has_mark: boolean;
+}
+
 export interface OpeningReadingFix {
   shift_id: UUID;
   nozzle_id: UUID;

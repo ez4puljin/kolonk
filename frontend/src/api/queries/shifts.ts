@@ -13,6 +13,7 @@ import type {
   OpeningCashFix,
   OpeningReadingFix,
   Paged,
+  PriceAlert,
   PriceMark,
   PriceMarkInput,
   ShiftAttachment,
@@ -158,6 +159,20 @@ export function usePriceMarks(shiftId: UUID | null) {
   });
 }
 
+/**
+ * Нээлттэй ээлжид үнэ батлагдсан ч тэмдэглэл ороогүй хошуунууд.
+ * Админ хүссэн мөчид батлах тул минут тутам шалгана.
+ */
+export function usePriceAlerts(shiftId: UUID | null) {
+  return useQuery({
+    queryKey: ["shifts", "price-alerts", shiftId ?? ""],
+    queryFn: () => api.get<PriceAlert[]>(`/api/shifts/${shiftId}/price-alerts`),
+    enabled: Boolean(shiftId),
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  });
+}
+
 export function useAddPriceMarkMutation() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -165,6 +180,7 @@ export function useAddPriceMarkMutation() {
       api.post<PriceMark>(`/api/shifts/${shiftId}/price-marks`, payload),
     onSuccess: (_data, vars) => {
       void queryClient.invalidateQueries({ queryKey: ["shifts", "price-marks", vars.shiftId] });
+      void queryClient.invalidateQueries({ queryKey: ["shifts", "price-alerts", vars.shiftId] });
     },
   });
 }

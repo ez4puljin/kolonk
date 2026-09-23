@@ -35,6 +35,7 @@ import {
   useDailyCloseMutation,
   useDailyPreviewMutation,
   useOpenShiftMutation,
+  usePriceAlerts,
   usePriceMarks,
   useSaveCloseDraftMutation,
   useShiftAttachments,
@@ -265,10 +266,15 @@ function PriceMarkModal({
   shiftId,
   open,
   onClose,
+  initialNozzleId,
+  initialPrice,
 }: {
   shiftId: UUID;
   open: boolean;
   onClose: () => void;
+  /** Анхааруулгаас нээхэд — хошуу, шинэ үнийг урьдчилан бөглөнө. */
+  initialNozzleId?: string;
+  initialPrice?: string;
 }) {
   const { data: pumpsPage } = usePumps({ active_only: true });
   const addMark = useAddPriceMarkMutation();
@@ -292,11 +298,11 @@ function PriceMarkModal({
 
   useEffect(() => {
     if (!open) return;
-    setNozzleId(nozzleOptions[0]?.value ?? "");
+    setNozzleId(initialNozzleId ?? nozzleOptions[0]?.value ?? "");
     setReading("");
-    setNewPrice("");
+    setNewPrice(initialPrice ?? "");
     setError(null);
-  }, [open, nozzleOptions]);
+  }, [open, nozzleOptions, initialNozzleId, initialPrice]);
 
   return (
     <Modal
@@ -1961,6 +1967,9 @@ export function AttendantShiftPage() {
         }
       />
 
+      {/* Ээлжийн дундуур үнэ батлагдсан ч тэмдэглэл ороогүй бол — хаалтаас өмнө заавал анхааруулна */}
+      <PriceAlertBanner shiftId={shift.id} />
+
       {/* Өдрийн бүртгэл — хаалтын 4 алхмыг өдрийн турш бөглөнө (wizard нээлттэй үед давхардуулахгүй) */}
       {!wizardOpen ? (
         <Card
@@ -2485,6 +2494,64 @@ function Row({
       <span className={`num font-semibold ${negative ? "text-danger-dark" : "text-ink"}`}>
         {formatMNT(value)}
       </span>
+    </div>
+  );
+}
+
+/**
+ * Нээлттэй ээлжид үнэ батлагдсан ч тэмдэглэл ороогүй бол анхааруулна.
+ * Хошуу бүрийн «Тэмдэглэл оруулах» нь хошуу, шинэ үнийг бөглөсөн цонх нээнэ —
+ * түгээгч зөвхөн үнэ солигдсон мильийг оруулна.
+ */
+function PriceAlertBanner({ shiftId }: { shiftId: UUID }) {
+  const { data: alerts } = usePriceAlerts(shiftId);
+  const [target, setTarget] = useState<{ nozzleId: string; price: string } | null>(null);
+  if (!alerts || alerts.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-3 rounded-2xl border-2 border-warning bg-warning-soft px-4 py-3 text-warning-dark">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="mt-0.5 h-6 w-6 shrink-0" />
+        <div className="flex flex-col gap-1">
+          <span className="text-base font-bold">{t.attendant.priceAlertTitle}</span>
+          <span className="text-sm">{t.attendant.priceAlertHint}</span>
+        </div>
+      </div>
+      <div className="flex flex-col gap-2">
+        {alerts.map((alert) => (
+          <div
+            key={alert.nozzle_id}
+            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warning bg-surface px-3 py-2 text-ink"
+          >
+            <div className="flex flex-col">
+              <span className="font-semibold">
+                {alert.pump_name} · №{alert.nozzle_number} {alert.fuel_name}
+                {alert.has_mark ? <span className="ml-2 text-xs text-danger-dark">({t.attendant.priceAlertWrongMark})</span> : null}
+              </span>
+              <span className="num text-sm text-ink-soft">
+                {t.attendant.priceAlertRow
+                  .replace("{used}", formatNumber(alert.used_price))
+                  .replace("{now}", formatNumber(alert.current_price))}
+                {alert.approved_at ? ` · ${t.attendant.priceAlertApproved} ${formatDateTime(alert.approved_at)}` : ""}
+              </span>
+            </div>
+            <Button
+              variant="warning"
+              size="md"
+              icon={<Droplets />}
+              onClick={() => setTarget({ nozzleId: alert.nozzle_id, price: alert.current_price })}
+            >
+              {t.attendant.priceAlertAction}
+            </Button>
+          </div>
+        ))}
+      </div>
+      <PriceMarkModal
+        shiftId={shiftId}
+        open={target !== null}
+        onClose={() => setTarget(null)}
+        initialNozzleId={target?.nozzleId}
+        initialPrice={target?.price}
+      />
     </div>
   );
 }
