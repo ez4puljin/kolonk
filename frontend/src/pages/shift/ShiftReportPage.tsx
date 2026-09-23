@@ -1,6 +1,6 @@
 import { Fragment, useState } from "react";
 import { useParams } from "react-router-dom";
-import { AlertTriangle, Check, Download, Pencil, Printer } from "lucide-react";
+import { AlertTriangle, Check, Download, Droplets, Pencil, Printer } from "lucide-react";
 
 import { errorMessage } from "../../api/client";
 import {
@@ -37,6 +37,7 @@ import { dCmp, dIsPositive, dIsZero, dSub } from "../../lib/decimal";
 import { formatDateTime, formatLiters, formatMNT, formatMoneyExact, formatNumber, formatPct } from "../../lib/format";
 import { useUiStore } from "../../stores/ui";
 import { NumberField, TextField } from "../catalog/_shared";
+import { PriceMarkModal } from "./AttendantShiftPage";
 
 function CashRow({ label, value, strong }: { label: string; value: MoneyStr | null; strong?: boolean }) {
   return (
@@ -263,6 +264,7 @@ export function ShiftReportPage() {
   const [downloading, setDownloading] = useState(false);
   const [fixRow, setFixRow] = useState<ShiftNozzleRow | null>(null);
   const [cashFixOpen, setCashFixOpen] = useState(false);
+  const [markOpen, setMarkOpen] = useState(false);
 
   if (isLoading) {
     return (
@@ -494,6 +496,11 @@ export function ShiftReportPage() {
         actions={
           <>
             <StatusBadge meta={statusMeta(SHIFT_STATUS_META, shift.status, shift.status_name)} dot />
+            {shift.status === "open" && can("shifts.view_all") ? (
+              <Button variant="warning" size="md" icon={<Droplets />} onClick={() => setMarkOpen(true)}>
+                {t.attendant.priceMark}
+              </Button>
+            ) : null}
             <Button
               variant="secondary"
               size="md"
@@ -732,6 +739,9 @@ export function ShiftReportPage() {
         <Card title={t.shift.totalizers} flush>
           <DataTable columns={nozzleColumns} rows={nozzles} rowKey={(row) => row.nozzle_id} />
         </Card>
+      ) : null}
+      {shift.status === "open" && can("shifts.view_all") ? (
+        <PriceMarkModal shiftId={shift.id} open={markOpen} onClose={() => setMarkOpen(false)} />
       ) : null}
       {canFixOpening ? <OpeningFixModal shiftId={shift.id} row={fixRow} onClose={() => setFixRow(null)} /> : null}
       {can("shifts.approve") ? (

@@ -194,6 +194,7 @@ export function useAddPriceMarkMutation() {
       void queryClient.invalidateQueries({ queryKey: ["shifts", "price-marks", vars.shiftId] });
       // Түгээгчийн болон админы (бүх ээлжийн) анхааруулга хоёуланг нь.
       void queryClient.invalidateQueries({ queryKey: ["shifts", "price-alerts"] });
+      void queryClient.invalidateQueries({ queryKey: shiftKeys.report(vars.shiftId) });
     },
   });
 }
