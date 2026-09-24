@@ -1556,6 +1556,13 @@ async def list_shifts(
                 "sales_total": q2(_dec(sales_total)),
                 "business_date": closings[shift.id].business_date if shift.id in closings else None,
                 "approved": bool(closings[shift.id].approved_at) if shift.id in closings else False,
+                # Тушаалтын бэлэн бус сувгууд — тулгалтын нийт дүнд (терминал, шилжүүлэг).
+                "settlement_total": q2(
+                    _dec(closings[shift.id].settlement_vat) + _dec(closings[shift.id].settlement_novat)
+                )
+                if shift.id in closings
+                else ZERO,
+                "transfer_total": q2(_dec(closings[shift.id].transfer_total)) if shift.id in closings else ZERO,
             }
         )
 

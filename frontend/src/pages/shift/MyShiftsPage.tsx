@@ -21,6 +21,11 @@ import { SHIFT_STATUS_META, statusMeta } from "../../lib/constants";
 import { dSum } from "../../lib/decimal";
 import { formatDate, formatDateTime, formatMNT } from "../../lib/format";
 
+/** Бэлэн дүн дээр терминал, шилжүүлгийг нэмсэн тулгалтын нийт дүн. */
+function totalOf(row: ShiftSummary, cash: string): string {
+  return dSum([cash, row.settlement_total ?? "0", row.transfer_total ?? "0"]);
+}
+
 export function MyShiftsPage() {
   const navigate = useNavigate();
   const query = useShifts({ limit: 100 });
@@ -59,24 +64,24 @@ export function MyShiftsPage() {
       render: (row) => <StatusBadge size="sm" meta={statusMeta(SHIFT_STATUS_META, row.status, row.status_name)} />,
     },
     {
+      // Тулгалтын нийт дүн — түгээгчийн хаалтын «Тушаах ёстой»-той ижил:
+      // байвал зохих бэлэн + терминал + шилжүүлэг.
       key: "expected",
-      header: t.shift.expectedCash,
+      header: t.myShifts.mustTotal,
       align: "right",
       numeric: true,
-      hideOnMobile: true,
-      render: (row) => (row.expected_cash != null ? formatMNT(row.expected_cash) : "—"),
+      render: (row) => (row.expected_cash != null ? formatMNT(totalOf(row, row.expected_cash)) : "—"),
     },
     {
       key: "declared",
-      header: t.shift.declaredCash,
+      header: t.myShifts.handedTotal,
       align: "right",
       numeric: true,
-      hideOnMobile: true,
-      render: (row) => (row.declared_cash != null ? formatMNT(row.declared_cash) : "—"),
+      render: (row) => (row.declared_cash != null ? formatMNT(totalOf(row, row.declared_cash)) : "—"),
     },
     {
       key: "diff",
-      header: t.shift.overShort,
+      header: t.myShifts.totalDiff,
       align: "right",
       numeric: true,
       render: (row) =>

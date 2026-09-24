@@ -456,6 +456,9 @@ export interface ShiftSummary {
   /** Батлахдаа зассан ажилласан огноо. */
   business_date?: IsoDate | null;
   approved?: boolean;
+  /** Өдрийн хаалтын терминал, шилжүүлэг — тулгалтын нийт дүнд. */
+  settlement_total?: MoneyStr;
+  transfer_total?: MoneyStr;
   sales_total: MoneyStr;
 }
 

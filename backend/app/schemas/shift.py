@@ -77,6 +77,9 @@ class ShiftSummary(BaseModel):
     business_date: date | None = None
     #: Нягтлан баталсан эсэх.
     approved: bool = False
+    #: Өдрийн хаалтын банкны терминал, шилжүүлгийн дүн (тулгалтын нийт дүнд).
+    settlement_total: Decimal = ZERO
+    transfer_total: Decimal = ZERO
     sales_total: Decimal = ZERO
 
 

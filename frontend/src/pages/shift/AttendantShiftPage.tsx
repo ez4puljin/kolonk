@@ -1061,9 +1061,58 @@ export function AttendantShiftPage() {
       reading: litersOf(closeReadings[nozzle.id]),
     }));
 
+  /*
+   * Дутуу бөглөсөн мөр — тулгалт бүх мөрийг тоолдог боловч сервер рүү зөвхөн
+   * бүрэн мөр илгээгддэг байв. Жишээ нь харилцагч сонгоогүй зээлийн мөр
+   * тулгалтад «зээлээр өгсөн» гэж хасагдаад сервер рүү ОЧДОГГҮЙ тул тэр литр
+   * бэлэн борлуулалт болж, тулгалт 0 байхад ээлжийн тайланд их дутагдал
+   * гардаг байв. Одоо ийм мөртэй бол хаалт хийхгүй, тэр алхам руу шилжинэ.
+   */
+  const findIncomplete = (): { step: WizardStep; message: string } | null => {
+    const nth = (template: string, index: number): string => template.replace("{n}", String(index + 1));
+    for (const [index, row] of oilRows.entries()) {
+      if (row.product_id === "" && dToQty(row.qty) > 0) return { step: 2, message: nth(t.attendant.incompleteOil, index) };
+    }
+    for (const [index, row] of creditRows.entries()) {
+      const hasValue = row.items.some((item) =>
+        item.kind === "fuel" ? item.fuel_id !== "" && dToQty(item.value) > 0 : item.product_id !== "" && dToQty(item.product_qty) > 0,
+      );
+      const noTarget = row.contract_id === "" || (row.contract_id === NEW_CUSTOMER && row.new_name.trim() === "");
+      if (hasValue && noTarget) return { step: 3, message: nth(t.attendant.incompleteCredit, index) };
+    }
+    for (const [index, row] of arRows.entries()) {
+      const linkedNew = row.contract_id.startsWith(NEW_AR_PREFIX)
+        ? creditRows.find((r) => String(r.key) === row.contract_id.slice(NEW_AR_PREFIX.length))
+        : undefined;
+      const noTarget =
+        row.contract_id === "" || (row.contract_id.startsWith(NEW_AR_PREFIX) && (!linkedNew || linkedNew.new_name.trim() === ""));
+      if (dToQty(row.amount) > 0 && noTarget) return { step: 4, message: nth(t.attendant.incompleteAr, index) };
+    }
+    for (const [index, row] of expenseRows.entries()) {
+      if (row.account_code === "" && dToQty(row.amount) > 0) return { step: 5, message: nth(t.attendant.incompleteExpense, index) };
+    }
+    return null;
+  };
+
+  // Алдаа гарвал түгээгчид харагдахаар цонхны доод хэсэгт гүйлгэнэ.
+  useEffect(() => {
+    if (!closeError) return;
+    const timer = window.setTimeout(
+      () => document.getElementById("close-error")?.scrollIntoView({ block: "center", behavior: "smooth" }),
+      50,
+    );
+    return () => window.clearTimeout(timer);
+  }, [closeError, step]);
+
   const goToConfirm = (): void => {
     if (!shiftId) return;
     setCloseError(null);
+    const incomplete = findIncomplete();
+    if (incomplete) {
+      setStep(incomplete.step);
+      setCloseError(incomplete.message);
+      return;
+    }
     previewMutation.mutate(
       { shiftId, readings: readingsPayload() },
       {
@@ -1079,6 +1128,12 @@ export function AttendantShiftPage() {
   const submitClose = (): void => {
     if (!shiftId) return;
     setCloseError(null);
+    const incomplete = findIncomplete();
+    if (incomplete) {
+      setStep(incomplete.step);
+      setCloseError(incomplete.message);
+      return;
+    }
 
     const creditLines: CreditLineInput[] = creditRows
       .filter(
@@ -2447,7 +2502,7 @@ export function AttendantShiftPage() {
           ) : null}
 
           {closeError ? (
-            <p className="rounded-xl bg-danger-soft px-4 py-3 text-sm font-medium text-danger-dark">
+            <p id="close-error" className="rounded-xl bg-danger-soft px-4 py-3 text-sm font-medium text-danger-dark">
               {closeError}
             </p>
           ) : null}

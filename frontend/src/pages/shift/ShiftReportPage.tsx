@@ -34,7 +34,7 @@ import { usePrint } from "../../hooks/usePrint";
 import { t } from "../../i18n/mn";
 import { dToNumber } from "../../lib/decimal";
 import { SHIFT_STATUS_META, statusMeta } from "../../lib/constants";
-import { dCmp, dIsPositive, dIsZero, dSub } from "../../lib/decimal";
+import { dCmp, dIsPositive, dIsZero, dSub, dSum } from "../../lib/decimal";
 import { formatDateTime, formatLiters, formatMNT, formatMoneyExact, formatNumber, formatPct } from "../../lib/format";
 import { useUiStore } from "../../stores/ui";
 import { NumberField, TextField } from "../catalog/_shared";
@@ -720,6 +720,25 @@ export function ShiftReportPage() {
             </div>
           ) : null}
           <CashRow label={t.shift.declaredCash} value={cash.declared_cash} strong />
+          {daily && cash.declared_cash !== null ? (
+            // Түгээгчийн хаалтын тулгалттай ижил нийт дүн: бэлэн + терминал + шилжүүлэг.
+            // Зөрүү нь бэлэн мөнгөний зөрүүтэй тэнцүү (терминал, шилжүүлгийг
+            // түгээгч өөрөө мэдүүлдэг тул зөрүү зөвхөн бэлэн мөнгөнөөс гарна).
+            <div className="mt-3 rounded-xl border border-line bg-surface-alt px-3 py-1">
+              <CashRow label={t.attendant.methodCard} value={daily.settlement_total} />
+              <CashRow label={t.attendant.methodTransfer} value={daily.transfer_total ?? "0"} />
+              <CashRow
+                label={t.myShifts.mustTotal}
+                value={dSum([cash.expected_cash, daily.settlement_total, daily.transfer_total ?? "0"])}
+                strong
+              />
+              <CashRow
+                label={t.myShifts.handedTotal}
+                value={dSum([cash.declared_cash, daily.settlement_total, daily.transfer_total ?? "0"])}
+                strong
+              />
+            </div>
+          ) : null}
           <div
             className={`mt-3 flex items-center justify-between gap-4 rounded-xl border-2 px-4 py-3 ${
               balanced
