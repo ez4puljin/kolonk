@@ -562,9 +562,12 @@ export interface CashSection {
   opening_cash: MoneyStr;
   cash_sales: MoneyStr;
   refunds: MoneyStr;
+  other_cash?: MoneyStr;
   expected_cash: MoneyStr;
   declared_cash: MoneyStr | null;
   cash_over_short: MoneyStr | null;
+  /** Хуучин дүрмээр хаагдсан бол — зөв дүрмээр бодсон байвал зохих дүн. */
+  recalc_expected?: MoneyStr | null;
 }
 
 export interface ShiftRefundRow {

@@ -150,6 +150,8 @@ class CashSection(BaseModel):
     expected_cash: Decimal = ZERO
     declared_cash: Decimal | None = None
     cash_over_short: Decimal | None = None
+    #: Хаагдсан ээлжийн хадгалсан дүн одоогийн (зөв) дүрмээс өөр бол шинэ дүн.
+    recalc_expected: Decimal | None = None
 
 
 class RefundRow(BaseModel):
@@ -408,6 +410,12 @@ class OpeningReadingFixOut(BaseModel):
     reading: Decimal
     #: Шинэ нээлт − өмнөх хаалт.
     mile_gap_l: Decimal | None
+
+
+class CashRecalcOut(BaseModel):
+    shift_id: uuid.UUID
+    expected_cash: Decimal
+    cash_over_short: Decimal
 
 
 class OpeningCashFixIn(BaseModel):

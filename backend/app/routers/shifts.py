@@ -33,6 +33,7 @@ from app.schemas.shift import (
     CloseDraftOut,
     ClosingApprovalIn,
     ClosingCorrectIn,
+    CashRecalcOut,
     OpeningCashFixIn,
     OpenShiftPriceAlertOut,
     PriceAlertOut,
@@ -488,6 +489,16 @@ async def correct_opening_reading(
         reading=payload.reading,
         note=payload.note,
     )
+
+
+@router.post("/shifts/{shift_id}/recalculate-cash", response_model=CashRecalcOut)
+async def recalculate_cash(
+    shift_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.approve")),
+) -> dict[str, Any]:
+    """Хуучин дүрмээр хаагдсан ээлжийн кассын зөрүүг дахин бодно (нягтлан/админ)."""
+    return await shift_service.recalculate_cash(db, user, shift_id=shift_id)
 
 
 @router.post("/shifts/{shift_id}/opening-cash", response_model=OpeningCashFixOut)

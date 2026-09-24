@@ -295,6 +295,24 @@ export function useCorrectOpeningCashMutation() {
   });
 }
 
+/** Хуучин дүрмээр хаагдсан ээлжийн кассын зөрүүг дахин бодно. */
+export function useRecalculateCashMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (shiftId: UUID) =>
+      api.post<{ shift_id: UUID; expected_cash: MoneyStr; cash_over_short: MoneyStr }>(
+        `/api/shifts/${shiftId}/recalculate-cash`,
+        {},
+      ),
+    onSuccess: (_data, shiftId) => {
+      void queryClient.invalidateQueries({ queryKey: shiftKeys.report(shiftId) });
+      void queryClient.invalidateQueries({ queryKey: ["shifts", "daily-closings"] });
+      void queryClient.invalidateQueries({ queryKey: ["shifts", "list"] });
+      void queryClient.invalidateQueries({ queryKey: ["accounting"] });
+    },
+  });
+}
+
 /** Хаалт батлах / батламж буцаах. */
 export function useClosingApprovalMutation() {
   const queryClient = useQueryClient();

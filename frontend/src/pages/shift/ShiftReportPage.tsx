@@ -5,6 +5,7 @@ import { AlertTriangle, Check, Download, Droplets, Pencil, Printer } from "lucid
 import { errorMessage } from "../../api/client";
 import {
   downloadShiftReport,
+  useRecalculateCashMutation,
   useCorrectOpeningCashMutation,
   useCorrectOpeningReadingMutation,
   useShiftReport,
@@ -265,6 +266,8 @@ export function ShiftReportPage() {
   const [fixRow, setFixRow] = useState<ShiftNozzleRow | null>(null);
   const [cashFixOpen, setCashFixOpen] = useState(false);
   const [markOpen, setMarkOpen] = useState(false);
+  const recalc = useRecalculateCashMutation();
+  const toastSuccess = useUiStore((state) => state.toastSuccess);
 
   if (isLoading) {
     return (
@@ -686,7 +689,36 @@ export function ShiftReportPage() {
           <CashRow label={t.shift.openingCash} value={cash.opening_cash} />
           <CashRow label={t.tender.cash} value={cash.cash_sales} />
           <CashRow label={t.refunds.title} value={cash.refunds} />
+          {cash.other_cash && !dIsZero(cash.other_cash) ? (
+            <CashRow label={t.shift.otherCash} value={cash.other_cash} />
+          ) : null}
           <CashRow label={t.shift.expectedCash} value={cash.expected_cash} strong />
+          {cash.recalc_expected ? (
+            // Хуучин дүрмээр хаагдсан: ээлжийн бус хүний кассын гүйлгээ орсон байна.
+            <div className="my-2 flex flex-col gap-2 rounded-xl border-2 border-warning bg-warning-soft px-3 py-2.5 text-sm text-warning-dark">
+              <span className="font-bold">{t.shift.recalcTitle}</span>
+              <span className="text-ink-soft">
+                {t.shift.recalcHint
+                  .replace("{expected}", formatMoneyExact(cash.recalc_expected))
+                  .replace("{diff}", formatMoneyExact(dSub(cash.declared_cash ?? "0", cash.recalc_expected)))}
+              </span>
+              {can("shifts.approve") ? (
+                <Button
+                  variant="warning"
+                  size="md"
+                  loading={recalc.isPending}
+                  onClick={() =>
+                    recalc.mutate(shift.id, {
+                      onSuccess: () => toastSuccess(t.shift.recalcToast),
+                      onError: (cause) => toastError(errorMessage(cause)),
+                    })
+                  }
+                >
+                  {t.shift.recalcAction}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
           <CashRow label={t.shift.declaredCash} value={cash.declared_cash} strong />
           <div
             className={`mt-3 flex items-center justify-between gap-4 rounded-xl border-2 px-4 py-3 ${

@@ -155,7 +155,19 @@ async def _cash_flows(db: AsyncSession, shift: Shift) -> tuple[Decimal, Decimal]
     return q2(_dec(cash_sales)), q2(_dec(refunds_cash))
 
 
-async def _other_cash_movement(db: AsyncSession, shift: Shift) -> Decimal:
+def _shift_people(shift: Shift, closer_id: uuid.UUID | None = None) -> list[uuid.UUID]:
+    """Ээлжийн кассыг хөдөлгөх эрхтэй хүмүүс — нээсэн түгээгч, хаасан хэрэглэгч."""
+    people = {shift.opened_by}
+    if closer_id is not None:
+        people.add(closer_id)
+    if shift.closed_by is not None:
+        people.add(shift.closed_by)
+    return [p for p in people if p is not None]
+
+
+async def _other_cash_movement(
+    db: AsyncSession, shift: Shift, closer_id: uuid.UUID | None = None
+) -> Decimal:
     """Борлуулалт/буцаалтаас гадуурх кассын хөдөлгөөн (цэвэр дүн).
 
     Ваучер бэлнээр зарах, урьдчилсан карт бэлнээр цэнэглэх, нийлүүлэгчид
@@ -168,7 +180,12 @@ async def _other_cash_movement(db: AsyncSession, shift: Shift) -> Decimal:
 
     Хасагдах зүйлс:
       * ``source_type='shift'`` — ээлжийн зөрүүний бичилт өөрөө (дугуй хамаарал);
-      * ``SALE``/``REFUND`` — эдгээрийг аль хэдийн ``_cash_flows`` тоолсон.
+      * ``SALE``/``REFUND`` — эдгээрийг аль хэдийн ``_cash_flows`` тоолсон;
+      * ЭЭЛЖИЙН БУС хүний бичилт — зөвхөн ээлж нээсэн түгээгч болон хаасан
+        хэрэглэгчийн хийсэн бичилт тооцогдоно. Өмнө нь ээлжийн хугацаанд
+        нягтлан кассаас зарлага гаргах, банк руу тушаах, өөр салбарын хаалт
+        зэрэг компанийн БҮХ 1101 хөдөлгөөн орж, түгээгчийн тулгалт 0 байхад
+        ээлжийн тайланд илүүдэл/дутагдал гарч, журналд худал бичигддэг байв.
     """
     window_end = shift.closed_at or datetime.now(UTC)
     stmt = (
@@ -185,6 +202,7 @@ async def _other_cash_movement(db: AsyncSession, shift: Shift) -> Decimal:
             JournalEntry.source_type.notin_(
                 [str(SourceType.SHIFT), str(SourceType.SALE), str(SourceType.REFUND)]
             ),
+            JournalEntry.posted_by.in_(_shift_people(shift, closer_id)),
         )
     )
     return q2(_dec(await db.scalar(stmt)))
@@ -417,6 +435,50 @@ async def correct_opening_reading(
         "old_reading": old_reading,
         "reading": new_reading,
         "mile_gap_l": gap,
+    }
+
+
+async def recalculate_cash(db: AsyncSession, user: User, *, shift_id: uuid.UUID) -> dict[str, Any]:
+    """Хаагдсан ээлжийн байвал зохих бэлэн мөнгө, кассын зөрүүг дахин бодно.
+
+    Хуучин дүрмээр (ээлжийн бус хүний кассын гүйлгээ орсон) хаагдсан ээлжийг
+    засна: зөрүүний журналын бичилт цуцлагдаж, шинэ дүнгээр дахин бичигдэнэ.
+    Батлагдсан хаалтыг эхлээд буцаана.
+    """
+    from app.models.shift import ShiftClosing  # noqa: PLC0415
+
+    shift = await get_shift(db, shift_id)
+    if shift.status == str(ShiftStatus.OPEN) or shift.declared_cash is None:
+        raise HTTPException(status_code=422, detail="Зөвхөн хаагдсан ээлжийн кассыг дахин бодно")
+    closing = await db.scalar(select(ShiftClosing).where(ShiftClosing.shift_id == shift.id))
+    if closing is not None and closing.approved_at is not None:
+        raise HTTPException(status_code=422, detail="Батлагдсан хаалт — эхлээд батламжийг буцаана уу")
+
+    cash_sales, refunds_cash = await _cash_flows(db, shift)
+    other_cash = await _other_cash_movement(db, shift)
+    expected = q2(_dec(shift.opening_cash) + cash_sales - refunds_cash + other_cash)
+    over_short = q2(_dec(shift.declared_cash) - expected)
+    before = {
+        "expected_cash": str(_dec(shift.expected_cash)),
+        "cash_over_short": str(_dec(shift.cash_over_short)),
+    }
+    await repost_cash_difference(db, user, shift=shift, over_short=over_short)
+    shift.expected_cash = expected
+    shift.cash_over_short = over_short
+    await db.flush()
+    await audit(
+        db,
+        user_id=user.id,
+        action="shift.cash_recalculated",
+        entity_type="shift",
+        entity_id=shift.id,
+        before=before,
+        after={"expected_cash": str(expected), "cash_over_short": str(over_short), "other_cash": str(other_cash)},
+    )
+    return {
+        "shift_id": shift.id,
+        "expected_cash": expected,
+        "cash_over_short": over_short,
     }
 
 
@@ -720,7 +782,7 @@ async def close_shift(
 
     # ---------------- Касс ----------------
     cash_sales, refunds_cash = await _cash_flows(db, shift)
-    other_cash = await _other_cash_movement(db, shift)
+    other_cash = await _other_cash_movement(db, shift, closer_id=user.id)
     opening_cash = q2(_dec(shift.opening_cash))
     expected = q2(opening_cash + cash_sales - refunds_cash + other_cash)
     over_short = q2(declared - expected)
@@ -1329,11 +1391,11 @@ async def shift_report(
     meta = await shift_meta(db, shift, sales=sales)
 
     opening_cash = q2(_dec(shift.opening_cash))
-    expected = (
-        q2(_dec(shift.expected_cash))
-        if shift.expected_cash is not None
-        else q2(opening_cash + cash_sales - refunds_cash + other_cash)
-    )
+    computed = q2(opening_cash + cash_sales - refunds_cash + other_cash)
+    expected = q2(_dec(shift.expected_cash)) if shift.expected_cash is not None else computed
+    #: Хаагдсан ээлжийн хадгалсан дүн одоогийн дүрмээр бодсоноос өөр (хуучин
+    #: алдаатай дүрмээр хаагдсан) бол шинэ дүн — тайланд «дахин бодох» санал.
+    recalc_expected = computed if shift.expected_cash is not None and computed != expected else None
 
     revenue_net = sales["net_total"]
     cogs_total = sales["cogs_total"]
@@ -1363,6 +1425,7 @@ async def shift_report(
             "expected_cash": expected,
             "declared_cash": q2(_dec(shift.declared_cash)) if shift.declared_cash is not None else None,
             "cash_over_short": q2(_dec(shift.cash_over_short)) if shift.cash_over_short is not None else None,
+            "recalc_expected": recalc_expected,
         },
         "refunds": refunds,
         "profit": {
