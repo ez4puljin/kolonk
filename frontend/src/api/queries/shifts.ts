@@ -2,6 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../client";
 import type {
+  ClosingMethod,
+  ClosingTarget,
+  ClosingView,
   CloseDraft,
   CloseDraftResponse,
   CurrentShift,
@@ -291,6 +294,86 @@ export function useCorrectOpeningCashMutation() {
       void queryClient.invalidateQueries({ queryKey: shiftKeys.current() });
       void queryClient.invalidateQueries({ queryKey: ["shifts", "daily-closings"] });
       void queryClient.invalidateQueries({ queryKey: ["accounting"] });
+    },
+  });
+}
+
+/** Ээлжийн тайлан — өдрийн хаалтын цонх (серверийн бүртгэл + түгээгчийн тулгалт). */
+export function useClosingView(shiftId: UUID | null, enabled = true) {
+  return useQuery({
+    queryKey: ["shifts", "closing-view", shiftId ?? ""],
+    queryFn: () => api.get<ClosingView>(`/api/shifts/${shiftId}/closing-view`),
+    enabled: Boolean(shiftId) && enabled,
+  });
+}
+
+/** Зээл нэмэхэд сонгох түлш — нэгдсэн борлуулалтад байгаа литртэй. */
+export function useClosingFuels(shiftId: UUID | null, enabled = true) {
+  return useQuery({
+    queryKey: ["shifts", "closing-view", shiftId ?? "", "fuels"],
+    queryFn: () =>
+      api.get<{ fuel_id: UUID; name: string; liters: string; amount: MoneyStr }[]>(
+        `/api/shifts/${shiftId}/closing-view/fuels`,
+      ),
+    enabled: Boolean(shiftId) && enabled,
+  });
+}
+
+type ClosingEdit =
+  | { kind: "tenders"; declared_cash: MoneyStr; settlement_total: MoneyStr; transfer_total: MoneyStr; note?: string }
+  | { kind: "add-credit"; target: ClosingTarget; fuel_id: UUID; qty?: string; amount?: MoneyStr }
+  | { kind: "remove-credit"; sale_id: UUID }
+  | { kind: "add-ar"; target: ClosingTarget; amount: MoneyStr; method: ClosingMethod }
+  | { kind: "remove-ar"; payment_id: UUID }
+  | { kind: "add-expense"; account_code: string; amount: MoneyStr; method: ClosingMethod; description?: string }
+  | { kind: "remove-expense"; expense_id: UUID };
+
+/** Нягтлан/админ — өдрийн хаалтын засвар (тушаалт, зээл, өглөг, зарлага). */
+export function useClosingEditMutation(shiftId: UUID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (edit: ClosingEdit) => {
+      const base = `/api/shifts/${shiftId}/closing`;
+      switch (edit.kind) {
+        case "tenders": {
+          const { kind: _k, ...body } = edit;
+          return api.put<ClosingView>(`${base}/tenders`, body);
+        }
+        case "add-credit":
+          return api.post<ClosingView>(`${base}/credits`, {
+            ...edit.target,
+            fuel_id: edit.fuel_id,
+            qty: edit.qty ?? null,
+            amount: edit.amount ?? null,
+          });
+        case "remove-credit":
+          return api.del<ClosingView>(`${base}/credits/${edit.sale_id}`);
+        case "add-ar":
+          return api.post<ClosingView>(`${base}/ar-payments`, { ...edit.target, amount: edit.amount, method: edit.method });
+        case "remove-ar":
+          return api.del<ClosingView>(`${base}/ar-payments/${edit.payment_id}`);
+        case "add-expense": {
+          const { kind: _k, ...body } = edit;
+          return api.post<ClosingView>(`${base}/expenses`, body);
+        }
+        case "remove-expense":
+          return api.del<ClosingView>(`${base}/expenses/${edit.expense_id}`);
+      }
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(["shifts", "closing-view", shiftId], data);
+      for (const key of [
+        ["shifts", "closing-view", shiftId],
+        shiftKeys.report(shiftId),
+        ["shifts", "daily-closings"],
+        ["shifts", "list"],
+        ["accounting"],
+        ["customers"],
+        ["contracts"],
+        ["expenses"],
+      ]) {
+        void queryClient.invalidateQueries({ queryKey: key });
+      }
     },
   });
 }

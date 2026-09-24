@@ -120,6 +120,8 @@ class ShiftClosing(UUIDPKMixin, TimestampMixin, Base):
     note: Mapped[str | None] = mapped_column(Text)
     #: Батлахдаа зассан ээлжийн огноо (хоосон бол нээсэн огноо).
     business_date: Mapped[date | None] = mapped_column(Date)
+    #: Түгээгчийн хаалтын цонхны хуулбар — илгээсэн өгөгдөл + дэлгэц дээрх тулгалт.
+    close_input: Mapped[dict | None] = mapped_column(JSONB)
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id"))
     #: Нягтлан хянаж баталсан мөч — батлагдсан хаалтыг засах боломжгүй.
     approved_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id"))

@@ -370,6 +370,8 @@ class DailyCloseIn(BaseModel):
     expenses: list[ExpenseLineIn] = Field(default_factory=list)
     tank_dips: list[TankDipIn] = Field(default_factory=list)
     note: str | None = None
+    #: Түгээгчийн дэлгэц дээрх тулгалт, мөрүүд — тайланд харьцуулахад хадгална.
+    client_snapshot: dict[str, Any] | None = None
 
 
 class CloseDraftIn(BaseModel):
@@ -413,6 +415,62 @@ class OpeningReadingFixOut(BaseModel):
     reading: Decimal
     #: Шинэ нээлт − өмнөх хаалт.
     mile_gap_l: Decimal | None
+
+
+class ClosingTendersIn(BaseModel):
+    """Хаалтын засвар — тоолсон бэлэн, банкны терминал, шилжүүлэг."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    declared_cash: Decimal = Field(ge=0)
+    settlement_total: Decimal = Field(ge=0)
+    transfer_total: Decimal = Field(ge=0)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class ClosingTargetMixin(BaseModel):
+    """Байгаа гэрээ / гэрээгүй харилцагч / шинэ харилцагч — аль нэг нь."""
+
+    contract_id: uuid.UUID | None = None
+    customer_id: uuid.UUID | None = None
+    new_customer: "NewCreditCustomerIn | None" = None
+
+    @model_validator(mode="after")
+    def _one_target(self) -> "ClosingTargetMixin":
+        given = sum(x is not None for x in (self.contract_id, self.customer_id, self.new_customer))
+        if given != 1:
+            raise ValueError("Гэрээ, харилцагч эсвэл шинэ харилцагч — аль нэгийг нь")
+        return self
+
+
+class ClosingCreditIn(ClosingTargetMixin):
+    """Хаалтын засвар — нэгдсэн борлуулалтаас харилцагчийн зээл рүү шилжүүлэх."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    fuel_id: uuid.UUID
+    qty: Decimal | None = Field(default=None, gt=0)
+    amount: Decimal | None = Field(default=None, gt=0)
+
+
+class ClosingArIn(ClosingTargetMixin):
+    """Хаалтын засвар — өглөг төлөлт нэмэх."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    amount: Decimal = Field(gt=0)
+    method: str = "cash"
+
+
+class ClosingExpenseIn(BaseModel):
+    """Хаалтын засвар — зарлага нэмэх."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    account_code: str
+    amount: Decimal = Field(gt=0)
+    method: str = "cash"
+    description: str | None = Field(default=None, max_length=200)
 
 
 class CashRecalcOut(BaseModel):

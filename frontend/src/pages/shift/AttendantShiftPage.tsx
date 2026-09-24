@@ -1165,10 +1165,44 @@ export function AttendantShiftPage() {
       }))
       .filter((line) => line.items.length > 0);
 
+    // Түгээгчийн дэлгэц дээр харсан тулгалт — ээлжийн тайланд серверийн
+    // бүртгэлтэй харьцуулж, зөрүү хаанаас гарсныг олоход хадгална.
+    const declaredValue = declaredCash === "" ? "0" : declaredCash;
+    const snapshotMust = preview
+      ? dSub(
+          dSum([preview.opening_cash, preview.fuel_total, oilTotal, creditGoodsTotal, arTotal]),
+          dSum([creditTotal, expenseCashTotal]),
+        )
+      : null;
+    const snapshotHanded = dSum([declaredValue, settlementTotal, transferAmount]);
+    const stripKeys = <T extends { key: number }>(rows: T[]) => rows.map(({ key: _key, ...rest }) => rest);
+    const clientSnapshot = {
+      must: snapshotMust,
+      handed: snapshotHanded,
+      diff: snapshotMust !== null ? dSub(snapshotHanded, snapshotMust) : null,
+      opening_cash: preview?.opening_cash ?? null,
+      fuel_total: preview?.fuel_total ?? null,
+      oil_total: oilTotal,
+      credit_total: creditTotal,
+      credit_goods: creditGoodsTotal,
+      ar_total: arTotal,
+      expense_cash: expenseCashTotal,
+      declared_cash: declaredValue,
+      settlement_total: settlementTotal,
+      transfer_total: transferAmount,
+      rows: {
+        oil: stripKeys(oilRows),
+        credit: creditRows.map(({ key: _key, items, ...rest }) => ({ ...rest, items: stripKeys(items) })),
+        ar: stripKeys(arRows),
+        expense: stripKeys(expenseRows),
+      },
+    };
+
     closeMutation.mutate(
       {
         shiftId,
         payload: {
+          client_snapshot: clientSnapshot,
           totalizer_readings: readingsPayload(),
           declared_cash: declaredCash === "" ? "0" : declaredCash,
           settlement_total: settlementTotal,

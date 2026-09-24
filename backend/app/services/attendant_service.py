@@ -1020,6 +1020,14 @@ async def daily_close(
         oil_sale_id=oil_sale_id,
         note=(payload.note or "").strip() or None,
         created_by=user.id,
+        # Түгээгч юу бөглөж, ямар тулгалт харсныг хадгална — дараа нь тайланд
+        # серверийн бүртгэлтэй харьцуулж, зөрүү хаанаас гарсныг олно.
+        close_input={
+            "payload": payload.model_dump(mode="json", exclude={"client_snapshot"})
+            if hasattr(payload, "model_dump")
+            else None,
+            "client": getattr(payload, "client_snapshot", None),
+        },
     )
     db.add(closing)
     # Өдрийн турш бөглөсөн ноорог хаалтад орсон тул цэвэрлэнэ.

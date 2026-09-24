@@ -20,6 +20,7 @@ import type {
 } from "../../api/types";
 import { PageHeader } from "../../components/layout/PageHeader";
 import { AttendantRecord } from "../../components/shift/AttendantRecord";
+import { ClosingWindow } from "../../components/shift/ClosingWindow";
 import { ShiftReportTemplate } from "../../components/receipt/ShiftReportTemplate";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
@@ -808,6 +809,8 @@ export function ShiftReportPage() {
       ) : null}
 
       {/* Түгээгчийн оруулсан тоо + дарсан зураг — баримтын хэсэг. */}
+      {/* Түгээгчийн өдрийн хаалтын цонх — серверийн бүртгэл ба түгээгчийн тулгалт, засвар. */}
+      {id && daily ? <ClosingWindow shiftId={id} /> : null}
       {id ? <AttendantRecord shiftId={id} report={report} /> : null}
 
       {portal}

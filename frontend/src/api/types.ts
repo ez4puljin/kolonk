@@ -523,6 +523,69 @@ export interface PriceAlert {
   has_mark: boolean;
 }
 
+export type ClosingMethod = "cash" | "card" | "transfer";
+
+export interface ClosingLineItem {
+  name: string;
+  qty: LitersStr;
+  unit_price: MoneyStr;
+  amount: MoneyStr;
+}
+
+/** Ээлжийн тайлан — өдрийн хаалтын цонх (серверийн бүртгэл + түгээгчийн тулгалт). */
+export interface ClosingView {
+  shift_id: UUID;
+  editable: boolean;
+  opening_cash: MoneyStr;
+  declared_cash: MoneyStr;
+  settlement_total: MoneyStr;
+  transfer_total: MoneyStr;
+  fuel_total: MoneyStr;
+  oil_total: MoneyStr;
+  oil_lines: ClosingLineItem[];
+  credit_total: MoneyStr;
+  credit_fuel: MoneyStr;
+  credit_goods: MoneyStr;
+  credit_lines: {
+    sale_id: UUID;
+    number: number;
+    customer: string;
+    contract_no: string;
+    total: MoneyStr;
+    fuel_only: boolean;
+    edited: boolean;
+    items: ClosingLineItem[];
+  }[];
+  ar_total: MoneyStr;
+  ar_by_method: Record<ClosingMethod, MoneyStr>;
+  ar_payments: { id: UUID; customer: string; amount: MoneyStr; method: ClosingMethod; edited: boolean }[];
+  expense_by_method: Record<ClosingMethod, MoneyStr>;
+  expenses: {
+    id: UUID;
+    account_code: string;
+    account_name: string;
+    description: string;
+    amount: MoneyStr;
+    method: ClosingMethod;
+  }[];
+  tender_sales: { kind: "fuel" | "oil"; sale_id: UUID; number: number; total: MoneyStr; cash: MoneyStr; card: MoneyStr; transfer: MoneyStr }[];
+  must: MoneyStr;
+  handed: MoneyStr;
+  diff: MoneyStr;
+  expected_cash: MoneyStr;
+  cash_over_short: MoneyStr;
+  consistent: boolean;
+  /** Түгээгчийн дэлгэц дээр харсан тулгалт (шинэ хаалтуудад). */
+  client: { must?: MoneyStr; handed?: MoneyStr; diff?: MoneyStr; [key: string]: unknown } | null;
+}
+
+/** Хаалтын засварт харилцагч: байгаа гэрээ / гэрээгүй харилцагч / шинэ. */
+export interface ClosingTarget {
+  contract_id?: UUID;
+  customer_id?: UUID;
+  new_customer?: { name: string; phone?: string | null };
+}
+
 export interface OpenShiftPriceAlert {
   shift_id: UUID;
   shift_number: number;
@@ -2722,6 +2785,8 @@ export interface DailyCloseRequest {
   expenses: ExpenseLineInput[];
   tank_dips?: TankDipInput[];
   note?: string | null;
+  /** Түгээгчийн дэлгэц дээрх тулгалт, мөрүүд — ээлжийн тайланд харьцуулахад. */
+  client_snapshot?: Record<string, unknown> | null;
 }
 
 export interface DailySegment {

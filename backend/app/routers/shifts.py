@@ -34,6 +34,10 @@ from app.schemas.shift import (
     ClosingApprovalIn,
     ClosingCorrectIn,
     CashRecalcOut,
+    ClosingArIn,
+    ClosingCreditIn,
+    ClosingExpenseIn,
+    ClosingTendersIn,
     OpeningCashFixIn,
     OpenShiftPriceAlertOut,
     PriceAlertOut,
@@ -51,7 +55,7 @@ from app.schemas.shift import (
     ShiftOpenIn,
     ShiftReportOut,
 )
-from app.services import attendant_service, shift_service
+from app.services import attendant_service, closing_edit_service, shift_service
 from app.services.audit_service import audit
 
 router = APIRouter(prefix="/api", tags=["shifts"])
@@ -489,6 +493,119 @@ async def correct_opening_reading(
         reading=payload.reading,
         note=payload.note,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Өдрийн хаалтын цонх — харах, засах (нягтлан/админ)
+# --------------------------------------------------------------------------- #
+@router.get("/shifts/{shift_id}/closing-view")
+async def closing_view(
+    shift_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.view_all", "shifts.close")),
+) -> dict[str, Any]:
+    """Түгээгчийн өдрийн хаалтыг цонхоор нь — серверийн бүртгэл + түгээгчийн тулгалт."""
+    await _visible_shift(db, user, shift_id)
+    return await closing_edit_service.closing_view(db, shift_id)
+
+
+@router.get("/shifts/{shift_id}/closing-view/fuels")
+async def closing_fuels(
+    shift_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_permission("shifts.approve")),
+) -> list[dict[str, Any]]:
+    return await closing_edit_service.fuel_options(db, shift_id)
+
+
+@router.put("/shifts/{shift_id}/closing/tenders")
+async def closing_set_tenders(
+    shift_id: uuid.UUID,
+    payload: ClosingTendersIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.approve")),
+) -> dict[str, Any]:
+    return await closing_edit_service.set_tenders(
+        db,
+        user,
+        shift_id=shift_id,
+        declared_cash=payload.declared_cash,
+        settlement_total=payload.settlement_total,
+        transfer_total=payload.transfer_total,
+        note=payload.note,
+    )
+
+
+@router.post("/shifts/{shift_id}/closing/credits")
+async def closing_add_credit(
+    shift_id: uuid.UUID,
+    payload: ClosingCreditIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.approve")),
+) -> dict[str, Any]:
+    return await closing_edit_service.add_credit(
+        db, user, shift_id=shift_id, target=payload, fuel_id=payload.fuel_id, qty=payload.qty, amount=payload.amount
+    )
+
+
+@router.delete("/shifts/{shift_id}/closing/credits/{sale_id}")
+async def closing_remove_credit(
+    shift_id: uuid.UUID,
+    sale_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.approve")),
+) -> dict[str, Any]:
+    return await closing_edit_service.remove_credit(db, user, shift_id=shift_id, sale_id=sale_id)
+
+
+@router.post("/shifts/{shift_id}/closing/ar-payments")
+async def closing_add_ar(
+    shift_id: uuid.UUID,
+    payload: ClosingArIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.approve")),
+) -> dict[str, Any]:
+    return await closing_edit_service.add_ar_payment(
+        db, user, shift_id=shift_id, target=payload, amount=payload.amount, method=payload.method
+    )
+
+
+@router.delete("/shifts/{shift_id}/closing/ar-payments/{payment_id}")
+async def closing_remove_ar(
+    shift_id: uuid.UUID,
+    payment_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.approve")),
+) -> dict[str, Any]:
+    return await closing_edit_service.remove_ar_payment(db, user, shift_id=shift_id, payment_id=payment_id)
+
+
+@router.post("/shifts/{shift_id}/closing/expenses")
+async def closing_add_expense(
+    shift_id: uuid.UUID,
+    payload: ClosingExpenseIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.approve")),
+) -> dict[str, Any]:
+    return await closing_edit_service.add_expense(
+        db,
+        user,
+        shift_id=shift_id,
+        account_code=payload.account_code,
+        amount=payload.amount,
+        method=payload.method,
+        description=payload.description,
+    )
+
+
+@router.delete("/shifts/{shift_id}/closing/expenses/{expense_id}")
+async def closing_remove_expense(
+    shift_id: uuid.UUID,
+    expense_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.approve")),
+) -> dict[str, Any]:
+    return await closing_edit_service.remove_expense(db, user, shift_id=shift_id, expense_id=expense_id)
 
 
 @router.post("/shifts/{shift_id}/recalculate-cash", response_model=CashRecalcOut)
