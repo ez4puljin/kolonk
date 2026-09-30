@@ -81,6 +81,9 @@ class ShiftSummary(BaseModel):
     settlement_total: Decimal = ZERO
     transfer_total: Decimal = ZERO
     sales_total: Decimal = ZERO
+    #: Хадгалсан «байвал зохих» дүн хуучин дүрмээр бодогдсон — дахин бодох шаардлагатай.
+    needs_recalc: bool = False
+    expected_recalc: Decimal | None = None
 
 
 class ShiftListOut(BaseModel):
@@ -247,6 +250,10 @@ class PriceAlertOut(BaseModel):
     approved_at: datetime | None = None
     #: Тэмдэглэл оруулсан ч үнэ нь буруу бол True.
     has_mark: bool = False
+    #: Сүүлийн тэмдэглэлээс (эсвэл ээлж нээснээс) хойш үнэ батлагдсан ч
+    #: тэмдэглэгдээгүй — өдрийн хаалт хийгдэхгүй. False бол зөвхөн анхааруулга
+    #: (тэмдэглэлийн үнэ батлагдаагүй / хүсэлт хүлээгдэж буй гэх мэт).
+    blocking: bool = False
 
 
 class OpenShiftPriceAlertOut(BaseModel):
@@ -262,7 +269,12 @@ class OpenShiftPriceAlertOut(BaseModel):
 
 
 class CreditItemIn(BaseModel):
-    """Зээлийн борлуулалтын нэг мөр — түлш (литр эсвэл дүнгээр) эсвэл бараа."""
+    """Зээлийн борлуулалтын нэг мөр — түлш (литр эсвэл дүнгээр) эсвэл бараа.
+
+    ``amount`` — түлшний КОЛОНКИЙН (бүтэн үнийн) дүн; гэрээний хөнгөлөлтийг
+    сервер хасаж нэхэмжилнэ. ``unit_price`` — ээлжийн дундуур үнэ өөрчлөгдсөн
+    бол аль үнээр авсан (түлш: сегментийн үнэ, бараа: ээлжид мөрдсөн үнэ).
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -270,6 +282,7 @@ class CreditItemIn(BaseModel):
     product_id: uuid.UUID | None = None
     qty: Decimal | None = Field(default=None, gt=0)
     amount: Decimal | None = Field(default=None, gt=0)
+    unit_price: Decimal | None = Field(default=None, gt=0)
 
 
 class NewCreditCustomerIn(BaseModel):
@@ -372,6 +385,13 @@ class DailyCloseIn(BaseModel):
     note: str | None = None
     #: Түгээгчийн дэлгэц дээрх тулгалт, мөрүүд — тайланд харьцуулахад хадгална.
     client_snapshot: dict[str, Any] | None = None
+    #: «Шалгах» алхамд түгээгчийн харсан серверийн тооцоо — хаах мөчид өөр бол 409
+    #: (тулгалтыг шинэчилж дахин харуулна).
+    preview_fuel_total: Decimal | None = None
+    preview_opening_cash: Decimal | None = None
+    preview_refunds_cash: Decimal | None = None
+    preview_other_cash: Decimal | None = None
+    preview_day_cash_sales: Decimal | None = None
 
 
 class CloseDraftIn(BaseModel):
@@ -444,13 +464,18 @@ class ClosingTargetMixin(BaseModel):
 
 
 class ClosingCreditIn(ClosingTargetMixin):
-    """Хаалтын засвар — нэгдсэн борлуулалтаас харилцагчийн зээл рүү шилжүүлэх."""
+    """Хаалтын засвар — нэгдсэн борлуулалтаас харилцагчийн зээл рүү шилжүүлэх.
+
+    ``amount`` — колонкийн (бүтэн үнийн) дүн; ``unit_price`` — ээлжид олон үнэ
+    байвал аль үнээр авсан.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     fuel_id: uuid.UUID
     qty: Decimal | None = Field(default=None, gt=0)
     amount: Decimal | None = Field(default=None, gt=0)
+    unit_price: Decimal | None = Field(default=None, gt=0)
 
 
 class ClosingArIn(ClosingTargetMixin):
@@ -477,6 +502,27 @@ class CashRecalcOut(BaseModel):
     shift_id: uuid.UUID
     expected_cash: Decimal
     cash_over_short: Decimal
+
+
+class CashRecalcBulkIn(BaseModel):
+    """Хуучин дүрмээр бодогдсон ээлжүүдийг бөөнөөр дахин бодох."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    shift_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+
+
+class CashRecalcBulkRow(BaseModel):
+    shift_id: uuid.UUID
+    number: int
+    expected_cash: Decimal | None = None
+    cash_over_short: Decimal | None = None
+    reason: str | None = None
+
+
+class CashRecalcBulkOut(BaseModel):
+    recalculated: list[CashRecalcBulkRow]
+    skipped: list[CashRecalcBulkRow]
 
 
 class OpeningCashFixIn(BaseModel):

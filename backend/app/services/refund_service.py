@@ -218,8 +218,16 @@ async def request_refund(
     refund_method: str | None = None,
 ) -> Refund:
     """Буцаалтын хүсэлт үүсгэнэ (төлөв ``pending``, нөөц/журнал хараахан хөдлөхгүй)."""
-    shift = await sale_service.require_open_shift(db, user)
     sale = await _load_sale(db, sale_id)
+    shift = None
+    if getattr(user, "branch_id", None) is None and getattr(sale, "branch_id", None) is not None:
+        # Салбаргүй (нягтлан/админ) хүсэлт — мөнгө борлуулалтын салбарын кассаас
+        # гарна; өмнө нь аль ч салбарын хамгийн сүүлийн ээлжид бичигддэг байв.
+        from app.services.shift_service import get_open_shift  # noqa: PLC0415
+
+        shift = await get_open_shift(db, sale.branch_id)
+    if shift is None:
+        shift = await sale_service.require_open_shift(db, user)
 
     status = str(sale.status)
     if status == str(SaleStatus.DRAFT):
@@ -434,6 +442,20 @@ async def approve_refund(
         )
         if contract is not None:
             contract.balance = q2(_dec(contract.balance) - q2(_dec(refund.amount)))
+
+    # Хүсэлт гаргасан ээлж батлахаас өмнө хаагдсан бол бэлэн мөнгийг ОДОО нээлттэй
+    # байгаа (тухайн салбарын) ээлжийн кассаас өгнө — хаагдсан ээлжийн тооцоо
+    # хөдлөхгүй, шинэ ээлжийн тулгалтад орно.
+    if str(refund.refund_method) == str(PaymentMethod.CASH) and refund.shift_id is not None:
+        from app.enums import ShiftStatus  # noqa: PLC0415
+        from app.models.shift import Shift  # noqa: PLC0415
+        from app.services.shift_service import get_open_shift  # noqa: PLC0415
+
+        origin = await db.scalar(select(Shift).where(Shift.id == refund.shift_id))
+        if origin is not None and str(origin.status) != str(ShiftStatus.OPEN) and origin.branch_id is not None:
+            current = await get_open_shift(db, origin.branch_id)
+            if current is not None:
+                refund.shift_id = current.id
 
     now = datetime.now(UTC)
     refund.status = str(ApprovalStatus.APPROVED)

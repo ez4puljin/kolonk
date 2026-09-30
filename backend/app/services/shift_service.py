@@ -17,7 +17,7 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import noload
 
@@ -143,31 +143,64 @@ async def _cash_flows(db: AsyncSession, shift: Shift) -> tuple[Decimal, Decimal]
         .join(Sale, Payment.sale_id == Sale.id)
         .where(*_sale_scope(shift), Payment.method == PaymentMethod.CASH)
     )
+    refund_filters = [
+        Refund.shift_id == shift.id,
+        Refund.status == ApprovalStatus.APPROVED,
+        Refund.refund_method == PaymentMethod.CASH,
+    ]
+    if shift.closed_at is not None:
+        # Хаалтын үед хүлээгдэж байсан (дараа нь батлагдсан) буцаалтын мөнгө энэ
+        # ээлжийн кассаас гараагүй — дахин бодоход хаагдсан ээлжийн дүн хөдлөхгүй.
+        refund_filters.append(
+            or_(Refund.decided_at.is_(None), Refund.decided_at <= shift.closed_at)
+        )
     refunds_cash = await db.scalar(
         select(func.coalesce(func.sum(Refund.amount), ZERO))
         .select_from(Refund)
-        .where(
-            Refund.shift_id == shift.id,
-            Refund.status == ApprovalStatus.APPROVED,
-            Refund.refund_method == PaymentMethod.CASH,
-        )
+        .where(*refund_filters)
     )
     return q2(_dec(cash_sales)), q2(_dec(refunds_cash))
 
 
-def _shift_people(shift: Shift, closer_id: uuid.UUID | None = None) -> list[uuid.UUID]:
-    """Ээлжийн кассыг хөдөлгөх эрхтэй хүмүүс — нээсэн түгээгч, хаасан хэрэглэгч."""
-    people = {shift.opened_by}
-    if closer_id is not None:
-        people.add(closer_id)
-    if shift.closed_by is not None:
-        people.add(shift.closed_by)
-    return [p for p in people if p is not None]
+def closing_tx_at(shift: Shift) -> Any:
+    """Өдрийн хаалтын transaction эхэлсэн мөч (scalar subquery).
+
+    Postgres-ийн ``now()`` нь transaction эхэлсэн мөч тул нэг хаалтын хүсэлтэд
+    үүссэн БҮХ мөр (журнал, авлагын төлбөр, зарлага, ``ShiftClosing``) яг ижил
+    ``created_at``-тэй. Нягтлан/админ түгээгчийн өмнөөс хаасан ч хаалтын
+    гүйлгээг ингэж яг таньж, тэр хүний өдрийн бусад гүйлгээнээс ялгана.
+    """
+    from app.models.shift import ShiftClosing  # noqa: PLC0415
+
+    return (
+        select(ShiftClosing.created_at)
+        .where(ShiftClosing.shift_id == shift.id)
+        .scalar_subquery()
+    )
 
 
-async def _other_cash_movement(
-    db: AsyncSession, shift: Shift, closer_id: uuid.UUID | None = None
-) -> Decimal:
+def shift_cash_scope(shift: Shift, *, actor_col: Any, created_col: Any) -> Any:
+    """Ээлжийн кассын гүйлгээ мөн эсэх нөхцөл (журнал, авлагын төлбөр, зарлагад).
+
+    * ээлж нээсэн түгээгчийн ээлжийн хугацаанд хийсэн гүйлгээ;
+    * өдрийн хаалтын transaction-д үүссэн гүйлгээ — хэн хаасан ч.
+
+    Хаасан нягтлан/админы тэр өдрийн БУСАД гүйлгээ (өөрийн кассаас зарлага
+    гэх мэт) орохгүй: урьд нь хаасан хүний ээлжийн хугацааны бүх бичилт орж,
+    түгээгчийн тулгалт 0 байхад тайланд зөрүү гардаг байв.
+    """
+    window_end = shift.closed_at or datetime.now(UTC)
+    return or_(
+        and_(
+            actor_col == shift.opened_by,
+            created_col >= shift.opened_at,
+            created_col < window_end,
+        ),
+        created_col == closing_tx_at(shift),
+    )
+
+
+async def _other_cash_movement(db: AsyncSession, shift: Shift) -> Decimal:
     """Борлуулалт/буцаалтаас гадуурх кассын хөдөлгөөн (цэвэр дүн).
 
     Ваучер бэлнээр зарах, урьдчилсан карт бэлнээр цэнэглэх, нийлүүлэгчид
@@ -181,13 +214,13 @@ async def _other_cash_movement(
     Хасагдах зүйлс:
       * ``source_type='shift'`` — ээлжийн зөрүүний бичилт өөрөө (дугуй хамаарал);
       * ``SALE``/``REFUND`` — эдгээрийг аль хэдийн ``_cash_flows`` тоолсон;
-      * ЭЭЛЖИЙН БУС хүний бичилт — зөвхөн ээлж нээсэн түгээгч болон хаасан
-        хэрэглэгчийн хийсэн бичилт тооцогдоно. Өмнө нь ээлжийн хугацаанд
-        нягтлан кассаас зарлага гаргах, банк руу тушаах, өөр салбарын хаалт
-        зэрэг компанийн БҮХ 1101 хөдөлгөөн орж, түгээгчийн тулгалт 0 байхад
-        ээлжийн тайланд илүүдэл/дутагдал гарч, журналд худал бичигддэг байв.
+      * ЭЭЛЖИЙН БУС бичилт — зөвхөн ээлж нээсэн түгээгчийн ээлжийн хугацаанд
+        хийсэн, эсвэл өдрийн хаалтын transaction-д үүссэн бичилт тооцогдоно
+        (``shift_cash_scope``). Өмнө нь ээлжийн хугацаанд нягтлан кассаас
+        зарлага гаргах, банк руу тушаах, өөр салбарын хаалт зэрэг компанийн
+        БҮХ 1101 хөдөлгөөн орж, түгээгчийн тулгалт 0 байхад ээлжийн тайланд
+        илүүдэл/дутагдал гарч, журналд худал бичигддэг байв.
     """
-    window_end = shift.closed_at or datetime.now(UTC)
     stmt = (
         select(
             func.coalesce(func.sum(JournalLine.debit), ZERO)
@@ -197,15 +230,117 @@ async def _other_cash_movement(
         .join(JournalEntry, JournalLine.entry_id == JournalEntry.id)
         .where(
             JournalLine.account_code == ACC.CASH,
-            JournalEntry.created_at >= shift.opened_at,
-            JournalEntry.created_at < window_end,
             JournalEntry.source_type.notin_(
                 [str(SourceType.SHIFT), str(SourceType.SALE), str(SourceType.REFUND)]
             ),
-            JournalEntry.posted_by.in_(_shift_people(shift, closer_id)),
+            shift_cash_scope(
+                shift, actor_col=JournalEntry.posted_by, created_col=JournalEntry.created_at
+            ),
         )
     )
     return q2(_dec(await db.scalar(stmt)))
+
+
+async def expected_cash_map(db: AsyncSession, shifts: Sequence[Shift]) -> dict[uuid.UUID, Decimal]:
+    """Хаагдсан ээлжүүдийн байвал зохих бэлэн мөнгө ОДООГИЙН дүрмээр — бөөнөөр.
+
+    ``_cash_flows`` + ``_other_cash_movement``-тэй яг ижил нөхцөл (3 асуулга).
+    Жагсаалтад хадгалсан дүн хуучин дүрмээр бодогдсон эсэхийг илрүүлнэ.
+    """
+    from app.models.shift import ShiftClosing  # noqa: PLC0415
+
+    closed = [s for s in shifts if s.closed_at is not None and s.expected_cash is not None]
+    if not closed:
+        return {}
+    ids = [s.id for s in closed]
+    cash_sales = {
+        row[0]: _dec(row[1])
+        for row in (
+            await db.execute(
+                select(Sale.shift_id, func.coalesce(func.sum(Payment.amount), ZERO))
+                .select_from(Payment)
+                .join(Sale, Payment.sale_id == Sale.id)
+                .where(
+                    Sale.shift_id.in_(ids),
+                    Sale.status != SaleStatus.DRAFT,
+                    Payment.method == PaymentMethod.CASH,
+                )
+                .group_by(Sale.shift_id)
+            )
+        ).all()
+    }
+    refunds = {
+        row[0]: _dec(row[1])
+        for row in (
+            await db.execute(
+                select(Refund.shift_id, func.coalesce(func.sum(Refund.amount), ZERO))
+                .select_from(Refund)
+                .join(Shift, Shift.id == Refund.shift_id)
+                .where(
+                    Refund.shift_id.in_(ids),
+                    Refund.status == ApprovalStatus.APPROVED,
+                    Refund.refund_method == PaymentMethod.CASH,
+                    or_(
+                        Refund.decided_at.is_(None),
+                        Shift.closed_at.is_(None),
+                        Refund.decided_at <= Shift.closed_at,
+                    ),
+                )
+                .group_by(Refund.shift_id)
+            )
+        ).all()
+    }
+    other = {
+        row[0]: _dec(row[1])
+        for row in (
+            await db.execute(
+                select(
+                    Shift.id,
+                    func.coalesce(func.sum(JournalLine.debit), ZERO)
+                    - func.coalesce(func.sum(JournalLine.credit), ZERO),
+                )
+                .select_from(Shift)
+                .outerjoin(ShiftClosing, ShiftClosing.shift_id == Shift.id)
+                .join(
+                    JournalEntry,
+                    or_(
+                        and_(
+                            JournalEntry.posted_by == Shift.opened_by,
+                            JournalEntry.created_at >= Shift.opened_at,
+                            JournalEntry.created_at < Shift.closed_at,
+                        ),
+                        JournalEntry.created_at == ShiftClosing.created_at,
+                    ),
+                )
+                .join(JournalLine, JournalLine.entry_id == JournalEntry.id)
+                .where(
+                    Shift.id.in_(ids),
+                    JournalLine.account_code == ACC.CASH,
+                    JournalEntry.source_type.notin_(
+                        [str(SourceType.SHIFT), str(SourceType.SALE), str(SourceType.REFUND)]
+                    ),
+                )
+                .group_by(Shift.id)
+            )
+        ).all()
+    }
+    return {
+        s.id: q2(
+            _dec(s.opening_cash)
+            + q2(cash_sales.get(s.id, ZERO))
+            - q2(refunds.get(s.id, ZERO))
+            + q2(other.get(s.id, ZERO))
+        )
+        for s in closed
+    }
+
+
+def needs_recalc(shift: Shift, recalculated: Mapping[uuid.UUID, Decimal]) -> bool:
+    """Хадгалсан «байвал зохих» дүн одоогийн дүрмээр бодсоноос өөр эсэх."""
+    fresh = recalculated.get(shift.id)
+    if fresh is None or shift.expected_cash is None:
+        return False
+    return q2(_dec(shift.expected_cash)) != fresh
 
 
 async def _load_tanks(
@@ -480,6 +615,48 @@ async def recalculate_cash(db: AsyncSession, user: User, *, shift_id: uuid.UUID)
         "expected_cash": expected,
         "cash_over_short": over_short,
     }
+
+
+async def recalculate_cash_bulk(
+    db: AsyncSession, user: User, *, shift_ids: Sequence[uuid.UUID]
+) -> dict[str, Any]:
+    """Хуучин дүрмээр бодогдсон хаагдсан ээлжүүдийг нэг дор дахин бодно.
+
+    Нээлттэй, батлагдсан, эсвэл аль хэдийн зөв бодогдсон ээлжийг алгасна.
+    """
+    from app.models.shift import ShiftClosing  # noqa: PLC0415
+
+    shifts = (
+        await db.scalars(select(Shift).options(noload(Shift.tank_levels)).where(Shift.id.in_(list(shift_ids))))
+    ).all()
+    approved = {
+        c.shift_id
+        for c in (
+            await db.scalars(
+                select(ShiftClosing).where(
+                    ShiftClosing.shift_id.in_([s.id for s in shifts]),
+                    ShiftClosing.approved_at.is_not(None),
+                )
+            )
+        ).all()
+    } if shifts else set()
+    fresh = await expected_cash_map(db, shifts)
+    done: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for shift in sorted(shifts, key=lambda s: s.number):
+        reason = None
+        if shift.status == str(ShiftStatus.OPEN) or shift.declared_cash is None:
+            reason = "open"
+        elif shift.id in approved:
+            reason = "approved"
+        elif not needs_recalc(shift, fresh):
+            reason = "up_to_date"
+        if reason is not None:
+            skipped.append({"shift_id": shift.id, "number": shift.number, "reason": reason})
+            continue
+        result = await recalculate_cash(db, user, shift_id=shift.id)
+        done.append({**result, "number": shift.number})
+    return {"recalculated": done, "skipped": skipped}
 
 
 async def correct_opening_cash(
@@ -782,7 +959,7 @@ async def close_shift(
 
     # ---------------- Касс ----------------
     cash_sales, refunds_cash = await _cash_flows(db, shift)
-    other_cash = await _other_cash_movement(db, shift, closer_id=user.id)
+    other_cash = await _other_cash_movement(db, shift)
     opening_cash = q2(_dec(shift.opening_cash))
     expected = q2(opening_cash + cash_sales - refunds_cash + other_cash)
     over_short = q2(declared - expected)
@@ -1530,6 +1707,7 @@ async def list_shifts(
     if shifts:
         for c in (await db.scalars(select(ShiftClosing).where(ShiftClosing.shift_id.in_([s.id for s in shifts])))).all():
             closings[c.shift_id] = c
+    fresh = await expected_cash_map(db, shifts)
 
     items: list[dict[str, Any]] = []
     for shift, sales_count, sales_total in rows:
@@ -1563,6 +1741,9 @@ async def list_shifts(
                 if shift.id in closings
                 else ZERO,
                 "transfer_total": q2(_dec(closings[shift.id].transfer_total)) if shift.id in closings else ZERO,
+                #: Хадгалсан «байвал зохих» дүн хуучин дүрмээр бодогдсон — дахин бодох.
+                "needs_recalc": needs_recalc(shift, fresh),
+                "expected_recalc": fresh.get(shift.id) if needs_recalc(shift, fresh) else None,
             }
         )
 

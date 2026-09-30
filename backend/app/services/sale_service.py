@@ -247,8 +247,12 @@ async def get_open_shift(db: AsyncSession, user: User | None = None) -> Shift | 
 
     Салбарт харьяалагдсан хэрэглэгчийн хувьд ЗӨВХӨН өөрийнх нь салбарын
     ээлжийг хайна — борлуулалт хөрш салбарын ээлж дээр бичигдэхээс сэргийлнэ.
+    Салбаргүй (нягтлан/админ) хэрэглэгч нэвтрэхдээ салбар сонгосон бол тэр
+    салбарынхыг — өмнө нь аль ч салбарын хамгийн сүүлийн ээлжид бичигддэг байв.
     """
-    branch_id = getattr(user, "branch_id", None) if user is not None else None
+    from app.services.branch_service import effective_branch_id
+
+    branch_id = effective_branch_id(user) if user is not None else None
     stmt = select(Shift).where(Shift.status == ShiftStatus.OPEN)
     if branch_id is not None:
         stmt = stmt.where(Shift.branch_id == branch_id)
@@ -315,7 +319,9 @@ async def clear_authorization(authorization_id: uuid.UUID | str) -> None:
 # =========================================================================== #
 # 3. Мөрүүдийг шийдвэрлэх
 # =========================================================================== #
-async def _resolve_fuel_line(db: AsyncSession, raw: Any, *, contract: Contract | None) -> ResolvedLine:
+async def _resolve_fuel_line(
+    db: AsyncSession, raw: Any, *, contract: Contract | None, exact_amounts: bool = False
+) -> ResolvedLine:
     qty = q3(to_decimal(_get(raw, "qty"), ZERO_L))
     fuel_id = _uuid(_get(raw, "fuel_id"))
     tank_id = _uuid(_get(raw, "tank_id"))
@@ -403,7 +409,9 @@ async def _resolve_fuel_line(db: AsyncSession, raw: Any, *, contract: Contract |
         if record is None and raw_amount is not None:
             wanted = q2(to_decimal(raw_amount))
             tolerance = q2(unit_price * Decimal("0.001") + Decimal("0.01"))
-            if abs(wanted - amount) > tolerance:
+            # Өдрийн хаалтын систем үүсгэсэн мөр (сегментийн яг үлдэгдэл) — литр 3
+            # оронтой тул олон зээлийн дугуйлалт хуримтлагдаж хүлцлээс хэтэрдэг байв.
+            if not exact_amounts and abs(wanted - amount) > tolerance:
                 raise HTTPException(
                     status_code=422,
                     detail="Мөрийн дүн тоо хэмжээ × нэгж үнэтэй тохирохгүй байна",
@@ -425,7 +433,7 @@ async def _resolve_fuel_line(db: AsyncSession, raw: Any, *, contract: Contract |
 
 
 async def _resolve_product_line(
-    db: AsyncSession, raw: Any, branch_id: uuid.UUID | None = None
+    db: AsyncSession, raw: Any, branch_id: uuid.UUID | None = None, exact_amounts: bool = False
 ) -> ResolvedLine:
     product_id = _uuid(_get(raw, "product_id"))
     if product_id is None:
@@ -461,7 +469,7 @@ async def _resolve_product_line(
     if raw_amount is not None:
         wanted = q2(to_decimal(raw_amount))
         tolerance = q2(unit_price * Decimal("0.001") + Decimal("0.01"))
-        if abs(wanted - amount) > tolerance:
+        if not exact_amounts and abs(wanted - amount) > tolerance:
             raise HTTPException(
                 status_code=422,
                 detail="Мөрийн дүн тоо хэмжээ × нэгж үнэтэй тохирохгүй байна",
@@ -589,10 +597,26 @@ async def _consume_line(
 # =========================================================================== #
 # Борлуулалт үүсгэх
 # =========================================================================== #
-async def create_sale(db: AsyncSession, user: User, payload: Any) -> Sale:
-    """Борлуулалт бүртгэх бүрэн урсгал (CONTRACTS.md §1, §2, §5)."""
-    # --- 1. Нээлттэй ээлж (борлуулагчийн салбарынх) ---
-    shift = await require_open_shift(db, user)
+async def create_sale(
+    db: AsyncSession,
+    user: User,
+    payload: Any,
+    *,
+    shift: Shift | None = None,
+    exact_amounts: bool = False,
+) -> Sale:
+    """Борлуулалт бүртгэх бүрэн урсгал (CONTRACTS.md §1, §2, §5).
+
+    ``shift`` — өдрийн хаалт хааж буй ээлжээ шууд дамжуулна: нягтлан/админ
+    түгээгчийн өмнөөс хаахад борлуулалт өөр салбарын нээлттэй ээлжид
+    бичигдэхээс сэргийлнэ. ``exact_amounts`` — систем үүсгэсэн мөрийн дүнг
+    (хаалтын сегментийн яг үлдэгдэл) хүлцлийн шалгалтгүй барина.
+    """
+    # --- 1. Нээлттэй ээлж (борлуулагчийн салбарынх, эсвэл дамжуулсан) ---
+    if shift is None:
+        shift = await require_open_shift(db, user)
+    elif str(shift.status) != str(ShiftStatus.OPEN):
+        raise HTTPException(status_code=422, detail="Ээлж нээлттэй биш байна")
 
     items_in = list(_get(payload, "items", []) or [])
     if not items_in:
@@ -629,13 +653,17 @@ async def create_sale(db: AsyncSession, user: User, payload: Any) -> Sale:
     for raw in items_in:
         item_type = str(_get(raw, "item_type", ItemType.FUEL))
         if item_type == str(ItemType.FUEL):
-            resolved.append(await _resolve_fuel_line(db, raw, contract=contract))
+            resolved.append(
+                await _resolve_fuel_line(db, raw, contract=contract, exact_amounts=exact_amounts)
+            )
             auth_id = _uuid(_get(raw, "authorization_id"))
             if auth_id is not None:
                 auth_ids.append(auth_id)
         elif item_type == str(ItemType.PRODUCT):
             resolved.append(
-                await _resolve_product_line(db, raw, branch_id=getattr(shift, "branch_id", None))
+                await _resolve_product_line(
+                    db, raw, branch_id=getattr(shift, "branch_id", None), exact_amounts=exact_amounts
+                )
             )
         else:
             raise HTTPException(status_code=422, detail="Мөрийн төрөл буруу байна")

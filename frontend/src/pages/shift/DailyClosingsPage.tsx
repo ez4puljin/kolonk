@@ -9,13 +9,14 @@
 
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, CircleCheck, Pencil, TrendingDown, TrendingUp, Undo2 } from "lucide-react";
+import { Check, CircleCheck, Pencil, RefreshCw, TrendingDown, TrendingUp, Undo2 } from "lucide-react";
 
 import { useBranches } from "../../api/queries/branches";
 import {
   useClosingApprovalMutation,
   useCorrectClosingMutation,
   useDailyClosings,
+  useRecalculateCashBulkMutation,
 } from "../../api/queries/shifts";
 import { useUsers } from "../../api/queries/users";
 import { errorMessage } from "../../api/client";
@@ -225,6 +226,7 @@ export function DailyClosingsPage() {
   const { data: branches } = useBranches();
   const { data: usersPage } = useUsers({ limit: 200 });
   const approval = useClosingApprovalMutation();
+  const recalcBulk = useRecalculateCashBulkMutation();
 
   const listQuery = useDailyClosings({
     date_from: dateFrom,
@@ -265,6 +267,9 @@ export function DailyClosingsPage() {
     [rows],
   );
   const pendingCount = useMemo(() => rows.filter((r) => !r.approved).length, [rows]);
+  /** Хуучин дүрмээр бодогдсон «байвал зохих» дүнтэй ээлжүүд — батлагдаагүйг нь дахин бодно. */
+  const legacyRows = useMemo(() => rows.filter((r) => r.needs_recalc), [rows]);
+  const legacyEditable = useMemo(() => legacyRows.filter((r) => !r.approved), [legacyRows]);
 
   // Батлахдаа ээлжийн огноог сонгуулна (хожуу хаасан ээлжийг зөв өдөрт нь).
   const [approving, setApproving] = useState<DailyClosingRow | null>(null);
@@ -392,7 +397,17 @@ export function DailyClosingsPage() {
         const value = dToQty(row.cash_over_short);
         const tone =
           value < 0 ? "text-danger-dark" : value > 0 ? "text-warning-dark" : "text-success-dark";
-        return <span className={`font-bold ${tone}`}>{formatMNT(row.cash_over_short)}</span>;
+        return (
+          <span className={`font-bold ${tone}`}>
+            {formatMNT(row.cash_over_short)}
+            {row.needs_recalc && row.expected_recalc && row.declared_cash !== null ? (
+              // Одоогийн дүрмээр бодвол зөрүү ийм болно.
+              <span className="block text-xs font-semibold text-warning-dark">
+                {t.dailyClosings.legacyBadge}: {formatMNT(dSub(row.declared_cash, row.expected_recalc))}
+              </span>
+            ) : null}
+          </span>
+        );
       },
       align: "right",
       numeric: true,
@@ -488,6 +503,37 @@ export function DailyClosingsPage() {
         <StatBox label={t.dailyClosings.pendingCount} value={pendingCount} tone="action" />
         <StatBox label={t.dailyClosings.periodCount} value={rows.length} />
       </div>
+
+      {legacyRows.length > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border-2 border-warning bg-warning-soft px-4 py-3 text-warning-dark">
+          <span className="min-w-0 flex-1 text-sm">
+            {t.dailyClosings.legacyBanner.replace("{n}", String(legacyRows.length))}
+            {legacyRows.length > legacyEditable.length
+              ? ` ${t.dailyClosings.legacyApproved.replace("{n}", String(legacyRows.length - legacyEditable.length))}`
+              : ""}
+          </span>
+          {canApprove && legacyEditable.length > 0 ? (
+            <Button
+              variant="warning"
+              size="md"
+              icon={<RefreshCw />}
+              loading={recalcBulk.isPending}
+              onClick={() =>
+                recalcBulk.mutate(
+                  legacyEditable.map((r) => r.shift_id),
+                  {
+                    onSuccess: (result) =>
+                      toastSuccess(t.dailyClosings.legacyDone.replace("{n}", String(result.recalculated.length))),
+                    onError: (cause) => toastError(errorMessage(cause)),
+                  },
+                )
+              }
+            >
+              {t.dailyClosings.legacyRecalc.replace("{n}", String(legacyEditable.length))}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
 
       <Card>
         <div className="flex flex-col gap-3">

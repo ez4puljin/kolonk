@@ -33,6 +33,8 @@ from app.schemas.shift import (
     CloseDraftOut,
     ClosingApprovalIn,
     ClosingCorrectIn,
+    CashRecalcBulkIn,
+    CashRecalcBulkOut,
     CashRecalcOut,
     ClosingArIn,
     ClosingCreditIn,
@@ -331,6 +333,17 @@ async def list_price_alerts(
     return await attendant_service.price_alerts(db, shift)
 
 
+@router.get("/shifts/{shift_id}/price-options")
+async def list_price_options(
+    shift_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Ээлжийн дундуур үнэ өөрчлөгдсөн түлш, бараа — зээл/барааны мөрөнд «аль үнээр» сонгуулна."""
+    shift = await _visible_shift(db, user, shift_id)
+    return await attendant_service.price_options(db, shift)
+
+
 @router.get("/shifts/{shift_id}/price-marks", response_model=list[PriceMarkOut])
 async def list_price_marks(
     shift_id: uuid.UUID,
@@ -544,7 +557,14 @@ async def closing_add_credit(
     user: User = Depends(require_permission("shifts.approve")),
 ) -> dict[str, Any]:
     return await closing_edit_service.add_credit(
-        db, user, shift_id=shift_id, target=payload, fuel_id=payload.fuel_id, qty=payload.qty, amount=payload.amount
+        db,
+        user,
+        shift_id=shift_id,
+        target=payload,
+        fuel_id=payload.fuel_id,
+        qty=payload.qty,
+        amount=payload.amount,
+        unit_price=payload.unit_price,
     )
 
 
@@ -606,6 +626,16 @@ async def closing_remove_expense(
     user: User = Depends(require_permission("shifts.approve")),
 ) -> dict[str, Any]:
     return await closing_edit_service.remove_expense(db, user, shift_id=shift_id, expense_id=expense_id)
+
+
+@router.post("/shifts/recalculate-cash-bulk", response_model=CashRecalcBulkOut)
+async def recalculate_cash_bulk(
+    payload: CashRecalcBulkIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.approve")),
+) -> dict[str, Any]:
+    """Хуучин дүрмээр бодогдсон ээлжүүдийг нэг дор дахин бодно (батлагдсаныг алгасна)."""
+    return await shift_service.recalculate_cash_bulk(db, user, shift_ids=payload.shift_ids)
 
 
 @router.post("/shifts/{shift_id}/recalculate-cash", response_model=CashRecalcOut)
@@ -864,6 +894,9 @@ def _build_workbook(report: dict[str, Any]) -> bytes:
     kv("Эхний үлдэгдэл", _num(cash.get("opening_cash")), MONEY_FMT)
     kv("Бэлэн борлуулалт", _num(cash.get("cash_sales")), MONEY_FMT)
     kv("Бэлнээр буцаасан", _num(cash.get("refunds")), MONEY_FMT)
+    # Өглөг төлөлт, кассын зарлага гэх мэт борлуулалтаас гадуурх кассын хөдөлгөөн —
+    # үүнгүйгээр «Байвал зохих» мөрүүдийн нийлбэрээс зөрж харагддаг байв.
+    kv("Бусад кассын гүйлгээ (өглөг, зарлага)", _num(cash.get("other_cash")), MONEY_FMT)
     kv("Байвал зохих", _num(cash.get("expected_cash")), MONEY_FMT)
     kv("Тоолсон бэлэн", _num(cash.get("declared_cash")), MONEY_FMT)
     kv("Илүүдэл (+) / Дутагдал (−)", _num(cash.get("cash_over_short")), MONEY_FMT)

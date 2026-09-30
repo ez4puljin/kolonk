@@ -23,7 +23,7 @@ import {
   Wallet,
 } from "lucide-react";
 
-import { errorMessage } from "../../api/client";
+import { ApiError, errorMessage } from "../../api/client";
 import { useExpenseCategories } from "../../api/queries/expenses";
 import { useCustomers } from "../../api/queries/partners";
 import { useProducts } from "../../api/queries/products";
@@ -37,6 +37,7 @@ import {
   useOpenShiftMutation,
   usePriceAlerts,
   usePriceMarks,
+  usePriceOptions,
   useSaveCloseDraftMutation,
   useShiftAttachments,
   useUploadShiftPhotoMutation,
@@ -65,8 +66,8 @@ import { StatBox } from "../../components/ui/StatBox";
 import { TabBar } from "../../components/ui/TabBar";
 import { usePermission } from "../../hooks/usePermission";
 import { t } from "../../i18n/mn";
-import { dAdd, dCmp, dDiv, dIsPositive, dIsZero, dMul, dSub, dSum, dToQty } from "../../lib/decimal";
-import { formatDateTime, formatLiters, formatMNT, formatNumber } from "../../lib/format";
+import { dAdd, dCmp, dDiv, dIsPositive, dIsZero, dMul, dSub, dSum, dToQty, toDisplay } from "../../lib/decimal";
+import { formatDateTime, formatLiters, formatMNT, formatNumber, formatTime } from "../../lib/format";
 import { useBranches } from "../../api/queries/branches";
 import { cameraAvailable, isFreshCapture, stampClock, stampFile } from "../../lib/photo";
 import { useAuthStore } from "../../stores/auth";
@@ -89,6 +90,21 @@ interface QueuedPhoto {
 function litersOf(value: string | null | undefined): LitersStr {
   const raw = (value ?? "").trim();
   return raw === "" ? "0" : raw;
+}
+
+/**
+ * Харилцагчид нэхэмжлэх дүн = колонкийн дүн − литр × хөнгөлөлт — сервертэй ЯГ
+ * адил: литр × хөнгөлөлтийг дугуйлалгүй хасаад, 0.005-ыг дээш дугуйлна.
+ */
+function netOf(gross: MoneyStr, liters: number, discount: MoneyStr): MoneyStr {
+  if (dIsZero(discount)) return toDisplay(gross);
+  const cents = (value: MoneyStr): bigint => BigInt(toDisplay(value).replace(".", ""));
+  const scaled = cents(gross) * 1000n - BigInt(Math.round(liters * 1000)) * cents(discount);
+  const negative = scaled < 0n;
+  const abs = negative ? -scaled : scaled;
+  let result = abs / 1000n;
+  if ((abs % 1000n) * 2n >= 1000n) result += 1n;
+  return `${negative ? "-" : ""}${result / 100n}.${(result % 100n).toString().padStart(2, "0")}`;
 }
 
 // --------------------------------------------------------------------------
@@ -411,10 +427,13 @@ interface CreditItem {
   key: number;
   kind: "fuel" | "product";
   fuel_id: string;
+  /** «amount» — колонкийн дэлгэц дээрх (бүтэн үнийн) дүн. */
   mode: "liters" | "amount";
   value: string;
   product_id: string;
   product_qty: string;
+  /** Аль үнээр авсан — ээлжийн дундуур үнэ өөрчлөгдсөн бол заавал ("" = сонгоогүй). */
+  unit_price: string;
 }
 
 interface CreditRow {
@@ -440,14 +459,15 @@ function normalizeCreditRow(raw: Record<string, unknown>, keyFn: () => number): 
         value: String(it.value ?? ""),
         product_id: String(it.product_id ?? ""),
         product_qty: String(it.product_qty ?? ""),
+        unit_price: String(it.unit_price ?? ""),
       });
     }
   } else {
     if (raw.fuel_id) {
-      items.push({ key: keyFn(), kind: "fuel", fuel_id: String(raw.fuel_id), mode: raw.mode === "amount" ? "amount" : "liters", value: String(raw.value ?? ""), product_id: "", product_qty: "" });
+      items.push({ key: keyFn(), kind: "fuel", fuel_id: String(raw.fuel_id), mode: raw.mode === "amount" ? "amount" : "liters", value: String(raw.value ?? ""), product_id: "", product_qty: "", unit_price: "" });
     }
     if (raw.product_id) {
-      items.push({ key: keyFn(), kind: "product", fuel_id: "", mode: "liters", value: "", product_id: String(raw.product_id), product_qty: String(raw.product_qty ?? "") });
+      items.push({ key: keyFn(), kind: "product", fuel_id: "", mode: "liters", value: "", product_id: String(raw.product_id), product_qty: String(raw.product_qty ?? ""), unit_price: "" });
     }
   }
   return {
@@ -538,6 +558,9 @@ export function AttendantShiftPage() {
   const shift = current?.shift ?? null;
   const shiftId = shift?.id ?? null;
   const { data: marks } = usePriceMarks(shiftId);
+  // Ээлжийн дундуур үнэ өөрчлөгдсөн түлш, бараа — мөрөнд «аль үнээр» сонгуулна.
+  const { data: priceOptions } = usePriceOptions(shiftId);
+  const { data: priceAlerts } = usePriceAlerts(shiftId);
 
   // Ээлж өөрийнх үү? Бүх ээлж харах эрхтэй хүн (менежер, эзэн) хязгаарлагдахгүй.
   const ownShift =
@@ -881,16 +904,62 @@ export function AttendantShiftPage() {
     settlementTotal,
     transferAmount,
   ]);
+  /** fuel_id → энэ ээлжид мөрдсөн үнүүд (2+ бол зээлийн мөрөнд «аль үнээр» сонгуулна). */
+  const fuelPriceChoices = useMemo(() => {
+    const map = new Map<string, { value: string; label: string }[]>();
+    for (const fuel of priceOptions?.fuels ?? []) {
+      map.set(
+        fuel.fuel_id,
+        fuel.prices.map((p) => ({
+          value: toDisplay(p.price),
+          label: `${formatMNT(p.price)} · ${
+            p.kind === "open"
+              ? t.attendant.priceAtOpen
+              : t.attendant.priceFromMile.replace("{mile}", formatNumber(p.reading ?? "0", 1))
+          }`,
+        })),
+      );
+    }
+    return map;
+  }, [priceOptions]);
+
+  /** product_id → ээлжийн дундуур өөрчлөгдсөн үнүүд (өмнө / дараа). */
+  const productPriceChoices = useMemo(() => {
+    const map = new Map<string, { value: string; label: string }[]>();
+    for (const product of priceOptions?.products ?? []) {
+      map.set(
+        product.product_id,
+        product.periods.map((p) => ({
+          value: toDisplay(p.price),
+          label: `${formatMNT(p.price)} · ${
+            p.from && p.until
+              ? `${formatTime(p.from)}–${formatTime(p.until)}`
+              : p.until
+                ? t.attendant.priceUntil.replace("{time}", formatTime(p.until))
+                : p.from
+                  ? t.attendant.priceSince.replace("{time}", formatTime(p.from))
+                  : t.attendant.priceNow
+          }`,
+        })),
+      );
+    }
+    return map;
+  }, [priceOptions]);
+
+  /**
+   * Барааны мөрийн нэгж үнэ: ээлжид үнэ нь өөрчлөгдсөн бол сонгосон үнэ,
+   * үгүй бол салбарын одоогийн үнэ (сервер ч мөн адил).
+   */
+  const productUnit = (productId: string, chosen: string | null | undefined): MoneyStr => {
+    if (productPriceChoices.has(productId) && chosen) return chosen;
+    return products.find((p) => p.id === productId)?.price ?? "0";
+  };
+
   const oilTotal = useMemo(
-    () =>
-      dSum(
-        oilRows.map((row) => {
-          const product = products.find((p) => p.id === row.product_id);
-          const unit = row.unit_price || product?.price || "0";
-          return dMul(unit, dToQty(row.qty || "0"));
-        }),
-      ),
-    [oilRows, products],
+    () => dSum(oilRows.map((row) => dMul(productUnit(row.product_id, row.unit_price), dToQty(row.qty || "0")))),
+    // productUnit нь products, productPriceChoices-оос хамаарна.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [oilRows, products, productPriceChoices],
   );
 
   /** fuel_id → одоогийн үнэ (хошуунаас). Зээлийн литрийг үнэлэхэд. */
@@ -913,6 +982,30 @@ export function AttendantShiftPage() {
     return map;
   }, [customersPage]);
 
+  /** Шинэ зээлийн түлшний анхдагч үнэ: ээлжийн сүүлийн үнэ (тэмдэглэл), эсвэл хошууны үнэ. */
+  const defaultFuelPrice = (fuelId: string): string => {
+    const choices = fuelPriceChoices.get(fuelId);
+    if (choices && choices.length > 0) return choices[choices.length - 1].value;
+    const price = fuelPriceById.get(fuelId);
+    return price ? toDisplay(price) : "";
+  };
+  const newFuelItem = (): CreditItem => {
+    const fuelId = fuelOptions[0]?.value ?? "";
+    return {
+      key: nextKey(),
+      kind: "fuel",
+      fuel_id: fuelId,
+      mode: "liters",
+      value: "",
+      product_id: "",
+      product_qty: "",
+      unit_price: defaultFuelPrice(fuelId),
+    };
+  };
+  /** Түлшний мөрийн үнийн шүүлтүүр — ээлжид 2+ үнэ байвал л (сервер ч мөн адил). */
+  const fuelPriceFilter = (item: CreditItem): string | null =>
+    (fuelPriceChoices.get(item.fuel_id)?.length ?? 0) > 1 && item.unit_price !== "" ? item.unit_price : null;
+
   /** nozzle_id → «1-р насос · №1 АИ-92» (тулгалтын задаргаанд насос ялгахад). */
   const nozzleLabelById = useMemo(() => {
     const map = new Map<string, string>();
@@ -923,92 +1016,124 @@ export function AttendantShiftPage() {
   }, [nozzles]);
 
   /**
-   * Зээлийн мөр бүрийн дүн: түлш (дүнгээр бол шууд, литрээр бол литр×үнэ) +
-   * бараа (тоо×үнэ). Түлшний үнээс гэрээний хөнгөлөлтийг хасна — сервер мөн адил.
+   * Зээлийн мөр бүрийн дүн — сервертэй ЯГ адил хуваарилна:
+   *
+   * * литрийг милийн сегментүүдээс (сүүлээс нь), ээлжид олон үнэ байвал
+   *   сонгосон үнийн сегментүүдээс л хасна;
+   * * «дүнгээр» бол тэр нь КОЛОНКИЙН (бүтэн үнийн) дүн — литр = дүн ÷ үнэ;
+   * * тулгалтад колонкийн дүн (gross) хасагдана — колонк зээлийн литрийг
+   *   бүтэн үнээр тоолсон; харилцагчид хөнгөлөлтийг хассан дүн (net).
+   *
+   * Preview байхгүй (өдрийн дундуур) бол сонгосон/одоогийн үнээр ойролцоо.
    */
   const creditRowTotals = useMemo(() => {
-    /*
-     * Хаалтын өмнөх тооцоо (preview) байвал зээлийн литрийг сервертэй ЯГ адил
-     * милийн сегментүүдээс (сүүлээс нь) хуваарилж, тухайн сегментийн үнээр
-     * үнэлнэ — үнийн тэмдэглэлтэй өдөр хүсэлт батлагдаагүй байсан ч тулгалт
-     * зөв гарна. Preview байхгүй (өдрийн дундуур) бол одоогийн үнээр ойролцоо.
-     */
     const slots = preview
       ? preview.nozzles.flatMap((n) =>
-          n.segments.map((seg) => ({ fuel_id: n.fuel_id, price: seg.price, remaining: dToQty(seg.liters) })),
+          n.segments.map((seg) => ({
+            fuel_id: n.fuel_id,
+            price: toDisplay(seg.price),
+            remaining: dToQty(seg.liters),
+            amount: toDisplay(seg.amount),
+          })),
         )
       : null;
     const round3 = (value: number): number => Math.round(value * 1000) / 1000;
 
     return creditRows.map((row) => {
       const discount = contractDiscountById.get(row.contract_id) ?? "0";
-      let fuel = "0";
+      let gross = "0";
+      let net = "0";
       let goods = "0";
+      let short = false;
       for (const item of row.items) {
         if (item.kind === "fuel") {
-          const qty = dToQty(item.value);
-          if (item.fuel_id === "" || qty <= 0) continue;
+          const value = dToQty(item.value);
+          if (item.fuel_id === "" || value <= 0) continue;
+          const chosen = fuelPriceFilter(item);
           if (!slots) {
-            const unit = dSub(fuelPriceById.get(item.fuel_id) ?? "0", discount);
-            fuel = dAdd(fuel, item.mode === "amount" ? item.value || "0" : dMul(unit, qty));
+            const price = chosen ?? (item.unit_price || fuelPriceById.get(item.fuel_id) || "0");
+            if (item.mode === "amount") {
+              const g = toDisplay(item.value);
+              gross = dAdd(gross, g);
+              net = dAdd(net, netOf(g, dToQty(dDiv(g, price, 3)), discount));
+            } else {
+              gross = dAdd(gross, dMul(price, value));
+              net = dAdd(net, dMul(dSub(price, discount), value));
+            }
             continue;
           }
+          const candidates = slots
+            .filter((slot) => slot.fuel_id === item.fuel_id && (chosen === null || dCmp(slot.price, chosen) === 0))
+            .reverse();
           if (item.mode === "amount") {
-            let left = item.value || "0";
-            for (let i = slots.length - 1; i >= 0 && dCmp(left, "0") > 0; i--) {
-              const slot = slots[i];
-              if (slot.fuel_id !== item.fuel_id || slot.remaining <= 0) continue;
-              const unit = dSub(slot.price, discount);
-              if (dCmp(unit, "0") <= 0) continue;
-              const capacity = dMul(unit, slot.remaining);
-              if (dCmp(left, capacity) <= 0) {
-                slot.remaining = round3(slot.remaining - Math.min(dToQty(dDiv(left, unit, 3)), slot.remaining));
-                fuel = dAdd(fuel, left);
-                left = "0";
+            let left = toDisplay(item.value);
+            for (const slot of candidates) {
+              if (dCmp(left, "0") <= 0) break;
+              if (slot.remaining <= 0) continue;
+              let take: number;
+              let g: MoneyStr;
+              if (dCmp(left, slot.amount) >= 0) {
+                take = slot.remaining;
+                g = slot.amount;
               } else {
-                slot.remaining = 0;
-                fuel = dAdd(fuel, capacity);
-                left = dSub(left, capacity);
+                take = Math.min(Math.max(dToQty(dDiv(left, slot.price, 3)), 0.001), slot.remaining);
+                g = take >= slot.remaining ? slot.amount : left;
               }
-            }
-            // Милээс хэтэрсэн дүн — сервер татгалзана; энд оруулсан дүнгээр нь тоолно.
-            fuel = dAdd(fuel, left);
-          } else {
-            let need = qty;
-            for (let i = slots.length - 1; i >= 0 && need > 0; i--) {
-              const slot = slots[i];
-              if (slot.fuel_id !== item.fuel_id || slot.remaining <= 0) continue;
-              const take = Math.min(slot.remaining, need);
               slot.remaining = round3(slot.remaining - take);
+              slot.amount = dSub(slot.amount, g);
+              left = dSub(left, g);
+              gross = dAdd(gross, g);
+              net = dAdd(net, netOf(g, take, discount));
+            }
+            if (dCmp(left, "0") > 0) {
+              // Тэр үнээр түгээсэн дүнгээс хэтэрсэн — сервер татгалзана.
+              short = true;
+              gross = dAdd(gross, left);
+              net = dAdd(net, left);
+            }
+          } else {
+            let need = value;
+            for (const slot of candidates) {
+              if (need <= 0) break;
+              if (slot.remaining <= 0) continue;
+              const take = Math.min(slot.remaining, need);
+              const g = take >= slot.remaining ? slot.amount : dMul(slot.price, take);
+              slot.remaining = round3(slot.remaining - take);
+              slot.amount = dSub(slot.amount, g);
               need = round3(need - take);
-              fuel = dAdd(fuel, dMul(dSub(slot.price, discount), take));
+              gross = dAdd(gross, g);
+              net = dAdd(net, dMul(dSub(slot.price, discount), take));
             }
             if (need > 0) {
-              // Милээс хэтэрсэн литр — сервер татгалзана; энд одоогийн үнээр тоолно.
-              fuel = dAdd(fuel, dMul(dSub(fuelPriceById.get(item.fuel_id) ?? "0", discount), need));
+              // Тэр үнээр түгээсэн литрээс хэтэрсэн — сервер татгалзана.
+              short = true;
+              const price = chosen ?? (fuelPriceById.get(item.fuel_id) || "0");
+              gross = dAdd(gross, dMul(price, need));
+              net = dAdd(net, dMul(dSub(price, discount), need));
             }
           }
         } else {
-          const product = products.find((p) => p.id === item.product_id);
           const productQty = dToQty(item.product_qty);
-          if (product && productQty > 0) goods = dAdd(goods, dMul(product.price, productQty));
+          if (item.product_id !== "" && productQty > 0) {
+            goods = dAdd(goods, dMul(productUnit(item.product_id, item.unit_price), productQty));
+          }
         }
       }
-      return { fuel, goods, total: dAdd(fuel, goods) };
+      return { gross, net, goods, total: dAdd(net, goods), short };
     });
-  }, [creditRows, products, fuelPriceById, contractDiscountById, preview]);
+    // fuelPriceFilter, productUnit нь доорх хамаарлуудаас л бодогдоно.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [creditRows, products, fuelPriceById, contractDiscountById, preview, fuelPriceChoices, productPriceChoices]);
 
-  /** Кассад зөвхөн ТҮЛШНИЙ хэсэг нөлөөлнө — бараа миль×үнэд ороогүй тул хасахгүй. */
-  const creditFuelTotal = useMemo(
-    () => dSum(creditRowTotals.map((row) => row.fuel)),
-    [creditRowTotals],
-  );
-  const creditTotal = useMemo(
-    () => dSum(creditRowTotals.map((row) => row.total)),
-    [creditRowTotals],
-  );
-  /** Зээлээр өгсөн бараа — тос/барааны алхамд ороогүй тул тулгалтад тусад нь нэмэгдэнэ. */
-  const creditGoodsTotal = useMemo(() => dSub(creditTotal, creditFuelTotal), [creditTotal, creditFuelTotal]);
+  /** Зээлийн түлш — колонкийн (бүтэн үнийн) дүн: тулгалтад ЭНЭ хасагдана. */
+  const creditFuelGross = useMemo(() => dSum(creditRowTotals.map((row) => row.gross)), [creditRowTotals]);
+  /** Зээлийн түлш — харилцагчдад нэхэмжлэх дүн (гэрээний хөнгөлөлт хасагдсан). */
+  const creditFuelTotal = useMemo(() => dSum(creditRowTotals.map((row) => row.net)), [creditRowTotals]);
+  /** Зээлээр өгсөн бараа — миль×үнэ, тос/барааны борлуулалтад ороогүй тул тулгалтад нөлөөлөхгүй. */
+  const creditGoodsTotal = useMemo(() => dSum(creditRowTotals.map((row) => row.goods)), [creditRowTotals]);
+  /** Харилцагчдад нэхэмжлэх нийт (түлш + бараа). */
+  const creditTotal = useMemo(() => dAdd(creditFuelTotal, creditGoodsTotal), [creditFuelTotal, creditGoodsTotal]);
+  const creditShort = creditRowTotals.some((row) => row.short);
 
   /**
    * Зээлийн алхамд шинээр нэмсэн харилцагчид — «Өглөг төлөлт»-ийн сонголтод
@@ -1055,6 +1180,18 @@ export function AttendantShiftPage() {
   // кассаас гарсан зарлага. Тулгалтын алхам үүнийг «Тушаах ёстой ↔ Тушаасан»
   // хэлбэрээр харуулна — зөрүү нь яг энэ бэлэн мөнгөний зөрүүтэй тэнцүү.
 
+  /**
+   * Тушаах ёстой — серверийн «байвал зохих» томьёотой ЯГ адил:
+   * эхний үлдэгдэл + миль×үнэ − зээлийн түлш (колонкийн дүн) + тос/бараа
+   * + өглөг төлөлт − бэлэн зарлага − бэлэн буцаалт + өдрийн бусад кассын
+   * гүйлгээ + өдрийн бэлэн борлуулалт. Зээлээр өгсөн бараа нөлөөлөхгүй.
+   */
+  const mustOf = (pv: DailyPreview): MoneyStr =>
+    dSub(
+      dSum([pv.opening_cash, pv.fuel_total, oilTotal, arTotal, pv.other_cash ?? "0", pv.day_cash_sales ?? "0"]),
+      dSum([creditFuelGross, expenseCashTotal, pv.refunds_cash ?? "0"]),
+    );
+
   const readingsPayload = (): TotalizerReadingInput[] =>
     nozzles.map(({ nozzle }) => ({
       nozzle_id: nozzle.id,
@@ -1070,8 +1207,13 @@ export function AttendantShiftPage() {
    */
   const findIncomplete = (): { step: WizardStep; message: string } | null => {
     const nth = (template: string, index: number): string => template.replace("{n}", String(index + 1));
+    const priceChosen = (choices: { value: string }[] | undefined, price: string | null | undefined): boolean =>
+      !choices || choices.length < 2 || (Boolean(price) && choices.some((c) => dCmp(c.value, price ?? "0") === 0));
     for (const [index, row] of oilRows.entries()) {
       if (row.product_id === "" && dToQty(row.qty) > 0) return { step: 2, message: nth(t.attendant.incompleteOil, index) };
+      if (dToQty(row.qty) > 0 && !priceChosen(productPriceChoices.get(row.product_id), row.unit_price)) {
+        return { step: 2, message: nth(t.attendant.incompleteOilPrice, index) };
+      }
     }
     for (const [index, row] of creditRows.entries()) {
       const hasValue = row.items.some((item) =>
@@ -1079,6 +1221,12 @@ export function AttendantShiftPage() {
       );
       const noTarget = row.contract_id === "" || (row.contract_id === NEW_CUSTOMER && row.new_name.trim() === "");
       if (hasValue && noTarget) return { step: 3, message: nth(t.attendant.incompleteCredit, index) };
+      const unpriced = row.items.some((item) =>
+        item.kind === "fuel"
+          ? item.fuel_id !== "" && dToQty(item.value) > 0 && !priceChosen(fuelPriceChoices.get(item.fuel_id), item.unit_price)
+          : item.product_id !== "" && dToQty(item.product_qty) > 0 && !priceChosen(productPriceChoices.get(item.product_id), item.unit_price),
+      );
+      if (unpriced) return { step: 3, message: nth(t.attendant.incompleteCreditPrice, index) };
     }
     for (const [index, row] of arRows.entries()) {
       const linkedNew = row.contract_id.startsWith(NEW_AR_PREFIX)
@@ -1104,6 +1252,16 @@ export function AttendantShiftPage() {
     return () => window.clearTimeout(timer);
   }, [closeError, step]);
 
+  /** Үнэ батлагдсан ч тэмдэглэлгүй хошуу — хаалт хийгдэхгүй тул эхний алхамд буцаана. */
+  const blockingMessage = (alerts: typeof priceAlerts): string | null => {
+    const blocking = (alerts ?? []).filter((alert) => alert.blocking);
+    if (blocking.length === 0) return null;
+    return t.attendant.priceAlertBlocking.replace(
+      "{list}",
+      blocking.map((alert) => `${alert.pump_name} №${alert.nozzle_number} ${alert.fuel_name}`).join(", "),
+    );
+  };
+
   const goToConfirm = (): void => {
     if (!shiftId) return;
     setCloseError(null);
@@ -1113,10 +1271,22 @@ export function AttendantShiftPage() {
       setCloseError(incomplete.message);
       return;
     }
+    const blocked = blockingMessage(priceAlerts);
+    if (blocked) {
+      setStep(0);
+      setCloseError(blocked);
+      return;
+    }
     previewMutation.mutate(
       { shiftId, readings: readingsPayload() },
       {
         onSuccess: (data) => {
+          const blockedNow = blockingMessage(data.price_alerts);
+          if (blockedNow) {
+            setStep(0);
+            setCloseError(blockedNow);
+            return;
+          }
           setPreview(data);
           setStep(CONFIRM_STEP);
         },
@@ -1157,10 +1327,22 @@ export function AttendantShiftPage() {
         items: row.items.flatMap((item): CreditItemInput[] => {
           if (item.kind === "fuel") {
             if (item.fuel_id === "" || dToQty(item.value) <= 0) return [];
-            return [item.mode === "liters" ? { fuel_id: item.fuel_id, qty: item.value } : { fuel_id: item.fuel_id, amount: item.value }];
+            // Үнийг ээлжид 2+ үнэ байвал л илгээнэ — сервер тэр үнийн сегментээс хасна.
+            const unit_price = fuelPriceFilter(item);
+            return [
+              item.mode === "liters"
+                ? { fuel_id: item.fuel_id, qty: item.value, unit_price }
+                : { fuel_id: item.fuel_id, amount: item.value, unit_price },
+            ];
           }
           if (item.product_id === "" || dToQty(item.product_qty) <= 0) return [];
-          return [{ product_id: item.product_id, qty: item.product_qty }];
+          return [
+            {
+              product_id: item.product_id,
+              qty: item.product_qty,
+              unit_price: productPriceChoices.has(item.product_id) ? item.unit_price || null : null,
+            },
+          ];
         }),
       }))
       .filter((line) => line.items.length > 0);
@@ -1168,12 +1350,7 @@ export function AttendantShiftPage() {
     // Түгээгчийн дэлгэц дээр харсан тулгалт — ээлжийн тайланд серверийн
     // бүртгэлтэй харьцуулж, зөрүү хаанаас гарсныг олоход хадгална.
     const declaredValue = declaredCash === "" ? "0" : declaredCash;
-    const snapshotMust = preview
-      ? dSub(
-          dSum([preview.opening_cash, preview.fuel_total, oilTotal, creditGoodsTotal, arTotal]),
-          dSum([creditTotal, expenseCashTotal]),
-        )
-      : null;
+    const snapshotMust = preview ? mustOf(preview) : null;
     const snapshotHanded = dSum([declaredValue, settlementTotal, transferAmount]);
     const stripKeys = <T extends { key: number }>(rows: T[]) => rows.map(({ key: _key, ...rest }) => rest);
     const clientSnapshot = {
@@ -1184,7 +1361,12 @@ export function AttendantShiftPage() {
       fuel_total: preview?.fuel_total ?? null,
       oil_total: oilTotal,
       credit_total: creditTotal,
+      credit_fuel_gross: creditFuelGross,
+      credit_fuel_net: creditFuelTotal,
       credit_goods: creditGoodsTotal,
+      refunds_cash: preview?.refunds_cash ?? null,
+      other_cash: preview?.other_cash ?? null,
+      day_cash_sales: preview?.day_cash_sales ?? null,
       ar_total: arTotal,
       expense_cash: expenseCashTotal,
       declared_cash: declaredValue,
@@ -1209,7 +1391,11 @@ export function AttendantShiftPage() {
           transfer_total: transferAmount,
           oil_lines: oilRows
             .filter((row) => row.product_id !== "" && dToQty(row.qty) > 0)
-            .map(({ key: _key, ...rest }) => rest),
+            .map(({ key: _key, ...rest }) => ({
+              ...rest,
+              // Ээлжид үнэ нь өөрчлөгдсөн барааны л үнийг илгээнэ (бусдыг сервер одоогийн үнээр).
+              unit_price: productPriceChoices.has(rest.product_id) ? rest.unit_price || null : null,
+            })),
           credit_lines: creditLines,
           ar_payments: arRows
             .filter((row) => row.contract_id !== "" && dToQty(row.amount) > 0)
@@ -1242,6 +1428,16 @@ export function AttendantShiftPage() {
           expenses: expenseRows
             .filter((row) => row.account_code !== "" && dToQty(row.amount) > 0)
             .map(({ key: _key, ...rest }) => rest),
+          // «Шалгах» алхамд харсан серверийн тооцоо — хооронд нь өөрчлөгдсөн бол 409.
+          ...(preview
+            ? {
+                preview_fuel_total: preview.fuel_total,
+                preview_opening_cash: preview.opening_cash,
+                preview_refunds_cash: preview.refunds_cash ?? "0",
+                preview_other_cash: preview.other_cash ?? "0",
+                preview_day_cash_sales: preview.day_cash_sales ?? "0",
+              }
+            : {}),
         },
       },
       {
@@ -1250,7 +1446,16 @@ export function AttendantShiftPage() {
           setReport(data);
           setWizardOpen(false);
         },
-        onError: (cause) => setCloseError(errorMessage(cause)),
+        onError: (cause) => {
+          setCloseError(errorMessage(cause));
+          if (cause instanceof ApiError && cause.status === 409) {
+            // Тооцоо өөрчлөгдсөн — тулгалтыг шинэчилж, түгээгч дахин шалгана.
+            previewMutation.mutate(
+              { shiftId, readings: readingsPayload() },
+              { onSuccess: (data) => setPreview(data) },
+            );
+          }
+        },
       },
     );
   };
@@ -1585,11 +1790,29 @@ export function AttendantShiftPage() {
                     options={productOptions}
                     onChange={(value) =>
                       setOilRows((prev) =>
-                        prev.map((r, i) => (i === index ? { ...r, product_id: value } : r)),
+                        prev.map((r, i) =>
+                          // Одоогийн үнийг хадгална — дараа нь үнэ өөрчлөгдвөл энэ мөр «өмнөх» үнээр үлдэнэ.
+                          i === index
+                            ? { ...r, product_id: value, unit_price: products.find((p) => p.id === value)?.price ?? null }
+                            : r,
+                        ),
                       )
                     }
                     className="min-w-[16rem] flex-1"
                   />
+                  {productPriceChoices.has(row.product_id) ? (
+                    <PickerField
+                      label={t.attendant.soldAtPrice}
+                      value={
+                        productPriceChoices.get(row.product_id)?.find((c) => dCmp(c.value, row.unit_price ?? "") === 0)?.value ?? ""
+                      }
+                      options={productPriceChoices.get(row.product_id) ?? []}
+                      onChange={(value) =>
+                        setOilRows((prev) => prev.map((r, i) => (i === index ? { ...r, unit_price: value } : r)))
+                      }
+                      className="min-w-[12rem]"
+                    />
+                  ) : null}
                   <NumberField
                     name={`oil-qty-${row.key}`}
                     label={t.common.qty}
@@ -1690,9 +1913,21 @@ export function AttendantShiftPage() {
                                 label={t.sales.fuel}
                                 value={item.fuel_id}
                                 options={fuelOptions}
-                                onChange={(value) => patchItem({ fuel_id: value })}
+                                onChange={(value) => patchItem({ fuel_id: value, unit_price: defaultFuelPrice(value) })}
                                 className="min-w-[10rem]"
                               />
+                              {(fuelPriceChoices.get(item.fuel_id)?.length ?? 0) > 1 ? (
+                                <PickerField
+                                  label={t.attendant.takenAtPrice}
+                                  value={
+                                    fuelPriceChoices.get(item.fuel_id)?.find((c) => dCmp(c.value, item.unit_price || "") === 0)?.value ??
+                                    ""
+                                  }
+                                  options={fuelPriceChoices.get(item.fuel_id) ?? []}
+                                  onChange={(value) => patchItem({ unit_price: value })}
+                                  className="min-w-[12rem]"
+                                />
+                              ) : null}
                               <PickerField
                                 label={t.attendant.creditFuelBy}
                                 value={item.mode}
@@ -1705,7 +1940,7 @@ export function AttendantShiftPage() {
                               />
                               <NumberField
                                 name={`credit-val-${item.key}`}
-                                label={item.mode === "liters" ? t.pos.liters : t.common.amount}
+                                label={item.mode === "liters" ? t.pos.liters : t.attendant.creditPumpAmount}
                                 value={item.value}
                                 onChange={(value) => patchItem({ value })}
                                 maxDecimals={3}
@@ -1718,9 +1953,23 @@ export function AttendantShiftPage() {
                                 label={t.products.product}
                                 value={item.product_id}
                                 options={productOptions}
-                                onChange={(value) => patchItem({ product_id: value })}
+                                onChange={(value) =>
+                                  patchItem({ product_id: value, unit_price: products.find((p) => p.id === value)?.price ?? "" })
+                                }
                                 className="min-w-[16rem] flex-1"
                               />
+                              {productPriceChoices.has(item.product_id) ? (
+                                <PickerField
+                                  label={t.attendant.soldAtPrice}
+                                  value={
+                                    productPriceChoices.get(item.product_id)?.find((c) => dCmp(c.value, item.unit_price || "") === 0)
+                                      ?.value ?? ""
+                                  }
+                                  options={productPriceChoices.get(item.product_id) ?? []}
+                                  onChange={(value) => patchItem({ unit_price: value })}
+                                  className="min-w-[12rem]"
+                                />
+                              ) : null}
                               <NumberField
                                 name={`credit-pqty-${item.key}`}
                                 label={t.common.qty}
@@ -1748,10 +1997,7 @@ export function AttendantShiftPage() {
                         icon={<Plus />}
                         onClick={() =>
                           patch({
-                            items: [
-                              ...row.items,
-                              { key: nextKey(), kind: "fuel", fuel_id: fuelOptions[0]?.value ?? "", mode: "liters", value: "", product_id: "", product_qty: "" },
-                            ],
+                            items: [...row.items, newFuelItem()],
                           })
                         }
                       >
@@ -1765,7 +2011,7 @@ export function AttendantShiftPage() {
                           patch({
                             items: [
                               ...row.items,
-                              { key: nextKey(), kind: "product", fuel_id: "", mode: "liters", value: "", product_id: "", product_qty: "" },
+                              { key: nextKey(), kind: "product", fuel_id: "", mode: "liters", value: "", product_id: "", product_qty: "", unit_price: "" },
                             ],
                           })
                         }
@@ -1774,13 +2020,24 @@ export function AttendantShiftPage() {
                       </Button>
                     </div>
 
-                    {/* Мөрийн дүн — түлш + бараа, хөнгөлөлт тооцсон */}
+                    {/* Мөрийн дүн — харилцагчид нэхэмжлэх (хөнгөлөлт хасагдсан) + колонкийн дүн */}
                     <div className="num flex items-baseline justify-between gap-3 border-t border-line pt-2">
-                      <span className="text-sm text-ink-soft">{t.attendant.creditSales} ≈</span>
+                      <span className="text-sm text-ink-soft">{t.attendant.creditBilled} ≈</span>
                       <span className="text-base font-bold text-ink">
                         {formatMNT(creditRowTotals[index]?.total ?? "0")}
                       </span>
                     </div>
+                    {creditRowTotals[index] && dCmp(creditRowTotals[index].gross, creditRowTotals[index].net) !== 0 ? (
+                      <span className="num -mt-1 text-right text-xs text-ink-soft">
+                        {t.attendant.creditPumpValue}: {formatMNT(creditRowTotals[index].gross)} ·{" "}
+                        {t.attendant.creditDiscount}: {formatMNT(dSub(creditRowTotals[index].gross, creditRowTotals[index].net))}
+                      </span>
+                    ) : null}
+                    {creditRowTotals[index]?.short ? (
+                      <span className="rounded-lg bg-danger-soft px-2 py-1 text-xs font-medium text-danger-dark">
+                        {t.attendant.creditShort}
+                      </span>
+                    ) : null}
                   </div>
                 );
               })}
@@ -1796,9 +2053,7 @@ export function AttendantShiftPage() {
                       contract_id: "",
                       new_name: "",
                       new_phone: "",
-                      items: [
-                        { key: nextKey(), kind: "fuel", fuel_id: fuelOptions[0]?.value ?? "", mode: "liters", value: "", product_id: "", product_qty: "" },
-                      ],
+                      items: [newFuelItem()],
                     },
                   ])
                 }
@@ -1808,9 +2063,11 @@ export function AttendantShiftPage() {
               <TotalBox
                 label={t.attendant.creditSales}
                 value={creditTotal}
-                hint={`${t.sales.fuel}: ${formatMNT(creditFuelTotal)} · ${t.products.title}: ${formatMNT(
-                  dSub(creditTotal, creditFuelTotal),
-                )}`}
+                hint={`${t.sales.fuel}: ${formatMNT(creditFuelTotal)}${
+                  dCmp(creditFuelGross, creditFuelTotal) !== 0
+                    ? ` (${t.attendant.creditPumpValue}: ${formatMNT(creditFuelGross)})`
+                    : ""
+                } · ${t.products.title}: ${formatMNT(creditGoodsTotal)}`}
               />
             </div>
   );
@@ -2256,6 +2513,9 @@ export function AttendantShiftPage() {
             ))}
           </div>
 
+          {/* Үнэ батлагдсан ч тэмдэглэлгүй бол — хаалтаас өмнө заавал тэмдэглүүлнэ */}
+          {step === 0 && shiftId ? <PriceAlertBanner shiftId={shiftId} /> : null}
+
           {/* 0 — Эцсийн миль: хошуу бүр мильтэйгээ хамт зурагтай */}
           {step === 0 ? (
             <div className="flex flex-col divide-y divide-line">
@@ -2379,15 +2639,12 @@ export function AttendantShiftPage() {
               {(() => {
                 const declared = declaredCash === "" ? "0" : declaredCash;
                 const expenseNonCash = dSub(expenseTotal, expenseCashTotal);
-                // Зээлээр өгсөн бараа: орлогод нэмээд зээлийн нийтээр хасна — ингэснээр
-                // зээлийн мөр зээлийн алхмын дүнтэй (түлш + бараа) яг таарна.
-                const goodsAll = dAdd(oilTotal, creditGoodsTotal);
-                // Тушаах ёстой: бэлэн зарлага л кассаас гардаг; терминал/шилжүүлгийн
-                // зарлага банкнаас гардаг тул тушаалтад нөлөөлөхгүй.
-                const mustTotal = dSub(
-                  dSum([preview.opening_cash, preview.fuel_total, goodsAll, arTotal]),
-                  dSum([creditTotal, expenseCashTotal]),
-                );
+                // Тушаах ёстой: серверийн «байвал зохих» томьёо (mustOf). Бэлэн зарлага
+                // л кассаас гардаг; терминал/шилжүүлгийн зарлага банкнаас гарна.
+                const mustTotal = mustOf(preview);
+                const refundsCash = preview.refunds_cash ?? "0";
+                const otherCash = preview.other_cash ?? "0";
+                const dayCashSales = preview.day_cash_sales ?? "0";
                 // Тушаасан: тоолсон бэлэн + терминал + шилжүүлэг — харилцагчийн өглөг
                 // төлөлт (бэлэн ч, картаар ч) эдгээр дүнд аль хэдийн багтсан тул давхар нэмэхгүй.
                 const handedTotal = dSum([declared, settlementTotal, transferAmount]);
@@ -2420,18 +2677,28 @@ export function AttendantShiftPage() {
                         </span>
                         <Row label={`+ ${t.shift.openingCash}`} value={preview.opening_cash} />
                         <Row label={`+ ${t.attendant.fuelByMile}`} value={preview.fuel_total} />
-                        <Row
-                          label={`+ ${Number(creditGoodsTotal) > 0 ? t.attendant.oilSalesInclCredit : t.attendant.oilSales}`}
-                          value={goodsAll}
-                        />
+                        <Row label={`+ ${t.attendant.oilSales}`} value={oilTotal} />
                         <Row label={`+ ${t.attendant.arAll}`} value={arTotal} />
-                        <Row label={`− ${t.attendant.creditGivenAll}`} value={creditTotal} negative approx />
-                        {Number(creditGoodsTotal) > 0 ? (
+                        <Row label={`− ${t.attendant.creditFuelPump}`} value={creditFuelGross} negative />
+                        {dCmp(creditFuelGross, creditFuelTotal) !== 0 ? (
                           <span className="num -mt-1 text-right text-xs text-ink-soft">
-                            {t.sales.fuel}: {formatMNT(creditFuelTotal)} · {t.products.title}: {formatMNT(creditGoodsTotal)}
+                            {t.attendant.creditBilled}: {formatMNT(creditFuelTotal)} · {t.attendant.creditDiscount}:{" "}
+                            {formatMNT(dSub(creditFuelGross, creditFuelTotal))}
+                          </span>
+                        ) : null}
+                        {dIsPositive(creditGoodsTotal) ? (
+                          <span className="num -mt-1 text-right text-xs text-ink-soft">
+                            {t.attendant.creditGoodsNote}: {formatMNT(creditGoodsTotal)}
                           </span>
                         ) : null}
                         <Row label={`− ${t.attendant.expenseCash}`} value={expenseCashTotal} negative />
+                        {!dIsZero(refundsCash) ? (
+                          <Row label={`− ${t.attendant.refundsCash}`} value={refundsCash} negative />
+                        ) : null}
+                        {!dIsZero(otherCash) ? (
+                          <Row label={`± ${t.attendant.otherCash}`} value={otherCash} negative={dCmp(otherCash, "0") < 0} />
+                        ) : null}
+                        {!dIsZero(dayCashSales) ? <Row label={`+ ${t.attendant.dayCashSales}`} value={dayCashSales} /> : null}
                         {Number(expenseNonCash) > 0 ? (
                           <span className="num -mt-1 text-right text-xs text-ink-soft">
                             {t.attendant.expenseNonCashNote}: {formatMNT(expenseNonCash)}
@@ -2462,6 +2729,11 @@ export function AttendantShiftPage() {
                         </div>
                       </div>
                     </div>
+                    {creditShort ? (
+                      <p className="rounded-xl bg-danger-soft px-4 py-3 text-sm font-medium text-danger-dark">
+                        {t.attendant.creditShort}
+                      </p>
+                    ) : null}
                     <p className="text-xs text-ink-soft">{t.attendant.diffHint}</p>
                   </>
                 );
@@ -2600,13 +2872,19 @@ function PriceAlertBanner({ shiftId }: { shiftId: UUID }) {
   const { data: alerts } = usePriceAlerts(shiftId);
   const [target, setTarget] = useState<{ nozzleId: string; price: string } | null>(null);
   if (!alerts || alerts.length === 0) return null;
+  const blocking = alerts.some((alert) => alert.blocking);
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border-2 border-warning bg-warning-soft px-4 py-3 text-warning-dark">
+    <div
+      className={`flex flex-col gap-3 rounded-2xl border-2 px-4 py-3 ${
+        blocking ? "border-danger bg-danger-soft text-danger-dark" : "border-warning bg-warning-soft text-warning-dark"
+      }`}
+    >
       <div className="flex items-start gap-3">
         <AlertTriangle className="mt-0.5 h-6 w-6 shrink-0" />
         <div className="flex flex-col gap-1">
           <span className="text-base font-bold">{t.attendant.priceAlertTitle}</span>
           <span className="text-sm">{t.attendant.priceAlertHint}</span>
+          {blocking ? <span className="text-sm font-semibold">{t.attendant.priceAlertBlockingHint}</span> : null}
         </div>
       </div>
       <div className="flex flex-col gap-2">
@@ -2618,7 +2896,11 @@ function PriceAlertBanner({ shiftId }: { shiftId: UUID }) {
             <div className="flex flex-col">
               <span className="font-semibold">
                 {alert.pump_name} · №{alert.nozzle_number} {alert.fuel_name}
-                {alert.has_mark ? <span className="ml-2 text-xs text-danger-dark">({t.attendant.priceAlertWrongMark})</span> : null}
+                {alert.has_mark ? (
+                  <span className="ml-2 text-xs text-danger-dark">
+                    ({alert.blocking ? t.attendant.priceAlertChangedAfterMark : t.attendant.priceAlertWrongMark})
+                  </span>
+                ) : null}
               </span>
               <span className="num text-sm text-ink-soft">
                 {t.attendant.priceAlertRow

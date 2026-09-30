@@ -460,6 +460,9 @@ export interface ShiftSummary {
   settlement_total?: MoneyStr;
   transfer_total?: MoneyStr;
   sales_total: MoneyStr;
+  /** Хадгалсан «байвал зохих» дүн хуучин дүрмээр бодогдсон — дахин бодох. */
+  needs_recalc?: boolean;
+  expected_recalc?: MoneyStr | null;
 }
 
 /** Дан ээлжийн мөр — жагсаалт/түүхэнд. */
@@ -521,6 +524,47 @@ export interface PriceAlert {
   current_price: MoneyStr;
   approved_at: string | null;
   has_mark: boolean;
+  /** Тэмдэглэлээс (эсвэл ээлж нээснээс) хойш үнэ батлагдсан ч тэмдэглэгдээгүй —
+   *  өдрийн хаалт хийгдэхгүй. False бол зөвхөн анхааруулга. */
+  blocking?: boolean;
+}
+
+/** Ээлжийн дундуур үнэ өөрчлөгдсөн түлш, бараа — мөрөнд «аль үнээр» сонгуулна. */
+export interface PriceOptions {
+  fuels: {
+    fuel_id: UUID;
+    name: string;
+    prices: { price: MoneyStr; kind: "open" | "mark"; at: IsoDateTime | null; reading: LitersStr | null }[];
+  }[];
+  products: {
+    product_id: UUID;
+    name: string;
+    current: MoneyStr;
+    periods: { price: MoneyStr; from: IsoDateTime | null; until: IsoDateTime | null }[];
+  }[];
+}
+
+/** Хаалтын засвар — зээл нэмэхэд сонгох түлш (нэгдсэн борлуулалтын үлдэгдэл). */
+export interface ClosingFuelOption {
+  fuel_id: UUID;
+  name: string;
+  liters: LitersStr;
+  amount: MoneyStr;
+  prices: { price: MoneyStr; liters: LitersStr; amount: MoneyStr }[];
+}
+
+/** Хаалтын дараах засвар (аудитаас). */
+export interface ClosingCorrection {
+  action: string;
+  at: IsoDateTime;
+  user_name: string;
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+}
+
+export interface CashRecalcBulkResult {
+  recalculated: { shift_id: UUID; number: number; expected_cash: MoneyStr; cash_over_short: MoneyStr }[];
+  skipped: { shift_id: UUID; number: number; reason: "open" | "approved" | "up_to_date" | string }[];
 }
 
 export type ClosingMethod = "cash" | "card" | "transfer";
@@ -544,8 +588,20 @@ export interface ClosingView {
   oil_total: MoneyStr;
   oil_lines: ClosingLineItem[];
   credit_total: MoneyStr;
+  /** Зээлийн түлш — харилцагчдад нэхэмжилсэн дүн. */
   credit_fuel: MoneyStr;
+  /** Зээлийн түлш — колонкийн (бүтэн үнийн) дүн; тулгалтад ЭНЭ хасагдана. */
+  credit_fuel_gross: MoneyStr;
+  /** Гэрээний хөнгөлөлт = колонкийн дүн − нэхэмжилсэн. */
+  credit_discount: MoneyStr;
   credit_goods: MoneyStr;
+  fuel_sale_total: MoneyStr;
+  /** Ээлжийн хугацаанд батлагдсан бэлэн буцаалт. */
+  refunds_cash: MoneyStr;
+  /** Хаалтаас гадуурх бэлэн борлуулалт (ихэвчлэн 0). */
+  day_cash_sales: MoneyStr;
+  /** Хаалтын цонхоос гадуурх бусад кассын гүйлгээ. */
+  other_cash: MoneyStr;
   credit_lines: {
     sale_id: UUID;
     number: number;
@@ -575,8 +631,13 @@ export interface ClosingView {
   expected_cash: MoneyStr;
   cash_over_short: MoneyStr;
   consistent: boolean;
+  /** Хадгалсан «байвал зохих» дүн хуучин дүрмээр бодогдсон. */
+  needs_recalc?: boolean;
+  expected_recalc?: MoneyStr | null;
   /** Түгээгчийн дэлгэц дээр харсан тулгалт (шинэ хаалтуудад). */
   client: { must?: MoneyStr; handed?: MoneyStr; diff?: MoneyStr; [key: string]: unknown } | null;
+  /** Хаалтын дараах засварууд. */
+  corrections?: ClosingCorrection[];
 }
 
 /** Хаалтын засварт харилцагч: байгаа гэрээ / гэрээгүй харилцагч / шинэ. */
@@ -2727,7 +2788,10 @@ export interface CreditItemInput {
   fuel_id?: UUID | null;
   product_id?: UUID | null;
   qty?: string | null;
+  /** Түлш: колонкийн (бүтэн үнийн) дүн — хөнгөлөлтийг сервер хасна. */
   amount?: MoneyStr | null;
+  /** Ээлжийн дундуур үнэ өөрчлөгдсөн бол аль үнээр авсан. */
+  unit_price?: MoneyStr | null;
 }
 
 export interface NewCreditCustomerInput {
@@ -2787,6 +2851,12 @@ export interface DailyCloseRequest {
   note?: string | null;
   /** Түгээгчийн дэлгэц дээрх тулгалт, мөрүүд — ээлжийн тайланд харьцуулахад. */
   client_snapshot?: Record<string, unknown> | null;
+  /** «Шалгах» алхамд харсан серверийн тооцоо — хаах мөчид өөр бол 409. */
+  preview_fuel_total?: MoneyStr;
+  preview_opening_cash?: MoneyStr;
+  preview_refunds_cash?: MoneyStr;
+  preview_other_cash?: MoneyStr;
+  preview_day_cash_sales?: MoneyStr;
 }
 
 export interface DailySegment {
@@ -2824,6 +2894,13 @@ export interface DailyPreview {
   fuel_total: MoneyStr;
   fuel_liters: LitersStr;
   opening_cash: MoneyStr;
+  /** Ээлжийн хугацаанд батлагдсан бэлэн буцаалт. */
+  refunds_cash?: MoneyStr;
+  /** Өдрийн турш бүртгэсэн бэлэн борлуулалт (ихэвчлэн 0). */
+  day_cash_sales?: MoneyStr;
+  /** Өдрийн турш хийсэн бусад кассын гүйлгээ (өглөг, зарлага гэх мэт). */
+  other_cash?: MoneyStr;
+  price_alerts?: PriceAlert[];
 }
 
 export interface DailyClosing {
@@ -2860,6 +2937,9 @@ export interface DailyClosingRow {
   declared_cash: MoneyStr | null;
   expected_cash: MoneyStr | null;
   cash_over_short: MoneyStr | null;
+  /** Хадгалсан «байвал зохих» дүн хуучин дүрмээр бодогдсон — дахин бодох. */
+  needs_recalc?: boolean;
+  expected_recalc?: MoneyStr | null;
   /** Милийн залгамжийн зөрүү — нээлт vs өмнөх хаалтын нийлбэр (0 байх ёстой). */
   mile_gap_l: LitersStr;
   /** Хэдэн хошуу дээр зөрсөн. */

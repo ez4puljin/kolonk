@@ -125,6 +125,8 @@ export function ShiftReportTemplate({ report, stationName }: ShiftReportTemplate
         <Kv label={t.shift.openingCash} value={formatMoneyExact(cash.opening_cash)} />
         <Kv label={t.tender.cash} value={formatMoneyExact(cash.cash_sales)} />
         <Kv label={t.refunds.title} value={formatMoneyExact(cash.refunds)} />
+        {/* Өглөг төлөлт, кассын зарлага — үүнгүйгээр «Байвал зохих» мөрүүдийн нийлбэрээс зөрж харагдана */}
+        <Kv label={t.shift.otherCash} value={formatMoneyExact(cash.other_cash ?? "0")} />
         <Kv label={t.shift.expectedCash} value={formatMoneyExact(cash.expected_cash)} />
         <Kv label={t.shift.declaredCash} value={formatMoneyExact(cash.declared_cash)} />
         <Kv

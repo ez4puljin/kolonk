@@ -7,17 +7,22 @@
  * (shifts.approve) батлагдаагүй хаалтыг энд засна.
  */
 import { useMemo, useState, type ReactNode } from "react";
-import { AlertTriangle, Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, History, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 
 import { errorMessage } from "../../api/client";
 import { useExpenseCategories } from "../../api/queries/expenses";
 import { useCustomers } from "../../api/queries/partners";
-import { useClosingEditMutation, useClosingFuels, useClosingView } from "../../api/queries/shifts";
-import type { ClosingMethod, ClosingTarget, ClosingView, MoneyStr, UUID } from "../../api/types";
+import {
+  useClosingEditMutation,
+  useClosingFuels,
+  useClosingView,
+  useRecalculateCashMutation,
+} from "../../api/queries/shifts";
+import type { ClosingCorrection, ClosingMethod, ClosingTarget, ClosingView, MoneyStr, UUID } from "../../api/types";
 import { usePermission } from "../../hooks/usePermission";
 import { t } from "../../i18n/mn";
-import { dIsZero, dSub, dSum, dToQty } from "../../lib/decimal";
-import { formatLiters, formatMoneyExact } from "../../lib/format";
+import { dCmp, dIsZero, dSub, dSum, dToQty, toDisplay } from "../../lib/decimal";
+import { formatDateTime, formatLiters, formatMoneyExact } from "../../lib/format";
 import { useUiStore } from "../../stores/ui";
 import { NumberField, PickerField, TextField } from "../../pages/catalog/_shared";
 import { Button } from "../ui/Button";
@@ -79,11 +84,31 @@ function toTarget(value: string, name: string, phone: string): ClosingTarget | n
 
 type Dialog = null | "tenders" | "credit" | "ar" | "expense";
 
+/** Аудитын before/after-аас товч тайлбар: «Тоолсон бэлэн 100 000 → 120 000». */
+const MONEY_KEYS = ["declared_cash", "settlement_total", "transfer_total", "opening_cash", "expected_cash", "cash_over_short", "amount"] as const;
+function correctionDetail(row: ClosingCorrection): string {
+  const parts: string[] = [];
+  const text = (key: string, value: unknown): string =>
+    key === "liters" ? formatLiters(String(value), 3) : key === "method" ? (METHOD_LABEL[value as ClosingMethod] ?? String(value)) : formatMoneyExact(String(value));
+  for (const key of [...MONEY_KEYS, "liters", "method"]) {
+    const before = row.before[key];
+    const after = row.after[key];
+    const label = T.fields[key as keyof typeof T.fields];
+    if (before != null && after != null && String(before) !== String(after)) parts.push(`${label}: ${text(key, before)} → ${text(key, after)}`);
+    else if (after != null) parts.push(`${label}: ${text(key, after)}`);
+    else if (before != null) parts.push(`${label}: ${text(key, before)}`);
+  }
+  const note = row.after.note;
+  if (typeof note === "string" && note.trim() !== "") parts.push(`«${note.trim()}»`);
+  return parts.join(" · ");
+}
+
 export function ClosingWindow({ shiftId }: { shiftId: UUID }) {
   const { can } = usePermission();
   const canEdit = can("shifts.approve");
   const viewQuery = useClosingView(shiftId);
   const edit = useClosingEditMutation(shiftId);
+  const recalc = useRecalculateCashMutation();
   const toastSuccess = useUiStore((state) => state.toastSuccess);
   const toastError = useUiStore((state) => state.toastError);
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -115,6 +140,14 @@ export function ClosingWindow({ shiftId }: { shiftId: UUID }) {
   const client = view.client;
   const clientDiff = client?.diff != null ? String(client.diff) : null;
   const gap = clientDiff !== null ? dSub(view.diff, clientDiff) : null;
+  const corrections = view.corrections ?? [];
+  const mismatchReason =
+    corrections.length > 0
+      ? T.mismatchEdited.replace("{n}", String(corrections.length))
+      : view.needs_recalc
+        ? T.mismatchLegacy
+        : T.mismatchRows;
+  const creditDiscount = dSub(view.credit_fuel_gross ?? view.credit_fuel, view.credit_fuel);
 
   const removeButton = (kind: "remove-credit" | "remove-ar" | "remove-expense", id: UUID, label: string) =>
     editable ? (
@@ -172,14 +205,41 @@ export function ClosingWindow({ shiftId }: { shiftId: UUID }) {
         {gap !== null && !dIsZero(gap) ? (
           <p className="flex gap-2 rounded-xl border-2 border-danger bg-danger-soft px-3 py-2.5 text-sm text-danger-dark">
             <AlertTriangle className="h-5 w-5 shrink-0" />
-            {T.clientMismatch
-              .replace("{client}", formatMoneyExact(clientDiff ?? "0"))
-              .replace("{server}", formatMoneyExact(view.diff))
-              .replace("{gap}", formatMoneyExact(gap))}
+            <span>
+              {T.clientMismatch
+                .replace("{client}", formatMoneyExact(clientDiff ?? "0"))
+                .replace("{server}", formatMoneyExact(view.diff))
+                .replace("{gap}", formatMoneyExact(gap))}{" "}
+              {mismatchReason}
+            </span>
           </p>
         ) : null}
-        {!view.consistent ? (
-          <p className="rounded-xl border-2 border-warning bg-warning-soft px-3 py-2.5 text-sm text-warning-dark">{T.inconsistent}</p>
+        {!view.consistent || view.needs_recalc ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border-2 border-warning bg-warning-soft px-3 py-2.5 text-sm text-warning-dark">
+            <span className="min-w-0 flex-1">
+              {view.needs_recalc && view.expected_recalc
+                ? T.needsRecalc
+                    .replace("{stored}", formatMoneyExact(view.expected_cash))
+                    .replace("{fresh}", formatMoneyExact(view.expected_recalc))
+                : T.inconsistent}
+            </span>
+            {editable && view.needs_recalc ? (
+              <Button
+                variant="warning"
+                size="sm"
+                icon={<RefreshCw />}
+                loading={recalc.isPending}
+                onClick={() =>
+                  recalc.mutate(shiftId, {
+                    onSuccess: () => toastSuccess(T.recalcDone),
+                    onError: (cause) => toastError(errorMessage(cause)),
+                  })
+                }
+              >
+                {T.recalc}
+              </Button>
+            ) : null}
+          </div>
         ) : null}
         {canEdit && !view.editable ? <p className="text-sm text-ink-soft">{T.approvedLocked}</p> : null}
         {editable ? <p className="text-xs text-ink-soft">{T.editHint}</p> : null}
@@ -205,11 +265,29 @@ export function ClosingWindow({ shiftId }: { shiftId: UUID }) {
           <span className="text-xs font-bold tracking-wide text-ink-soft uppercase">{T.mustHow}</span>
           <Row label={`+ ${t.shift.openingCash}`} value={view.opening_cash} />
           <Row label={`+ ${T.fuelByMile}`} value={view.fuel_total} />
+          <Row label={T.creditFuelPump} value={view.credit_fuel_gross ?? view.credit_fuel} negative />
+          {!dIsZero(creditDiscount) ? (
+            <span className="num -mt-0.5 text-right text-xs text-ink-soft">
+              {T.creditBilled}: {formatMoneyExact(view.credit_fuel)} · {T.creditDiscount}: {formatMoneyExact(creditDiscount)}
+            </span>
+          ) : null}
           <Row label={`+ ${T.oil}`} value={view.oil_total} />
-          {!dIsZero(view.credit_goods) ? <Row label={`+ ${T.credit} (${t.products.title})`} value={view.credit_goods} /> : null}
           <Row label={`+ ${T.ar}`} value={view.ar_total} />
-          <Row label={T.credit} value={view.credit_total} negative />
           <Row label={T.expenseCash} value={view.expense_by_method.cash} negative />
+          {!dIsZero(view.refunds_cash ?? "0") ? <Row label={T.refundsCash} value={view.refunds_cash} negative /> : null}
+          {!dIsZero(view.other_cash ?? "0") ? (
+            <Row
+              label={`± ${T.otherCash}`}
+              value={dCmp(view.other_cash, "0") < 0 ? dSub("0", view.other_cash) : view.other_cash}
+              negative={dCmp(view.other_cash, "0") < 0}
+            />
+          ) : null}
+          {!dIsZero(view.day_cash_sales ?? "0") ? <Row label={`+ ${T.dayCashSales}`} value={view.day_cash_sales} /> : null}
+          {!dIsZero(view.credit_goods) ? (
+            <span className="text-xs text-ink-soft">
+              {T.creditGoodsNote}: {formatMoneyExact(view.credit_goods)}
+            </span>
+          ) : null}
           <Row label={t.attendant.mustHandover} value={view.must} strong />
         </div>
 
@@ -246,7 +324,9 @@ export function ClosingWindow({ shiftId }: { shiftId: UUID }) {
                     {line.edited ? <span className="ml-1 text-xs text-warning-dark">({T.edited})</span> : null}
                   </div>
                   <div className="num text-ink-soft">
-                    {line.items.map((item) => `${item.name} ${formatLiters(item.qty, 2)}`).join(" · ")}
+                    {line.items
+                      .map((item) => `${item.name} ${formatLiters(item.qty, 2)} × ${formatMoneyExact(item.unit_price)}`)
+                      .join(" · ")}
                   </div>
                 </div>
                 <span className="flex shrink-0 items-center gap-1">
@@ -301,6 +381,26 @@ export function ClosingWindow({ shiftId }: { shiftId: UUID }) {
             ))
           ),
         )}
+
+        {corrections.length > 0 ? (
+          <div className="flex flex-col gap-1.5 rounded-xl border border-line px-3 py-2.5">
+            <span className="flex items-center gap-2 font-bold text-ink">
+              <History className="h-4 w-4" />
+              {T.history}
+            </span>
+            {corrections.map((row, index) => (
+              <div key={`${row.action}-${index}`} className="flex flex-col border-t border-line pt-1.5 text-sm first:border-t-0 first:pt-0">
+                <span className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="font-semibold text-ink">{T.actions[row.action as keyof typeof T.actions] ?? row.action}</span>
+                  <span className="num text-xs text-ink-soft">
+                    {formatDateTime(row.at)} · {row.user_name}
+                  </span>
+                </span>
+                {correctionDetail(row) ? <span className="num text-ink-soft">{correctionDetail(row)}</span> : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       {editable ? (
@@ -420,13 +520,14 @@ function CreditDialog({
   open: boolean;
   busy: boolean;
   onClose: () => void;
-  onSave: (body: { target: ClosingTarget; fuel_id: UUID; qty?: string; amount?: string }) => void;
+  onSave: (body: { target: ClosingTarget; fuel_id: UUID; qty?: string; amount?: string; unit_price?: string | null }) => void;
 }) {
   const fuels = useClosingFuels(shiftId, open);
   const [target, setTarget] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [fuelId, setFuelId] = useState("");
+  const [price, setPrice] = useState("");
   const [mode, setMode] = useState<"amount" | "liters">("amount");
   const [value, setValue] = useState("");
   const resolved = toTarget(target, name, phone);
@@ -435,6 +536,14 @@ function CreditDialog({
     label: f.name,
     hint: `${T.available}: ${formatLiters(f.liters, 2)} · ${formatMoneyExact(f.amount)}`,
   }));
+  // Ээлжид үнэ өөрчлөгдсөн түлш — аль үнээр авсныг заавал сонгоно (сервер ч мөн адил).
+  const prices = (fuels.data ?? []).find((f) => f.fuel_id === fuelId)?.prices ?? [];
+  const priceOptions = prices.map((p) => ({
+    value: toDisplay(p.price),
+    label: formatMoneyExact(p.price),
+    hint: `${T.available}: ${formatLiters(p.liters, 2)} · ${formatMoneyExact(p.amount)}`,
+  }));
+  const needsPrice = prices.length > 1;
   return (
     <Modal
       open={open}
@@ -444,16 +553,36 @@ function CreditDialog({
       footer={
         <DialogFooter
           busy={busy}
-          disabled={!resolved || fuelId === "" || dToQty(value) <= 0}
+          disabled={!resolved || fuelId === "" || dToQty(value) <= 0 || (needsPrice && price === "")}
           onClose={onClose}
-          onSave={() => resolved && onSave({ target: resolved, fuel_id: fuelId, ...(mode === "amount" ? { amount: value } : { qty: value }) })}
+          onSave={() =>
+            resolved &&
+            onSave({
+              target: resolved,
+              fuel_id: fuelId,
+              unit_price: needsPrice ? price : null,
+              ...(mode === "amount" ? { amount: value } : { qty: value }),
+            })
+          }
         />
       }
     >
       <div className="flex flex-col gap-4">
         <p className="text-sm text-ink-soft">{T.creditHint}</p>
         <TargetFields value={target} onChange={setTarget} name={name} onName={setName} phone={phone} onPhone={setPhone} enabled={open} />
-        <PickerField label={T.fuel} value={fuelId} options={fuelOptions} onChange={setFuelId} searchable={false} />
+        <PickerField
+          label={T.fuel}
+          value={fuelId}
+          options={fuelOptions}
+          onChange={(v) => {
+            setFuelId(v);
+            setPrice("");
+          }}
+          searchable={false}
+        />
+        {needsPrice ? (
+          <PickerField label={T.takenAtPrice} value={price} options={priceOptions} onChange={setPrice} searchable={false} />
+        ) : null}
         <PickerField
           label={T.method}
           value={mode}
@@ -466,7 +595,8 @@ function CreditDialog({
         />
         <NumberField
           name="credit-value"
-          label={mode === "amount" ? T.amount : T.liters}
+          label={mode === "amount" ? T.pumpAmount : T.liters}
+          hint={mode === "amount" ? T.pumpAmountHint : undefined}
           value={value}
           onChange={setValue}
           suffix={mode === "amount" ? t.units.mnt : t.units.liter}

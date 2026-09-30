@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../client";
 import type {
+  CashRecalcBulkResult,
+  ClosingFuelOption,
   ClosingMethod,
   ClosingTarget,
   ClosingView,
@@ -20,6 +22,7 @@ import type {
   PriceAlert,
   PriceMark,
   PriceMarkInput,
+  PriceOptions,
   ShiftAttachment,
   ShiftCloseRequest,
   ShiftOpenRequest,
@@ -188,6 +191,17 @@ export function useOpenShiftPriceAlerts(enabled = true) {
   });
 }
 
+/** Ээлжийн дундуур үнэ өөрчлөгдсөн түлш, бараа — зээл/барааны мөрөнд «аль үнээр» сонгуулна. */
+export function usePriceOptions(shiftId: UUID | null) {
+  return useQuery({
+    queryKey: ["shifts", "price-options", shiftId ?? ""],
+    queryFn: () => api.get<PriceOptions>(`/api/shifts/${shiftId}/price-options`),
+    enabled: Boolean(shiftId),
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  });
+}
+
 export function useAddPriceMarkMutation() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -195,6 +209,7 @@ export function useAddPriceMarkMutation() {
       api.post<PriceMark>(`/api/shifts/${shiftId}/price-marks`, payload),
     onSuccess: (_data, vars) => {
       void queryClient.invalidateQueries({ queryKey: ["shifts", "price-marks", vars.shiftId] });
+      void queryClient.invalidateQueries({ queryKey: ["shifts", "price-options", vars.shiftId] });
       // Түгээгчийн болон админы (бүх ээлжийн) анхааруулга хоёуланг нь.
       void queryClient.invalidateQueries({ queryKey: ["shifts", "price-alerts"] });
       void queryClient.invalidateQueries({ queryKey: shiftKeys.report(vars.shiftId) });
@@ -247,6 +262,7 @@ export function useCorrectClosingMutation() {
     onSuccess: (_data, vars) => {
       void queryClient.invalidateQueries({ queryKey: ["shifts", "daily-closings"] });
       void queryClient.invalidateQueries({ queryKey: shiftKeys.report(vars.shiftId) });
+      void queryClient.invalidateQueries({ queryKey: ["shifts", "closing-view", vars.shiftId] });
     },
   });
 }
@@ -293,6 +309,8 @@ export function useCorrectOpeningCashMutation() {
       void queryClient.invalidateQueries({ queryKey: shiftKeys.report(vars.shiftId) });
       void queryClient.invalidateQueries({ queryKey: shiftKeys.current() });
       void queryClient.invalidateQueries({ queryKey: ["shifts", "daily-closings"] });
+      void queryClient.invalidateQueries({ queryKey: ["shifts", "closing-view", vars.shiftId] });
+      void queryClient.invalidateQueries({ queryKey: ["shifts", "list"] });
       void queryClient.invalidateQueries({ queryKey: ["accounting"] });
     },
   });
@@ -307,21 +325,18 @@ export function useClosingView(shiftId: UUID | null, enabled = true) {
   });
 }
 
-/** Зээл нэмэхэд сонгох түлш — нэгдсэн борлуулалтад байгаа литртэй. */
+/** Зээл нэмэхэд сонгох түлш — нэгдсэн борлуулалтад байгаа литртэй, үнээр задалсан. */
 export function useClosingFuels(shiftId: UUID | null, enabled = true) {
   return useQuery({
     queryKey: ["shifts", "closing-view", shiftId ?? "", "fuels"],
-    queryFn: () =>
-      api.get<{ fuel_id: UUID; name: string; liters: string; amount: MoneyStr }[]>(
-        `/api/shifts/${shiftId}/closing-view/fuels`,
-      ),
+    queryFn: () => api.get<ClosingFuelOption[]>(`/api/shifts/${shiftId}/closing-view/fuels`),
     enabled: Boolean(shiftId) && enabled,
   });
 }
 
 type ClosingEdit =
   | { kind: "tenders"; declared_cash: MoneyStr; settlement_total: MoneyStr; transfer_total: MoneyStr; note?: string }
-  | { kind: "add-credit"; target: ClosingTarget; fuel_id: UUID; qty?: string; amount?: MoneyStr }
+  | { kind: "add-credit"; target: ClosingTarget; fuel_id: UUID; qty?: string; amount?: MoneyStr; unit_price?: MoneyStr | null }
   | { kind: "remove-credit"; sale_id: UUID }
   | { kind: "add-ar"; target: ClosingTarget; amount: MoneyStr; method: ClosingMethod }
   | { kind: "remove-ar"; payment_id: UUID }
@@ -345,6 +360,7 @@ export function useClosingEditMutation(shiftId: UUID) {
             fuel_id: edit.fuel_id,
             qty: edit.qty ?? null,
             amount: edit.amount ?? null,
+            unit_price: edit.unit_price ?? null,
           });
         case "remove-credit":
           return api.del<ClosingView>(`${base}/credits/${edit.sale_id}`);
@@ -391,7 +407,28 @@ export function useRecalculateCashMutation() {
       void queryClient.invalidateQueries({ queryKey: shiftKeys.report(shiftId) });
       void queryClient.invalidateQueries({ queryKey: ["shifts", "daily-closings"] });
       void queryClient.invalidateQueries({ queryKey: ["shifts", "list"] });
+      void queryClient.invalidateQueries({ queryKey: ["shifts", "closing-view", shiftId] });
       void queryClient.invalidateQueries({ queryKey: ["accounting"] });
+    },
+  });
+}
+
+/** Хуучин дүрмээр бодогдсон олон ээлжийг нэг дор дахин бодно (батлагдсаныг алгасна). */
+export function useRecalculateCashBulkMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (shiftIds: UUID[]) =>
+      api.post<CashRecalcBulkResult>("/api/shifts/recalculate-cash-bulk", { shift_ids: shiftIds }),
+    onSuccess: () => {
+      for (const key of [
+        ["shifts", "report"],
+        ["shifts", "daily-closings"],
+        ["shifts", "list"],
+        ["shifts", "closing-view"],
+        ["accounting"],
+      ]) {
+        void queryClient.invalidateQueries({ queryKey: key });
+      }
     },
   });
 }
@@ -416,8 +453,11 @@ export function useClosingApprovalMutation() {
         `/api/shifts/${shiftId}/closing/approval`,
         { approved, note: note || null, business_date: business_date ?? null },
       ),
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       void queryClient.invalidateQueries({ queryKey: ["shifts", "daily-closings"] });
+      // Батлагдсан хаалтыг засах боломжгүй — цонхны засварын төлөв шинэчлэгдэнэ.
+      void queryClient.invalidateQueries({ queryKey: ["shifts", "closing-view", vars.shiftId] });
+      void queryClient.invalidateQueries({ queryKey: ["shifts", "list"] });
     },
   });
 }

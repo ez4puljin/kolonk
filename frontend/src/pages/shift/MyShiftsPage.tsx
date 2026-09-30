@@ -88,6 +88,10 @@ export function MyShiftsPage() {
         row.cash_over_short != null ? (
           <span className={`font-bold ${Number(row.cash_over_short) < 0 ? "text-danger-dark" : Number(row.cash_over_short) > 0 ? "text-warning-dark" : "text-ink"}`}>
             {formatMNT(row.cash_over_short)}
+            {row.needs_recalc ? (
+              // Хуучин дүрмээр бодогдсон — нягтлан дахин бодоход зөрүү өөрчлөгдөнө.
+              <span className="block text-xs font-semibold text-warning-dark">{t.dailyClosings.legacyPending}</span>
+            ) : null}
           </span>
         ) : (
           "—"

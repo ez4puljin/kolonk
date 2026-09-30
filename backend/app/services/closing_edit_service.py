@@ -47,8 +47,25 @@ from app.services.sale_service import compute_totals
 
 ZERO = Decimal("0.00")
 ZERO_L = Decimal("0.000")
+MIN_L = Decimal("0.001")
 CLOSE_NOTE = "Өдрийн хаалт"
 EDIT_NOTE = "засвар"
+
+#: Хаалтын дараах засварууд — цонхонд «засварын түүх» болж харагдана.
+CORRECTION_ACTIONS = (
+    "shift.closing_corrected",
+    "shift.closing_tenders_edited",
+    "shift.closing_credit_added",
+    "shift.closing_credit_removed",
+    "shift.closing_ar_added",
+    "shift.closing_ar_removed",
+    "shift.closing_expense_added",
+    "shift.closing_expense_removed",
+    "shift.cash_recalculated",
+    "shift.opening_cash_corrected",
+    "shift.closing_approved",
+    "shift.closing_unapproved",
+)
 
 METHOD_MN = {"cash": "бэлэн", "card": "карт", "transfer": "шилжүүлэг"}
 
@@ -81,14 +98,11 @@ async def _editable(db: AsyncSession, shift_id: uuid.UUID) -> tuple[Shift, Shift
     return shift, closing
 
 
-def _people(shift: Shift) -> list[uuid.UUID]:
-    from app.services.shift_service import _shift_people  # noqa: PLC0415
+def _scope(shift: Shift, *, actor_col: Any, created_col: Any) -> Any:
+    """Ээлжийн кассын гүйлгээ — ``shift_service.shift_cash_scope``-тэй ижил дүрэм."""
+    from app.services.shift_service import shift_cash_scope  # noqa: PLC0415
 
-    return _shift_people(shift)
-
-
-def _window_end(shift: Shift):
-    return shift.closed_at
+    return shift_cash_scope(shift, actor_col=actor_col, created_col=created_col)
 
 
 def _inside(shift: Shift):
@@ -134,9 +148,7 @@ async def _closing_ar(db: AsyncSession, shift: Shift) -> list[ArPayment]:
             await db.scalars(
                 select(ArPayment)
                 .where(
-                    ArPayment.created_by.in_(_people(shift)),
-                    ArPayment.created_at >= shift.opened_at,
-                    ArPayment.created_at <= _window_end(shift),
+                    _scope(shift, actor_col=ArPayment.created_by, created_col=ArPayment.created_at),
                     ArPayment.note.ilike(f"{CLOSE_NOTE}%"),
                 )
                 .order_by(ArPayment.created_at)
@@ -148,11 +160,7 @@ async def _closing_ar(db: AsyncSession, shift: Shift) -> list[ArPayment]:
 async def _closing_expenses(db: AsyncSession, shift: Shift) -> list[Expense]:
     stmt = (
         select(Expense)
-        .where(
-            Expense.created_by.in_(_people(shift)),
-            Expense.created_at >= shift.opened_at,
-            Expense.created_at <= _window_end(shift),
-        )
+        .where(_scope(shift, actor_col=Expense.created_by, created_col=Expense.created_at))
         .order_by(Expense.created_at)
     )
     if shift.branch_id is not None:
@@ -348,6 +356,8 @@ async def closing_view(db: AsyncSession, shift_id: uuid.UUID) -> dict[str, Any]:
             }
         )
 
+    from app.services import shift_service  # noqa: PLC0415
+
     settlement = q2(_d(closing.settlement_vat) + _d(closing.settlement_novat))
     transfer = q2(_d(closing.transfer_total))
     declared = q2(_d(shift.declared_cash))
@@ -356,12 +366,39 @@ async def closing_view(db: AsyncSession, shift_id: uuid.UUID) -> dict[str, Any]:
     oil_total = q2(_d(closing.oil_total))
     ar_total = q2(sum(ar_by.values(), ZERO))
     credit_total = q2(credit_fuel + credit_goods)
+    # Зээлийн түлшний КОЛОНКИЙН дүн: миль×үнэ − нэгдсэн борлуулалт. Колонк
+    # зээлийн литрийг бүтэн үнээр тоолсон тул тулгалтад ЭНЭ хасагдана —
+    # гэрээний хөнгөлөлт (нэхэмжилсэн дүнгээс илүү) бэлэн мөнгөнд нөлөөлөхгүй.
+    fuel_sale_total = q2(_d(fuel_sale.total)) if fuel_sale is not None else ZERO
+    credit_fuel_gross = q2(fuel_total - fuel_sale_total)
 
-    # Түгээгчийн тулгалтын томьёо (серверийн бүртгэлээр).
-    must = q2(opening + fuel_total + oil_total + credit_goods + ar_total - credit_total - exp_by["cash"])
+    # Хаалтын цонхоос гадуурх кассын хөдөлгөөн — серверийн «байвал зохих» дүнд
+    # ордог тул тулгалтад тусад нь харуулна.
+    cash_sales_all, refunds_cash = await shift_service._cash_flows(db, shift)
+    other_cash = await shift_service._other_cash_movement(db, shift)
+    tender_cash = q2(sum((t["cash"] for t in tender_sales), ZERO))
+    day_cash_sales = q2(cash_sales_all - tender_cash)
+    other_misc = q2(other_cash - ar_by["cash"] + exp_by["cash"])
+
+    # Түгээгчийн тулгалтын томьёо (серверийн бүртгэлээр):
+    # эхний үлдэгдэл + миль×үнэ − зээлийн түлш (колонкийн дүн) + тос/бараа
+    # + өглөг төлөлт − бэлэн зарлага − бэлэн буцаалт + бусад.
+    must = q2(
+        opening
+        + fuel_total
+        - credit_fuel_gross
+        + oil_total
+        + ar_total
+        - exp_by["cash"]
+        - refunds_cash
+        + day_cash_sales
+        + other_misc
+    )
     handed = q2(declared + settlement + transfer)
     expected = q2(_d(shift.expected_cash))
     over_short = q2(_d(shift.cash_over_short))
+    fresh = await shift_service.expected_cash_map(db, [shift])
+    needs_recalc = shift_service.needs_recalc(shift, fresh)
 
     client = (closing.close_input or {}).get("client") if closing.close_input else None
     return {
@@ -376,8 +413,15 @@ async def closing_view(db: AsyncSession, shift_id: uuid.UUID) -> dict[str, Any]:
         "oil_lines": oil_lines,
         "credit_total": credit_total,
         "credit_fuel": credit_fuel,
+        "credit_fuel_gross": credit_fuel_gross,
+        #: Гэрээний хөнгөлөлт — колонкийн дүн − харилцагчид нэхэмжилсэн дүн.
+        "credit_discount": q2(credit_fuel_gross - credit_fuel),
         "credit_goods": credit_goods,
         "credit_lines": credit_lines,
+        "fuel_sale_total": fuel_sale_total,
+        "refunds_cash": refunds_cash,
+        "day_cash_sales": day_cash_sales,
+        "other_cash": other_misc,
         "ar_total": ar_total,
         "ar_by_method": ar_by,
         "ar_payments": ar_rows,
@@ -390,10 +434,47 @@ async def closing_view(db: AsyncSession, shift_id: uuid.UUID) -> dict[str, Any]:
         "expected_cash": expected,
         "cash_over_short": over_short,
         #: Серверийн тулгалтын зөрүү ба кассын зөрүү ижил байх ёстой — өөр бол
-        #: ээлжийн бус кассын гүйлгээ эсвэл хуучин дүрмийн тооцоо орсон.
+        #: хадгалсан «байвал зохих» дүн хуучин дүрмээр бодогдсон (дахин бодох).
         "consistent": q2(handed - must) == over_short,
+        "needs_recalc": needs_recalc,
+        "expected_recalc": fresh.get(shift.id) if needs_recalc else None,
         "client": client,
+        "corrections": await _corrections(db, shift),
     }
+
+
+async def _corrections(db: AsyncSession, shift: Shift) -> list[dict[str, Any]]:
+    """Хаалтын дараах засварууд (аудитын бүртгэлээс) — хэн, хэзээ, юуг."""
+    from app.models.user import AuditLog  # noqa: PLC0415
+
+    # Сесс autoflush=False — энэ хүсэлтийн засварын аудит ч харагдах ёстой.
+    await db.flush()
+    rows = (
+        await db.scalars(
+            select(AuditLog)
+            .where(
+                AuditLog.entity_type == "shift",
+                AuditLog.entity_id == shift.id,
+                AuditLog.action.in_(CORRECTION_ACTIONS),
+            )
+            .order_by(AuditLog.created_at)
+            .execution_options(populate_existing=True)
+        )
+    ).all()
+    # Засвар бүр кассыг дахин боддог (``cash_recalculated``) — тэр засвартай нэг
+    # transaction-д үүссэнийг давхар харуулахгүй, зөвхөн дангаар нь хийснийг.
+    edit_times = {row.created_at for row in rows if row.action != "shift.cash_recalculated"}
+    return [
+        {
+            "action": row.action,
+            "at": row.created_at,
+            "user_name": (row.user.full_name or row.user.username) if row.user is not None else "",
+            "before": row.before or {},
+            "after": row.after or {},
+        }
+        for row in rows
+        if not (row.action == "shift.cash_recalculated" and row.created_at in edit_times)
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -510,8 +591,27 @@ async def set_tenders(
 # --------------------------------------------------------------------------- #
 # Засвар — зээл
 # --------------------------------------------------------------------------- #
-async def add_credit(db: AsyncSession, user: User, *, shift_id: uuid.UUID, target: Any, fuel_id: uuid.UUID, qty: Decimal | None, amount: Decimal | None) -> dict[str, Any]:
-    """Нэгдсэн (бэлэн) түлшний борлуулалтаас литрийг харилцагчийн зээл рүү шилжүүлнэ."""
+def _fmt(value: Decimal) -> str:
+    value = q2(value)
+    return f"{value:,.0f}" if value == value.to_integral_value() else f"{value:,.2f}"
+
+
+async def add_credit(
+    db: AsyncSession,
+    user: User,
+    *,
+    shift_id: uuid.UUID,
+    target: Any,
+    fuel_id: uuid.UUID,
+    qty: Decimal | None,
+    amount: Decimal | None,
+    unit_price: Decimal | None = None,
+) -> dict[str, Any]:
+    """Нэгдсэн (бэлэн) түлшний борлуулалтаас литрийг харилцагчийн зээл рүү шилжүүлнэ.
+
+    Өдрийн хаалтын дүрэмтэй ижил: ``amount`` нь колонкийн (бүтэн үнийн) дүн,
+    ээлжид олон үнэ байвал ``unit_price``-ээр аль үнээр авсныг сонгоно.
+    """
     shift, closing = await _editable(db, shift_id)
     fuel_sale = await _sale(db, closing.fuel_sale_id)
     if fuel_sale is None:
@@ -520,31 +620,55 @@ async def add_credit(db: AsyncSession, user: User, *, shift_id: uuid.UUID, targe
     discount = q2(_d(contract.price_discount_per_l))
 
     items, pays = await _sale_rows(db, fuel_sale)
-    fuel_items = [i for i in reversed(items) if i.fuel_id == fuel_id and _d(i.qty, ZERO_L) > ZERO_L]
-    if not fuel_items:
+    available = [i for i in items if i.fuel_id == fuel_id and _d(i.qty, ZERO_L) > ZERO_L]
+    if not available:
         raise HTTPException(status_code=422, detail="Энэ түлш нэгдсэн борлуулалтад алга")
+    prices: list[Decimal] = []
+    for i in available:
+        if q2(_d(i.unit_price)) not in prices:
+            prices.append(q2(_d(i.unit_price)))
+    label = available[0].name_snapshot or "Түлш"
+    listed = " / ".join(f"{_fmt(p)}₮" for p in prices)
+    price_filter: Decimal | None = None
+    if unit_price is None:
+        if len(prices) > 1:
+            raise HTTPException(
+                status_code=422,
+                detail=f"{label}: энэ ээлжид үнэ өөрчлөгдсөн ({listed}) — аль үнээр авсныг сонгоно уу",
+            )
+    else:
+        price_filter = q2(_d(unit_price))
+        if price_filter not in prices:
+            raise HTTPException(
+                status_code=422,
+                detail=f"{label}: {_fmt(price_filter)}₮ үнээр нэгдсэн борлуулалтад литр алга (үнэ: {listed})",
+            )
+    fuel_items = [
+        i for i in reversed(items)
+        if i in available and (price_filter is None or q2(_d(i.unit_price)) == price_filter)
+    ]
 
     pieces: list[tuple[SaleItem, Decimal, Decimal, Decimal, Decimal]] = []  # item, take, gross, credit, cogs
     if amount is not None and _d(amount) > ZERO:
+        # Колонкийн дүн: литр = дүн ÷ үнэ, харилцагчид дүн − литр × хөнгөлөлт.
         left = q2(_d(amount))
         for item in fuel_items:
             if left <= ZERO:
                 break
             item_qty = q3(_d(item.qty, ZERO_L))
-            unit = q2(_d(item.unit_price) - discount)
-            if unit <= ZERO:
+            price = q2(_d(item.unit_price))
+            if q2(price - discount) <= ZERO:
                 raise HTTPException(status_code=422, detail="Гэрээний хөнгөлөлт түлшний үнээс их байна")
-            capacity = q2(item_qty * unit)
-            if left < capacity:
-                take = min(q3(left / unit), item_qty)
-                credit = left
-                gross = q2(left + take * discount)
+            capacity = q2(_d(item.amount))
+            if left >= capacity:
+                take, gross = item_qty, capacity
             else:
-                take, credit, gross = item_qty, capacity, q2(_d(item.amount))
+                take = min(max(q3(left / price), MIN_L), item_qty)
+                gross = capacity if take >= item_qty else left
             full = take >= item_qty
             cogs = q2(_d(item.cogs_amount)) if full else q2(take * _d(item.unit_cost))
-            pieces.append((item, take, gross if not full else q2(_d(item.amount)), credit, cogs))
-            left = q2(left - credit)
+            pieces.append((item, take, gross, q2(gross - take * discount), cogs))
+            left = q2(left - gross)
         if left > ZERO:
             raise HTTPException(status_code=422, detail="Зээлийн дүн нэгдсэн борлуулалтын энэ түлшний дүнгээс их байна")
     elif qty is not None and _d(qty, ZERO_L) > ZERO_L:
@@ -911,7 +1035,7 @@ async def remove_expense(db: AsyncSession, user: User, *, shift_id: uuid.UUID, e
 
 
 async def fuel_options(db: AsyncSession, shift_id: uuid.UUID) -> list[dict[str, Any]]:
-    """Зээл нэмэхэд сонгох түлш — нэгдсэн борлуулалтад байгаа литртэй нь."""
+    """Зээл нэмэхэд сонгох түлш — нэгдсэн борлуулалтад байгаа литртэй нь, үнээр задалсан."""
     _shift, closing = await _load(db, shift_id)
     fuel_sale = await _sale(db, closing.fuel_sale_id)
     if fuel_sale is None:
@@ -919,12 +1043,19 @@ async def fuel_options(db: AsyncSession, shift_id: uuid.UUID) -> list[dict[str, 
     items, _ = await _sale_rows(db, fuel_sale)
     agg: dict[uuid.UUID, dict[str, Any]] = {}
     for i in items:
-        if i.fuel_id is None:
+        if i.fuel_id is None or _d(i.qty, ZERO_L) <= ZERO_L:
             continue
-        row = agg.setdefault(i.fuel_id, {"fuel_id": i.fuel_id, "name": "", "liters": ZERO_L, "amount": ZERO})
+        row = agg.setdefault(
+            i.fuel_id, {"fuel_id": i.fuel_id, "name": "", "liters": ZERO_L, "amount": ZERO, "prices": {}}
+        )
         row["liters"] = q3(row["liters"] + _d(i.qty, ZERO_L))
         row["amount"] = q2(row["amount"] + _d(i.amount))
+        price = q2(_d(i.unit_price))
+        per = row["prices"].setdefault(price, {"price": price, "liters": ZERO_L, "amount": ZERO})
+        per["liters"] = q3(per["liters"] + _d(i.qty, ZERO_L))
+        per["amount"] = q2(per["amount"] + _d(i.amount))
     for fid, row in agg.items():
         fuel = await db.scalar(select(Fuel).where(Fuel.id == fid))
         row["name"] = fuel.name_mn if fuel else ""
+        row["prices"] = list(row["prices"].values())
     return list(agg.values())
