@@ -50,6 +50,8 @@ class ACC:
     REV_FUEL = "4101"
     REV_GOODS = "4102"
     SALES_RETURNS = "4901"
+    #: Системийн алдаанаас үүссэн кассын зөрүүний залруулга (админы гар засвар).
+    SALES_ADJUST = "4902"
     OTHER_INCOME = "4903"
 
     # --- Зардал: борлуулсан бүтээгдэхүүний өртөг ---
@@ -180,6 +182,13 @@ COA_SEED: list[dict[str, Any]] = [
     _acc(ACC.REV_FUEL, "Түлшний борлуулалтын орлого", AccountType.REVENUE, 4101, parent_code=ACC.HDR_REVENUE),
     _acc(ACC.REV_GOODS, "Барааны борлуулалтын орлого", AccountType.REVENUE, 4102, parent_code=ACC.HDR_REVENUE),
     _acc(ACC.SALES_RETURNS, "Борлуулалтын буцаалт", AccountType.REVENUE, 4901, parent_code=ACC.HDR_REVENUE),
+    _acc(
+        ACC.SALES_ADJUST,
+        "Борлуулалтын залруулга (системийн алдаа)",
+        AccountType.REVENUE,
+        4902,
+        parent_code=ACC.HDR_REVENUE,
+    ),
     _acc(ACC.OTHER_INCOME, "Бусад орлого", AccountType.REVENUE, 4903, parent_code=ACC.HDR_REVENUE),
     # ---------------- 5000 Зардал ----------------
     _acc(ACC.HDR_EXPENSE, "Зардал", AccountType.EXPENSE, 5000, is_postable=False),

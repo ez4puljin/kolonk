@@ -1,6 +1,6 @@
 import { Fragment, useState } from "react";
 import { useParams } from "react-router-dom";
-import { AlertTriangle, Check, Download, Droplets, Pencil, Printer } from "lucide-react";
+import { AlertTriangle, Check, Download, Droplets, Pencil, Printer, Wrench } from "lucide-react";
 
 import { errorMessage } from "../../api/client";
 import {
@@ -20,6 +20,7 @@ import type {
 } from "../../api/types";
 import { PageHeader } from "../../components/layout/PageHeader";
 import { AttendantRecord } from "../../components/shift/AttendantRecord";
+import { CashAdjustModal } from "../../components/shift/CashAdjustModal";
 import { ClosingWindow } from "../../components/shift/ClosingWindow";
 import { ShiftReportTemplate } from "../../components/receipt/ShiftReportTemplate";
 import { Button } from "../../components/ui/Button";
@@ -266,6 +267,7 @@ export function ShiftReportPage() {
   const [downloading, setDownloading] = useState(false);
   const [fixRow, setFixRow] = useState<ShiftNozzleRow | null>(null);
   const [cashFixOpen, setCashFixOpen] = useState(false);
+  const [adjustOpen, setAdjustOpen] = useState(false);
   const [markOpen, setMarkOpen] = useState(false);
   const recalc = useRecalculateCashMutation();
   const toastSuccess = useUiStore((state) => state.toastSuccess);
@@ -680,10 +682,20 @@ export function ShiftReportPage() {
         <Card
           title={t.dashboard.cashInDrawer}
           actions={
-            can("shifts.approve") ? (
-              <Button variant="secondary" size="sm" icon={<Pencil />} onClick={() => setCashFixOpen(true)}>
-                {t.shift.fixOpeningCash}
-              </Button>
+            can("shifts.approve") || can("shifts.adjust") ? (
+              <div className="flex flex-wrap gap-2">
+                {can("shifts.approve") ? (
+                  <Button variant="secondary" size="sm" icon={<Pencil />} onClick={() => setCashFixOpen(true)}>
+                    {t.shift.fixOpeningCash}
+                  </Button>
+                ) : null}
+                {/* Зөвхөн Admin — өмнөх системийн алдаанаас үүссэн зөрүүг засна. */}
+                {can("shifts.adjust") && shift.status !== "open" && cash.declared_cash !== null ? (
+                  <Button variant="secondary" size="sm" icon={<Wrench />} onClick={() => setAdjustOpen(true)}>
+                    {t.cashAdjust.action}
+                  </Button>
+                ) : null}
+              </div>
             ) : undefined
           }
         >
@@ -692,6 +704,17 @@ export function ShiftReportPage() {
           <CashRow label={t.refunds.title} value={cash.refunds} />
           {cash.other_cash && !dIsZero(cash.other_cash) ? (
             <CashRow label={t.shift.otherCash} value={cash.other_cash} />
+          ) : null}
+          {cash.adjustment && !dIsZero(cash.adjustment) ? (
+            // Админы гар засвар — системийн алдаанаас үүссэн зөрүүний залруулга.
+            <div className="my-1 rounded-xl border border-action/40 bg-action-soft/40 px-3 py-1.5">
+              <CashRow label={t.cashAdjust.row} value={cash.adjustment} />
+              <span className="block pb-1 text-xs text-ink-soft">
+                {[cash.adjustment_note, cash.adjusted_by_name, cash.adjusted_at ? formatDateTime(cash.adjusted_at) : null]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
+            </div>
           ) : null}
           <CashRow label={t.shift.expectedCash} value={cash.expected_cash} strong />
           {cash.recalc_expected ? (
@@ -797,6 +820,14 @@ export function ShiftReportPage() {
         <PriceMarkModal shiftId={shift.id} open={markOpen} onClose={() => setMarkOpen(false)} />
       ) : null}
       {canFixOpening ? <OpeningFixModal shiftId={shift.id} row={fixRow} onClose={() => setFixRow(null)} /> : null}
+      {can("shifts.adjust") ? (
+        <CashAdjustModal
+          shiftId={shift.id}
+          open={adjustOpen}
+          onClose={() => setAdjustOpen(false)}
+          subtitle={`${t.shift.number}${shift.number} · ${shift.opened_by_name ?? ""}`}
+        />
+      ) : null}
       {can("shifts.approve") ? (
         <OpeningCashModal
           shiftId={shift.id}

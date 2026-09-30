@@ -9,7 +9,7 @@
 
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, CircleCheck, Pencil, RefreshCw, TrendingDown, TrendingUp, Undo2 } from "lucide-react";
+import { Check, CircleCheck, Pencil, RefreshCw, TrendingDown, TrendingUp, Undo2, Wrench } from "lucide-react";
 
 import { useBranches } from "../../api/queries/branches";
 import {
@@ -22,6 +22,7 @@ import { useUsers } from "../../api/queries/users";
 import { errorMessage } from "../../api/client";
 import type { DailyClosingRow, UUID } from "../../api/types";
 import { Button } from "../../components/ui/Button";
+import { CashAdjustBulkModal, CashAdjustModal } from "../../components/shift/CashAdjustModal";
 import { Card } from "../../components/ui/Card";
 import { Column, DataTable } from "../../components/ui/DataTable";
 import { DateRangePicker } from "../../components/ui/DateRangePicker";
@@ -222,6 +223,11 @@ export function DailyClosingsPage() {
   const [editing, setEditing] = useState<DailyClosingRow | null>(null);
 
   const canApprove = can("shifts.approve");
+  /** Зөвхөн Admin — өмнөх системийн алдаанаас үүссэн зөрүүг гараар засна. */
+  const canAdjust = can("shifts.adjust");
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [adjusting, setAdjusting] = useState<DailyClosingRow | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const { data: branches } = useBranches();
   const { data: usersPage } = useUsers({ limit: 200 });
@@ -267,6 +273,19 @@ export function DailyClosingsPage() {
     [rows],
   );
   const pendingCount = useMemo(() => rows.filter((r) => !r.approved).length, [rows]);
+  /** Засаж болох (батлагдаагүй, зөрүүтэй) мөрүүд — бөөнөөр сонгоход. */
+  const adjustable = useMemo(
+    () => rows.filter((r) => !r.approved && r.cash_over_short !== null && !dIsZero(r.cash_over_short)),
+    [rows],
+  );
+  const selectedRows = useMemo(() => rows.filter((r) => selected.has(r.shift_id)), [rows, selected]);
+  const toggle = (id: string): void =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   /** Хуучин дүрмээр бодогдсон «байвал зохих» дүнтэй ээлжүүд — батлагдаагүйг нь дахин бодно. */
   const legacyRows = useMemo(() => rows.filter((r) => r.needs_recalc), [rows]);
   const legacyEditable = useMemo(() => legacyRows.filter((r) => !r.approved), [legacyRows]);
@@ -290,6 +309,27 @@ export function DailyClosingsPage() {
   };
 
   const columns: Column<DailyClosingRow>[] = [
+    ...(canAdjust
+      ? [
+          {
+            key: "select",
+            header: "",
+            width: "2.5rem",
+            hideOnMobile: true,
+            render: (row: DailyClosingRow) =>
+              isTotals(row) || row.approved ? null : (
+                <input
+                  type="checkbox"
+                  aria-label={t.cashAdjust.select}
+                  checked={selected.has(row.shift_id)}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={() => toggle(row.shift_id)}
+                  className="h-5 w-5 accent-[var(--color-action)]"
+                />
+              ),
+          } satisfies Column<DailyClosingRow>,
+        ]
+      : []),
     {
       key: "date",
       header: t.dailyClosings.workedDate,
@@ -400,6 +440,11 @@ export function DailyClosingsPage() {
         return (
           <span className={`font-bold ${tone}`}>
             {formatMNT(row.cash_over_short)}
+            {!isTotals(row) && row.cash_adjustment && !dIsZero(row.cash_adjustment) ? (
+              <span className="block text-xs font-semibold text-action" title={row.cash_adjustment_note ?? undefined}>
+                {t.cashAdjust.badge}: {formatMNT(row.cash_adjustment)}
+              </span>
+            ) : null}
             {row.needs_recalc && row.expected_recalc && row.declared_cash !== null ? (
               // Одоогийн дүрмээр бодвол зөрүү ийм болно.
               <span className="block text-xs font-semibold text-warning-dark">
@@ -429,7 +474,7 @@ export function DailyClosingsPage() {
     },
   ];
 
-  if (canApprove) {
+  if (canApprove || canAdjust) {
     columns.push({
       key: "actions",
       header: "",
@@ -441,16 +486,30 @@ export function DailyClosingsPage() {
           role="presentation"
         >
           {row.approved ? (
-            <Button
-              variant="secondary"
-              size="md"
-              icon={<Undo2 />}
-              onClick={() => setApproval(row, false)}
-            >
-              {t.dailyClosings.unapprove}
-            </Button>
+            canApprove ? (
+              <Button
+                variant="secondary"
+                size="md"
+                icon={<Undo2 />}
+                onClick={() => setApproval(row, false)}
+              >
+                {t.dailyClosings.unapprove}
+              </Button>
+            ) : null
           ) : (
             <>
+              {canAdjust ? (
+                <Button
+                  variant="secondary"
+                  size="md"
+                  icon={<Wrench />}
+                  onClick={() => setAdjusting(row)}
+                  aria-label={t.cashAdjust.action}
+                >
+                  {t.cashAdjust.actionShort}
+                </Button>
+              ) : null}
+              {canApprove ? (
               <Button
                 variant="secondary"
                 size="md"
@@ -459,6 +518,8 @@ export function DailyClosingsPage() {
               >
                 {t.dailyClosings.correct}
               </Button>
+              ) : null}
+              {canApprove ? (
               <Button
                 variant="success"
                 size="md"
@@ -470,6 +531,7 @@ export function DailyClosingsPage() {
               >
                 {t.dailyClosings.approve}
               </Button>
+              ) : null}
             </>
           )}
         </div>
@@ -581,6 +643,36 @@ export function DailyClosingsPage() {
         </div>
       </Card>
 
+      {canAdjust && adjustable.length > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-white px-4 py-3">
+          <span className="min-w-0 flex-1 text-sm text-ink-soft">
+            {t.cashAdjust.toolbarHint.replace("{n}", String(adjustable.length))}
+          </span>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={() =>
+                setSelected(
+                  selected.size > 0 ? new Set() : new Set(adjustable.map((r) => r.shift_id)),
+                )
+              }
+            >
+              {selected.size > 0 ? t.cashAdjust.clearSelection : t.cashAdjust.selectAll}
+            </Button>
+            <Button
+              variant="primary"
+              size="md"
+              icon={<Wrench />}
+              disabled={selectedRows.length === 0}
+              onClick={() => setBulkOpen(true)}
+            >
+              {t.cashAdjust.bulkAction.replace("{n}", String(selectedRows.length))}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       <DataTable
         columns={columns}
         rows={tableRows}
@@ -596,6 +688,22 @@ export function DailyClosingsPage() {
       />
 
       <CorrectModal row={editing} open={editing !== null} onClose={() => setEditing(null)} />
+      {canAdjust ? (
+        <>
+          <CashAdjustModal
+            shiftId={adjusting?.shift_id ?? null}
+            open={adjusting !== null}
+            onClose={() => setAdjusting(null)}
+            subtitle={adjusting ? `${adjusting.date} · ${adjusting.attendant} · ${adjusting.branch_name}` : undefined}
+          />
+          <CashAdjustBulkModal
+            rows={selectedRows}
+            open={bulkOpen}
+            onClose={() => setBulkOpen(false)}
+            onDone={() => setSelected(new Set())}
+          />
+        </>
+      ) : null}
       <Modal
         open={approving !== null}
         onClose={() => setApproving(null)}

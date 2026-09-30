@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../client";
 import type {
+  CashAdjustBulkResult,
+  CashAdjustInfo,
   CashRecalcBulkResult,
   ClosingFuelOption,
   ClosingMethod,
@@ -504,5 +506,57 @@ export function useSaveCloseDraftMutation() {
   return useMutation({
     mutationFn: ({ shiftId, draft }: { shiftId: UUID; draft: CloseDraft }) =>
       api.put<CloseDraftResponse>(`/api/shifts/${shiftId}/close-draft`, { draft }),
+  });
+}
+
+// -------------------------------------------------------------------------
+// Админы гар засвар — өмнөх системийн алдаанаас үүссэн кассын зөрүү
+// -------------------------------------------------------------------------
+
+function invalidateAdjusted(queryClient: ReturnType<typeof useQueryClient>): void {
+  for (const key of [
+    ["shifts", "report"],
+    ["shifts", "daily-closings"],
+    ["shifts", "list"],
+    ["shifts", "closing-view"],
+    ["shifts", "cash-adjustment"],
+    ["accounting"],
+  ]) {
+    void queryClient.invalidateQueries({ queryKey: key });
+  }
+}
+
+export function useCashAdjustment(shiftId: UUID | null, enabled = true) {
+  return useQuery({
+    queryKey: ["shifts", "cash-adjustment", shiftId ?? ""],
+    queryFn: () => api.get<CashAdjustInfo>(`/api/shifts/${shiftId}/cash-adjustment`),
+    enabled: Boolean(shiftId) && enabled,
+  });
+}
+
+export function useCashAdjustMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ shiftId, target_over_short, note }: { shiftId: UUID; target_over_short: MoneyStr; note: string }) =>
+      api.post<CashAdjustInfo>(`/api/shifts/${shiftId}/cash-adjustment`, { target_over_short, note }),
+    onSuccess: () => invalidateAdjusted(queryClient),
+  });
+}
+
+export function useCashAdjustClearMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ shiftId, note }: { shiftId: UUID; note?: string | null }) =>
+      api.post<CashAdjustInfo>(`/api/shifts/${shiftId}/cash-adjustment/clear`, { note: note ?? null }),
+    onSuccess: () => invalidateAdjusted(queryClient),
+  });
+}
+
+export function useCashAdjustBulkMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { shift_ids: UUID[]; mode: "zero" | "client"; note: string }) =>
+      api.post<CashAdjustBulkResult>("/api/shifts/cash-adjustment-bulk", payload),
+    onSuccess: () => invalidateAdjusted(queryClient),
   });
 }

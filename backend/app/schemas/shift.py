@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -84,6 +84,8 @@ class ShiftSummary(BaseModel):
     #: Хадгалсан «байвал зохих» дүн хуучин дүрмээр бодогдсон — дахин бодох шаардлагатай.
     needs_recalc: bool = False
     expected_recalc: Decimal | None = None
+    #: Админы гар засвар (системийн алдаа).
+    cash_adjustment: Decimal = ZERO
 
 
 class ShiftListOut(BaseModel):
@@ -158,6 +160,11 @@ class CashSection(BaseModel):
     cash_over_short: Decimal | None = None
     #: Хаагдсан ээлжийн хадгалсан дүн одоогийн (зөв) дүрмээс өөр бол шинэ дүн.
     recalc_expected: Decimal | None = None
+    #: Админы гар засвар — системийн алдаанаас үүссэн зөрүүний залруулга.
+    adjustment: Decimal = ZERO
+    adjustment_note: str | None = None
+    adjusted_by_name: str | None = None
+    adjusted_at: datetime | None = None
 
 
 class RefundRow(BaseModel):
@@ -502,6 +509,61 @@ class CashRecalcOut(BaseModel):
     shift_id: uuid.UUID
     expected_cash: Decimal
     cash_over_short: Decimal
+
+
+class CashAdjustIn(BaseModel):
+    """Админы гар засвар — энэ ээлжийн ЖИНХЭНЭ илүүдэл/дутагдал ба шалтгаан."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    target_over_short: Decimal = ZERO
+    note: str = Field(min_length=3, max_length=1000)
+
+
+class CashAdjustClearIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class CashAdjustOut(BaseModel):
+    shift_id: uuid.UUID
+    shift_number: int
+    declared_cash: Decimal
+    #: Засваргүй — одоогийн дүрмээр бодсон байвал зохих ба зөрүү.
+    raw_expected: Decimal
+    raw_over_short: Decimal
+    adjustment: Decimal = ZERO
+    expected_cash: Decimal
+    cash_over_short: Decimal
+    note: str | None = None
+    adjusted_by_name: str | None = None
+    adjusted_at: datetime | None = None
+    #: Түгээгч хаалт хийхдээ дэлгэц дээрээ харсан зөрүү (хадгалагдсан бол).
+    client_diff: Decimal | None = None
+    approved: bool = False
+
+
+class CashAdjustBulkIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    shift_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    #: zero — жинхэнэ зөрүүг 0; client — түгээгчийн дэлгэц дээрх зөрүүгээр.
+    mode: Literal["zero", "client"] = "zero"
+    note: str = Field(min_length=3, max_length=1000)
+
+
+class CashAdjustBulkRow(BaseModel):
+    shift_id: uuid.UUID
+    number: int
+    adjustment: Decimal | None = None
+    cash_over_short: Decimal | None = None
+    reason: str | None = None
+
+
+class CashAdjustBulkOut(BaseModel):
+    adjusted: list[CashAdjustBulkRow]
+    skipped: list[CashAdjustBulkRow]
 
 
 class CashRecalcBulkIn(BaseModel):

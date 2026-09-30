@@ -34,6 +34,15 @@ class Shift(UUIDPKMixin, TimestampMixin, Base):
     #: зарлага (frontend-ийн мөрүүд JSON хэлбэрээр); хаалт хийгдэхэд цэвэрлэгдэнэ.
     close_draft: Mapped[dict | None] = mapped_column(JSONB)
     close_draft_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: Админы гар засвар — өмнөх системийн алдаанаас үүссэн зөрүүг засахад
+    #: байвал зохих бэлэн мөнгөнд нэмэх дүн (− бол бууруулна). Журналд кассын
+    #: зөрүүнээс тусдаа «4902 Борлуулалтын залруулга»-аар бичигдэнэ.
+    cash_adjustment: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    cash_adjustment_note: Mapped[str | None] = mapped_column(Text)
+    cash_adjusted_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id"))
+    cash_adjusted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     tank_levels: Mapped[list["ShiftTankLevel"]] = relationship(
         back_populates="shift", cascade="all, delete-orphan", lazy="selectin"

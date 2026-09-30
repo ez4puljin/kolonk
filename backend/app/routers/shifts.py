@@ -33,6 +33,11 @@ from app.schemas.shift import (
     CloseDraftOut,
     ClosingApprovalIn,
     ClosingCorrectIn,
+    CashAdjustBulkIn,
+    CashAdjustBulkOut,
+    CashAdjustClearIn,
+    CashAdjustIn,
+    CashAdjustOut,
     CashRecalcBulkIn,
     CashRecalcBulkOut,
     CashRecalcOut,
@@ -628,6 +633,52 @@ async def closing_remove_expense(
     return await closing_edit_service.remove_expense(db, user, shift_id=shift_id, expense_id=expense_id)
 
 
+@router.post("/shifts/cash-adjustment-bulk", response_model=CashAdjustBulkOut)
+async def cash_adjustment_bulk(
+    payload: CashAdjustBulkIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.adjust")),
+) -> dict[str, Any]:
+    """Олон ээлжийн системийн алдааны зөрүүг нэг дор засна (зөвхөн админ)."""
+    return await shift_service.bulk_cash_adjustment(
+        db, user, shift_ids=payload.shift_ids, mode=payload.mode, note=payload.note
+    )
+
+
+@router.get("/shifts/{shift_id}/cash-adjustment", response_model=CashAdjustOut)
+async def get_cash_adjustment(
+    shift_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_permission("shifts.adjust")),
+) -> dict[str, Any]:
+    """Засварын цонх — засваргүй тооцоо, одоогийн засвар, түгээгчийн харсан зөрүү."""
+    return await shift_service.cash_adjustment_info(db, shift_id)
+
+
+@router.post("/shifts/{shift_id}/cash-adjustment", response_model=CashAdjustOut)
+async def set_cash_adjustment(
+    shift_id: uuid.UUID,
+    payload: CashAdjustIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.adjust")),
+) -> dict[str, Any]:
+    """Өмнөх системийн алдаанаас үүссэн кассын зөрүүг гараар засна (зөвхөн админ)."""
+    return await shift_service.set_cash_adjustment(
+        db, user, shift_id=shift_id, target_over_short=payload.target_over_short, note=payload.note
+    )
+
+
+@router.post("/shifts/{shift_id}/cash-adjustment/clear", response_model=CashAdjustOut)
+async def clear_cash_adjustment(
+    shift_id: uuid.UUID,
+    payload: CashAdjustClearIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.adjust")),
+) -> dict[str, Any]:
+    """Гар засварыг буцаана (зөвхөн админ)."""
+    return await shift_service.clear_cash_adjustment(db, user, shift_id=shift_id, note=payload.note)
+
+
 @router.post("/shifts/recalculate-cash-bulk", response_model=CashRecalcBulkOut)
 async def recalculate_cash_bulk(
     payload: CashRecalcBulkIn,
@@ -897,6 +948,8 @@ def _build_workbook(report: dict[str, Any]) -> bytes:
     # Өглөг төлөлт, кассын зарлага гэх мэт борлуулалтаас гадуурх кассын хөдөлгөөн —
     # үүнгүйгээр «Байвал зохих» мөрүүдийн нийлбэрээс зөрж харагддаг байв.
     kv("Бусад кассын гүйлгээ (өглөг, зарлага)", _num(cash.get("other_cash")), MONEY_FMT)
+    if cash.get("adjustment"):
+        kv("Системийн алдааны засвар (админ)", _num(cash.get("adjustment")), MONEY_FMT)
     kv("Байвал зохих", _num(cash.get("expected_cash")), MONEY_FMT)
     kv("Тоолсон бэлэн", _num(cash.get("declared_cash")), MONEY_FMT)
     kv("Илүүдэл (+) / Дутагдал (−)", _num(cash.get("cash_over_short")), MONEY_FMT)

@@ -65,6 +65,8 @@ CORRECTION_ACTIONS = (
     "shift.opening_cash_corrected",
     "shift.closing_approved",
     "shift.closing_unapproved",
+    "shift.cash_adjusted",
+    "shift.cash_adjustment_cleared",
 )
 
 METHOD_MN = {"cash": "бэлэн", "card": "карт", "transfer": "шилжүүлэг"}
@@ -392,6 +394,8 @@ async def closing_view(db: AsyncSession, shift_id: uuid.UUID) -> dict[str, Any]:
         - refunds_cash
         + day_cash_sales
         + other_misc
+        # Админы гар засвар (системийн алдаа) — серверийн «байвал зохих»-д ордог.
+        + q2(_d(shift.cash_adjustment))
     )
     handed = q2(declared + settlement + transfer)
     expected = q2(_d(shift.expected_cash))
@@ -419,6 +423,8 @@ async def closing_view(db: AsyncSession, shift_id: uuid.UUID) -> dict[str, Any]:
         "refunds_cash": refunds_cash,
         "day_cash_sales": day_cash_sales,
         "other_cash": other_misc,
+        "cash_adjustment": q2(_d(shift.cash_adjustment)),
+        "cash_adjustment_note": shift.cash_adjustment_note,
         "ar_total": ar_total,
         "ar_by_method": ar_by,
         "ar_payments": ar_rows,

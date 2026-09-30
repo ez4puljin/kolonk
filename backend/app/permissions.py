@@ -12,6 +12,8 @@ PERMISSIONS: dict[str, str] = {
     "shifts.close": "Ээлж хаах",
     "shifts.view_all": "Бүх ээлж харах",
     "shifts.approve": "Ээлжийн хаалт засаж батлах",
+    # Зөвхөн Admin (эзэн) — нягтлан/менежерт олгохгүй.
+    "shifts.adjust": "Ээлжийн зөрүүг гараар засах (системийн алдаа)",
     "tanks.view": "Сав харах",
     "tanks.manage": "Сав удирдах",
     "pumps.view": "Түгээгүүр харах",

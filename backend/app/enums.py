@@ -203,6 +203,8 @@ class EventType(StrEnum):
     AR_RECEIPT = "AR_RECEIPT"
     SHIFT_CASH_SHORT = "SHIFT_CASH_SHORT"
     SHIFT_CASH_OVER = "SHIFT_CASH_OVER"
+    #: Админы гар засвар — системийн алдаанаас үүссэн кассын зөрүүг залруулна.
+    SHIFT_CASH_ADJUSTED = "SHIFT_CASH_ADJUSTED"
     FUEL_VARIANCE_LOSS = "FUEL_VARIANCE_LOSS"
     FUEL_VARIANCE_GAIN = "FUEL_VARIANCE_GAIN"
     REFUND_POSTED = "REFUND_POSTED"

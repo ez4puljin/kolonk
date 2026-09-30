@@ -1795,6 +1795,10 @@ async def daily_closings_list(
                 "cash_over_short": q2(over_short) if over_short is not None else None,
                 "needs_recalc": shift_service.needs_recalc(shift, fresh),
                 "expected_recalc": fresh.get(shift.id) if shift_service.needs_recalc(shift, fresh) else None,
+                #: Админы гар засвар (системийн алдаа) ба түгээгчийн дэлгэц дээрх зөрүү.
+                "cash_adjustment": q2(_d(shift.cash_adjustment)),
+                "cash_adjustment_note": shift.cash_adjustment_note,
+                "client_diff": shift_service._client_diff(closing),
                 "mile_gap_l": gaps.get(shift.id, (ZERO_L, 0))[0],
                 "mile_gap_nozzles": gaps.get(shift.id, (ZERO_L, 0))[1],
                 "approved": closing.approved_at is not None,

@@ -92,6 +92,10 @@ export function MyShiftsPage() {
               // Хуучин дүрмээр бодогдсон — нягтлан дахин бодоход зөрүү өөрчлөгдөнө.
               <span className="block text-xs font-semibold text-warning-dark">{t.dailyClosings.legacyPending}</span>
             ) : null}
+            {row.cash_adjustment && Number(row.cash_adjustment) !== 0 ? (
+              // Админ системийн алдаанаас үүссэн зөрүүг зассан.
+              <span className="block text-xs font-semibold text-action">{t.cashAdjust.badgeMine}</span>
+            ) : null}
           </span>
         ) : (
           "—"

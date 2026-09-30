@@ -463,6 +463,31 @@ export interface ShiftSummary {
   /** Хадгалсан «байвал зохих» дүн хуучин дүрмээр бодогдсон — дахин бодох. */
   needs_recalc?: boolean;
   expected_recalc?: MoneyStr | null;
+  /** Админы гар засвар (системийн алдаа). */
+  cash_adjustment?: MoneyStr;
+}
+
+/** Админы гар засвар — нэг ээлжийн засваргүй тооцоо, одоогийн засвар. */
+export interface CashAdjustInfo {
+  shift_id: UUID;
+  shift_number: number;
+  declared_cash: MoneyStr;
+  raw_expected: MoneyStr;
+  raw_over_short: MoneyStr;
+  adjustment: MoneyStr;
+  expected_cash: MoneyStr;
+  cash_over_short: MoneyStr;
+  note: string | null;
+  adjusted_by_name: string | null;
+  adjusted_at: IsoDateTime | null;
+  /** Түгээгч хаалт хийхдээ дэлгэц дээрээ харсан зөрүү (хадгалагдсан бол). */
+  client_diff: MoneyStr | null;
+  approved: boolean;
+}
+
+export interface CashAdjustBulkResult {
+  adjusted: { shift_id: UUID; number: number; adjustment: MoneyStr; cash_over_short: MoneyStr }[];
+  skipped: { shift_id: UUID; number: number; reason: "open" | "approved" | "no_client" | string }[];
 }
 
 /** Дан ээлжийн мөр — жагсаалт/түүхэнд. */
@@ -600,6 +625,9 @@ export interface ClosingView {
   day_cash_sales: MoneyStr;
   /** Хаалтын цонхоос гадуурх бусад кассын гүйлгээ. */
   other_cash: MoneyStr;
+  /** Админы гар засвар (системийн алдаа) — серверийн «байвал зохих»-д ордог. */
+  cash_adjustment?: MoneyStr;
+  cash_adjustment_note?: string | null;
   credit_lines: {
     sale_id: UUID;
     number: number;
@@ -693,6 +721,11 @@ export interface CashSection {
   cash_over_short: MoneyStr | null;
   /** Хуучин дүрмээр хаагдсан бол — зөв дүрмээр бодсон байвал зохих дүн. */
   recalc_expected?: MoneyStr | null;
+  /** Админы гар засвар — системийн алдаанаас үүссэн зөрүүний залруулга. */
+  adjustment?: MoneyStr;
+  adjustment_note?: string | null;
+  adjusted_by_name?: string | null;
+  adjusted_at?: IsoDateTime | null;
 }
 
 export interface ShiftRefundRow {
@@ -2934,6 +2967,11 @@ export interface DailyClosingRow {
   /** Хадгалсан «байвал зохих» дүн хуучин дүрмээр бодогдсон — дахин бодох. */
   needs_recalc?: boolean;
   expected_recalc?: MoneyStr | null;
+  /** Админы гар засвар (системийн алдаа) ба шалтгаан. */
+  cash_adjustment?: MoneyStr;
+  cash_adjustment_note?: string | null;
+  /** Түгээгч хаалт хийхдээ дэлгэц дээрээ харсан зөрүү (хадгалагдсан бол). */
+  client_diff?: MoneyStr | null;
   /** Милийн залгамжийн зөрүү — нээлт vs өмнөх хаалтын нийлбэр (0 байх ёстой). */
   mile_gap_l: LitersStr;
   /** Хэдэн хошуу дээр зөрсөн. */

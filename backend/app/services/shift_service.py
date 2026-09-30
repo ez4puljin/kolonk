@@ -162,6 +162,11 @@ async def _cash_flows(db: AsyncSession, shift: Shift) -> tuple[Decimal, Decimal]
     return q2(_dec(cash_sales)), q2(_dec(refunds_cash))
 
 
+def _adjustment(shift: Shift) -> Decimal:
+    """Админы гар засвар (системийн алдаа) — байвал зохих бэлэн мөнгөнд нэмэгдэнэ."""
+    return q2(_dec(getattr(shift, "cash_adjustment", None)))
+
+
 def closing_tx_at(shift: Shift) -> Any:
     """Өдрийн хаалтын transaction эхэлсэн мөч (scalar subquery).
 
@@ -330,6 +335,7 @@ async def expected_cash_map(db: AsyncSession, shifts: Sequence[Shift]) -> dict[u
             + q2(cash_sales.get(s.id, ZERO))
             - q2(refunds.get(s.id, ZERO))
             + q2(other.get(s.id, ZERO))
+            + _adjustment(s)
         )
         for s in closed
     }
@@ -591,7 +597,7 @@ async def recalculate_cash(db: AsyncSession, user: User, *, shift_id: uuid.UUID)
 
     cash_sales, refunds_cash = await _cash_flows(db, shift)
     other_cash = await _other_cash_movement(db, shift)
-    expected = q2(_dec(shift.opening_cash) + cash_sales - refunds_cash + other_cash)
+    expected = q2(_dec(shift.opening_cash) + cash_sales - refunds_cash + other_cash + _adjustment(shift))
     over_short = q2(_dec(shift.declared_cash) - expected)
     before = {
         "expected_cash": str(_dec(shift.expected_cash)),
@@ -961,7 +967,7 @@ async def close_shift(
     cash_sales, refunds_cash = await _cash_flows(db, shift)
     other_cash = await _other_cash_movement(db, shift)
     opening_cash = q2(_dec(shift.opening_cash))
-    expected = q2(opening_cash + cash_sales - refunds_cash + other_cash)
+    expected = q2(opening_cash + cash_sales - refunds_cash + other_cash + _adjustment(shift))
     over_short = q2(declared - expected)
 
     # ---------------- Сав: хэмжилт vs дэвтрийн үлдэгдэл ----------------
@@ -1568,8 +1574,10 @@ async def shift_report(
     meta = await shift_meta(db, shift, sales=sales)
 
     opening_cash = q2(_dec(shift.opening_cash))
-    computed = q2(opening_cash + cash_sales - refunds_cash + other_cash)
+    adjustment = _adjustment(shift)
+    computed = q2(opening_cash + cash_sales - refunds_cash + other_cash + adjustment)
     expected = q2(_dec(shift.expected_cash)) if shift.expected_cash is not None else computed
+    adjuster = (await _user_names(db, [shift.cash_adjusted_by])).get(shift.cash_adjusted_by) if shift.cash_adjusted_by else None
     #: Хаагдсан ээлжийн хадгалсан дүн одоогийн дүрмээр бодсоноос өөр (хуучин
     #: алдаатай дүрмээр хаагдсан) бол шинэ дүн — тайланд «дахин бодох» санал.
     recalc_expected = computed if shift.expected_cash is not None and computed != expected else None
@@ -1603,6 +1611,10 @@ async def shift_report(
             "declared_cash": q2(_dec(shift.declared_cash)) if shift.declared_cash is not None else None,
             "cash_over_short": q2(_dec(shift.cash_over_short)) if shift.cash_over_short is not None else None,
             "recalc_expected": recalc_expected,
+            "adjustment": adjustment,
+            "adjustment_note": shift.cash_adjustment_note,
+            "adjusted_by_name": adjuster,
+            "adjusted_at": shift.cash_adjusted_at,
         },
         "refunds": refunds,
         "profit": {
@@ -1743,8 +1755,272 @@ async def list_shifts(
                 "transfer_total": q2(_dec(closings[shift.id].transfer_total)) if shift.id in closings else ZERO,
                 #: Хадгалсан «байвал зохих» дүн хуучин дүрмээр бодогдсон — дахин бодох.
                 "needs_recalc": needs_recalc(shift, fresh),
+                "cash_adjustment": _adjustment(shift),
                 "expected_recalc": fresh.get(shift.id) if needs_recalc(shift, fresh) else None,
             }
         )
 
     return {"items": items, "total": int(total)}
+
+
+# --------------------------------------------------------------------------- #
+# Админы гар засвар — өмнөх системийн алдаанаас үүссэн кассын зөрүү
+# --------------------------------------------------------------------------- #
+async def _raw_expected(db: AsyncSession, shift: Shift) -> Decimal:
+    """Засваргүй «байвал зохих» бэлэн мөнгө — одоогийн дүрмээр."""
+    cash_sales, refunds_cash = await _cash_flows(db, shift)
+    other_cash = await _other_cash_movement(db, shift)
+    return q2(_dec(shift.opening_cash) + cash_sales - refunds_cash + other_cash)
+
+
+async def _ensure_account(db: AsyncSession, code: str) -> None:
+    """Шинэ данс (4902) суусан систем дээр байхгүй бол үүсгэнэ."""
+    from app.models.accounting import Account  # noqa: PLC0415
+    from app.services.coa import COA_BY_CODE  # noqa: PLC0415
+
+    if await db.scalar(select(Account.code).where(Account.code == code)) is None:
+        db.add(Account(**COA_BY_CODE[code]))
+        await db.flush()
+
+
+async def _repost_adjustment(db: AsyncSession, user: User, shift: Shift) -> None:
+    """Засварын журнал: − бол Дт 4902 / Кт 1101, + бол Дт 1101 / Кт 4902."""
+    await posting.reverse(
+        db,
+        event_type=str(EventType.SHIFT_CASH_ADJUSTED),
+        source_type=str(SourceType.SHIFT),
+        source_id=shift.id,
+    )
+    amount = _adjustment(shift)
+    if amount == ZERO:
+        return
+    await _ensure_account(db, ACC.SALES_ADJUST)
+    memo = _truncate(f"Ээлж №{shift.number} — системийн алдааны залруулга")
+    dims = Dims(branch_id=shift.branch_id)
+    value = q2(abs(amount))
+    lines = (
+        [
+            LineSpec(account_code=ACC.SALES_ADJUST, debit=value, memo=memo, dims=dims),
+            LineSpec(account_code=ACC.CASH, credit=value, memo=memo, dims=dims),
+        ]
+        if amount < ZERO
+        else [
+            LineSpec(account_code=ACC.CASH, debit=value, memo=memo, dims=dims),
+            LineSpec(account_code=ACC.SALES_ADJUST, credit=value, memo=memo, dims=dims),
+        ]
+    )
+    await posting.post(
+        db,
+        event_type=str(EventType.SHIFT_CASH_ADJUSTED),
+        source_type=str(SourceType.SHIFT),
+        source_id=shift.id,
+        entry_date=(shift.closed_at or datetime.now(UTC)).date(),
+        description=memo,
+        lines=lines,
+        posted_by=user.id,
+    )
+
+
+def _client_diff(closing: Any) -> Decimal | None:
+    """Түгээгч хаалт хийхдээ дэлгэц дээрээ харсан зөрүү (хадгалагдсан бол)."""
+    client = (getattr(closing, "close_input", None) or {}).get("client") if closing is not None else None
+    raw = (client or {}).get("diff")
+    try:
+        return q2(Decimal(str(raw))) if raw is not None else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _adjustable(db: AsyncSession, shift_id: uuid.UUID) -> tuple[Shift, Any]:
+    from app.models.shift import ShiftClosing  # noqa: PLC0415
+
+    shift = await get_shift(db, shift_id)
+    if shift.status == str(ShiftStatus.OPEN) or shift.declared_cash is None:
+        raise HTTPException(status_code=422, detail="Зөвхөн хаагдсан ээлжийн зөрүүг засна")
+    closing = await db.scalar(select(ShiftClosing).where(ShiftClosing.shift_id == shift.id))
+    return shift, closing
+
+
+async def cash_adjustment_info(db: AsyncSession, shift_id: uuid.UUID) -> dict[str, Any]:
+    """Засварын цонхонд: системийн тооцоо (засваргүй), одоогийн засвар, түгээгчийн харсан зөрүү."""
+    shift, closing = await _adjustable(db, shift_id)
+    raw = await _raw_expected(db, shift)
+    declared = q2(_dec(shift.declared_cash))
+    names = await _user_names(db, [shift.cash_adjusted_by])
+    return {
+        "shift_id": shift.id,
+        "shift_number": shift.number,
+        "declared_cash": declared,
+        "raw_expected": raw,
+        "raw_over_short": q2(declared - raw),
+        "adjustment": _adjustment(shift),
+        "expected_cash": q2(_dec(shift.expected_cash)),
+        "cash_over_short": q2(_dec(shift.cash_over_short)),
+        "note": shift.cash_adjustment_note,
+        "adjusted_by_name": names.get(shift.cash_adjusted_by) if shift.cash_adjusted_by else None,
+        "adjusted_at": shift.cash_adjusted_at,
+        "client_diff": _client_diff(closing),
+        "approved": closing is not None and closing.approved_at is not None,
+    }
+
+
+async def set_cash_adjustment(
+    db: AsyncSession,
+    user: User,
+    *,
+    shift_id: uuid.UUID,
+    target_over_short: Decimal,
+    note: str | None,
+) -> dict[str, Any]:
+    """Системийн алдаанаас үүссэн зөрүүг гараар засна (зөвхөн админ).
+
+    ``target_over_short`` — энэ ээлжийн ЖИНХЭНЭ илүүдэл/дутагдал (ихэвчлэн 0,
+    эсвэл түгээгчийн хаалтын дэлгэц дээр харсан зөрүү). Засвар = системийн
+    тооцоолсон зөрүү − жинхэнэ зөрүү: байвал зохих бэлэн мөнгөнд нэмэгдэж,
+    кассын дутагдал/илүүдлээс тусдаа 4902 дансаар журналд бичигдэнэ. Тооцоо
+    одоогийн дүрмээр дахин бодогдоно (хуучин дүрмийн алдаа ч хамт засагдана).
+    """
+    shift, closing = await _adjustable(db, shift_id)
+    if closing is not None and closing.approved_at is not None:
+        raise HTTPException(status_code=422, detail="Батлагдсан хаалт — эхлээд батламжийг буцаана уу")
+    text = (note or "").strip()
+    if len(text) < 3:
+        raise HTTPException(status_code=422, detail="Засварын шалтгааныг бичнэ үү")
+
+    before = {
+        "expected_cash": str(_dec(shift.expected_cash)),
+        "cash_over_short": str(_dec(shift.cash_over_short)),
+        "adjustment": str(_adjustment(shift)),
+    }
+    raw = await _raw_expected(db, shift)
+    declared = q2(_dec(shift.declared_cash))
+    target = q2(_dec(target_over_short))
+    adjustment = q2((declared - raw) - target)
+    shift.cash_adjustment = adjustment
+    shift.cash_adjustment_note = text[:1000] if adjustment != ZERO else None
+    shift.cash_adjusted_by = user.id if adjustment != ZERO else None
+    shift.cash_adjusted_at = datetime.now(UTC) if adjustment != ZERO else None
+    expected = q2(raw + adjustment)
+    over_short = q2(declared - expected)
+    await repost_cash_difference(db, user, shift=shift, over_short=over_short)
+    shift.expected_cash = expected
+    shift.cash_over_short = over_short
+    await _repost_adjustment(db, user, shift)
+    await db.flush()
+    await audit(
+        db,
+        user_id=user.id,
+        action="shift.cash_adjusted",
+        entity_type="shift",
+        entity_id=shift.id,
+        before=before,
+        after={
+            "expected_cash": str(expected),
+            "cash_over_short": str(over_short),
+            "adjustment": str(adjustment),
+            "note": text,
+        },
+    )
+    return await cash_adjustment_info(db, shift.id)
+
+
+async def clear_cash_adjustment(
+    db: AsyncSession, user: User, *, shift_id: uuid.UUID, note: str | None = None
+) -> dict[str, Any]:
+    """Гар засварыг буцаана — зөрүү системийн тооцоогоороо болно."""
+    shift, closing = await _adjustable(db, shift_id)
+    if closing is not None and closing.approved_at is not None:
+        raise HTTPException(status_code=422, detail="Батлагдсан хаалт — эхлээд батламжийг буцаана уу")
+    before = {
+        "expected_cash": str(_dec(shift.expected_cash)),
+        "cash_over_short": str(_dec(shift.cash_over_short)),
+        "adjustment": str(_adjustment(shift)),
+        "note": shift.cash_adjustment_note,
+    }
+    raw = await _raw_expected(db, shift)
+    declared = q2(_dec(shift.declared_cash))
+    shift.cash_adjustment = ZERO
+    shift.cash_adjustment_note = None
+    shift.cash_adjusted_by = None
+    shift.cash_adjusted_at = None
+    over_short = q2(declared - raw)
+    await repost_cash_difference(db, user, shift=shift, over_short=over_short)
+    shift.expected_cash = raw
+    shift.cash_over_short = over_short
+    await _repost_adjustment(db, user, shift)
+    await db.flush()
+    await audit(
+        db,
+        user_id=user.id,
+        action="shift.cash_adjustment_cleared",
+        entity_type="shift",
+        entity_id=shift.id,
+        before=before,
+        after={
+            "expected_cash": str(raw),
+            "cash_over_short": str(over_short),
+            "adjustment": "0",
+            "note": (note or "").strip() or None,
+        },
+    )
+    return await cash_adjustment_info(db, shift.id)
+
+
+async def bulk_cash_adjustment(
+    db: AsyncSession,
+    user: User,
+    *,
+    shift_ids: Sequence[uuid.UUID],
+    mode: str,
+    note: str,
+) -> dict[str, Any]:
+    """Олон ээлжийн зөрүүг нэг дор засна.
+
+    ``mode``: ``zero`` — жинхэнэ зөрүүг 0 болгоно; ``client`` — түгээгчийн
+    хаалтын дэлгэц дээр харсан зөрүүгээр (хадгалагдаагүй бол алгасна).
+    Нээлттэй, батлагдсан ээлжийг алгасна.
+    """
+    from app.models.shift import ShiftClosing  # noqa: PLC0415
+
+    if mode not in ("zero", "client"):
+        raise HTTPException(status_code=422, detail="Засварын горим буруу")
+    shifts = (
+        await db.scalars(
+            select(Shift).options(noload(Shift.tank_levels)).where(Shift.id.in_(list(shift_ids)))
+        )
+    ).all()
+    closings = {
+        c.shift_id: c
+        for c in (
+            await db.scalars(select(ShiftClosing).where(ShiftClosing.shift_id.in_([s.id for s in shifts])))
+        ).all()
+    } if shifts else {}
+    done: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for shift in sorted(shifts, key=lambda s: s.number):
+        closing = closings.get(shift.id)
+        reason = None
+        target: Decimal | None = ZERO
+        if shift.status == str(ShiftStatus.OPEN) or shift.declared_cash is None:
+            reason = "open"
+        elif closing is not None and closing.approved_at is not None:
+            reason = "approved"
+        elif mode == "client":
+            target = _client_diff(closing)
+            if target is None:
+                reason = "no_client"
+        if reason is not None:
+            skipped.append({"shift_id": shift.id, "number": shift.number, "reason": reason})
+            continue
+        result = await set_cash_adjustment(
+            db, user, shift_id=shift.id, target_over_short=target or ZERO, note=note
+        )
+        done.append(
+            {
+                "shift_id": shift.id,
+                "number": shift.number,
+                "adjustment": result["adjustment"],
+                "cash_over_short": result["cash_over_short"],
+            }
+        )
+    return {"adjusted": done, "skipped": skipped}

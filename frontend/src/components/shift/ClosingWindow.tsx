@@ -85,7 +85,7 @@ function toTarget(value: string, name: string, phone: string): ClosingTarget | n
 type Dialog = null | "tenders" | "credit" | "ar" | "expense";
 
 /** Аудитын before/after-аас товч тайлбар: «Тоолсон бэлэн 100 000 → 120 000». */
-const MONEY_KEYS = ["declared_cash", "settlement_total", "transfer_total", "opening_cash", "expected_cash", "cash_over_short", "amount"] as const;
+const MONEY_KEYS = ["declared_cash", "settlement_total", "transfer_total", "opening_cash", "expected_cash", "cash_over_short", "amount", "adjustment"] as const;
 function correctionDetail(row: ClosingCorrection): string {
   const parts: string[] = [];
   const text = (key: string, value: unknown): string =>
@@ -277,6 +277,13 @@ export function ClosingWindow({ shiftId }: { shiftId: UUID }) {
             />
           ) : null}
           {!dIsZero(view.day_cash_sales ?? "0") ? <Row label={`+ ${T.dayCashSales}`} value={view.day_cash_sales} /> : null}
+          {view.cash_adjustment && !dIsZero(view.cash_adjustment) ? (
+            <Row
+              label={`± ${t.cashAdjust.row}`}
+              value={dCmp(view.cash_adjustment, "0") < 0 ? dSub("0", view.cash_adjustment) : view.cash_adjustment}
+              negative={dCmp(view.cash_adjustment, "0") < 0}
+            />
+          ) : null}
           {!dIsZero(view.credit_goods) ? (
             <span className="text-xs text-ink-soft">
               {T.creditGoodsNote}: {formatMoneyExact(view.credit_goods)}
