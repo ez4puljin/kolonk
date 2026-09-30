@@ -92,21 +92,6 @@ function litersOf(value: string | null | undefined): LitersStr {
   return raw === "" ? "0" : raw;
 }
 
-/**
- * Харилцагчид нэхэмжлэх дүн = колонкийн дүн − литр × хөнгөлөлт — сервертэй ЯГ
- * адил: литр × хөнгөлөлтийг дугуйлалгүй хасаад, 0.005-ыг дээш дугуйлна.
- */
-function netOf(gross: MoneyStr, liters: number, discount: MoneyStr): MoneyStr {
-  if (dIsZero(discount)) return toDisplay(gross);
-  const cents = (value: MoneyStr): bigint => BigInt(toDisplay(value).replace(".", ""));
-  const scaled = cents(gross) * 1000n - BigInt(Math.round(liters * 1000)) * cents(discount);
-  const negative = scaled < 0n;
-  const abs = negative ? -scaled : scaled;
-  let result = abs / 1000n;
-  if ((abs % 1000n) * 2n >= 1000n) result += 1n;
-  return `${negative ? "-" : ""}${result / 100n}.${(result % 100n).toString().padStart(2, "0")}`;
-}
-
 // --------------------------------------------------------------------------
 // Зураг хавсаргах товч — сонгомогц серверт илгээнэ (ээлж нээгдсэн үед).
 // --------------------------------------------------------------------------
@@ -427,7 +412,7 @@ interface CreditItem {
   key: number;
   kind: "fuel" | "product";
   fuel_id: string;
-  /** «amount» — колонкийн дэлгэц дээрх (бүтэн үнийн) дүн. */
+  /** «amount» — колонкийн дэлгэц дээрх дүн. */
   mode: "liters" | "amount";
   value: string;
   product_id: string;
@@ -971,17 +956,6 @@ export function AttendantShiftPage() {
     return map;
   }, [nozzles]);
 
-  /** contract_id → литр тутмын хөнгөлөлт (серверийн тооцоотой таарахын тулд). */
-  const contractDiscountById = useMemo(() => {
-    const map = new Map<string, MoneyStr>();
-    for (const customer of customersPage?.items ?? []) {
-      for (const contract of customer.contracts) {
-        map.set(contract.id, contract.price_discount_per_l);
-      }
-    }
-    return map;
-  }, [customersPage]);
-
   /** Шинэ зээлийн түлшний анхдагч үнэ: ээлжийн сүүлийн үнэ (тэмдэглэл), эсвэл хошууны үнэ. */
   const defaultFuelPrice = (fuelId: string): string => {
     const choices = fuelPriceChoices.get(fuelId);
@@ -1020,9 +994,7 @@ export function AttendantShiftPage() {
    *
    * * литрийг милийн сегментүүдээс (сүүлээс нь), ээлжид олон үнэ байвал
    *   сонгосон үнийн сегментүүдээс л хасна;
-   * * «дүнгээр» бол тэр нь КОЛОНКИЙН (бүтэн үнийн) дүн — литр = дүн ÷ үнэ;
-   * * тулгалтад колонкийн дүн (gross) хасагдана — колонк зээлийн литрийг
-   *   бүтэн үнээр тоолсон; харилцагчид хөнгөлөлтийг хассан дүн (net).
+   * * «дүнгээр» бол тэр нь колонкийн дэлгэц дээрх дүн — литр = дүн ÷ үнэ.
    *
    * Preview байхгүй (өдрийн дундуур) бол сонгосон/одоогийн үнээр ойролцоо.
    */
@@ -1040,9 +1012,7 @@ export function AttendantShiftPage() {
     const round3 = (value: number): number => Math.round(value * 1000) / 1000;
 
     return creditRows.map((row) => {
-      const discount = contractDiscountById.get(row.contract_id) ?? "0";
-      let gross = "0";
-      let net = "0";
+      let fuel = "0";
       let goods = "0";
       let short = false;
       for (const item of row.items) {
@@ -1052,14 +1022,7 @@ export function AttendantShiftPage() {
           const chosen = fuelPriceFilter(item);
           if (!slots) {
             const price = chosen ?? (item.unit_price || fuelPriceById.get(item.fuel_id) || "0");
-            if (item.mode === "amount") {
-              const g = toDisplay(item.value);
-              gross = dAdd(gross, g);
-              net = dAdd(net, netOf(g, dToQty(dDiv(g, price, 3)), discount));
-            } else {
-              gross = dAdd(gross, dMul(price, value));
-              net = dAdd(net, dMul(dSub(price, discount), value));
-            }
+            fuel = dAdd(fuel, item.mode === "amount" ? toDisplay(item.value) : dMul(price, value));
             continue;
           }
           const candidates = slots
@@ -1082,14 +1045,12 @@ export function AttendantShiftPage() {
               slot.remaining = round3(slot.remaining - take);
               slot.amount = dSub(slot.amount, g);
               left = dSub(left, g);
-              gross = dAdd(gross, g);
-              net = dAdd(net, netOf(g, take, discount));
+              fuel = dAdd(fuel, g);
             }
             if (dCmp(left, "0") > 0) {
               // Тэр үнээр түгээсэн дүнгээс хэтэрсэн — сервер татгалзана.
               short = true;
-              gross = dAdd(gross, left);
-              net = dAdd(net, left);
+              fuel = dAdd(fuel, left);
             }
           } else {
             let need = value;
@@ -1101,15 +1062,12 @@ export function AttendantShiftPage() {
               slot.remaining = round3(slot.remaining - take);
               slot.amount = dSub(slot.amount, g);
               need = round3(need - take);
-              gross = dAdd(gross, g);
-              net = dAdd(net, dMul(dSub(slot.price, discount), take));
+              fuel = dAdd(fuel, g);
             }
             if (need > 0) {
               // Тэр үнээр түгээсэн литрээс хэтэрсэн — сервер татгалзана.
               short = true;
-              const price = chosen ?? (fuelPriceById.get(item.fuel_id) || "0");
-              gross = dAdd(gross, dMul(price, need));
-              net = dAdd(net, dMul(dSub(price, discount), need));
+              fuel = dAdd(fuel, dMul(chosen ?? (fuelPriceById.get(item.fuel_id) || "0"), need));
             }
           }
         } else {
@@ -1119,16 +1077,14 @@ export function AttendantShiftPage() {
           }
         }
       }
-      return { gross, net, goods, total: dAdd(net, goods), short };
+      return { fuel, goods, total: dAdd(fuel, goods), short };
     });
     // fuelPriceFilter, productUnit нь доорх хамаарлуудаас л бодогдоно.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [creditRows, products, fuelPriceById, contractDiscountById, preview, fuelPriceChoices, productPriceChoices]);
+  }, [creditRows, products, fuelPriceById, preview, fuelPriceChoices, productPriceChoices]);
 
-  /** Зээлийн түлш — колонкийн (бүтэн үнийн) дүн: тулгалтад ЭНЭ хасагдана. */
-  const creditFuelGross = useMemo(() => dSum(creditRowTotals.map((row) => row.gross)), [creditRowTotals]);
-  /** Зээлийн түлш — харилцагчдад нэхэмжлэх дүн (гэрээний хөнгөлөлт хасагдсан). */
-  const creditFuelTotal = useMemo(() => dSum(creditRowTotals.map((row) => row.net)), [creditRowTotals]);
+  /** Зээлээр өгсөн түлш — миль×үнэд орсон тул тулгалтад ЭНЭ хасагдана. */
+  const creditFuelTotal = useMemo(() => dSum(creditRowTotals.map((row) => row.fuel)), [creditRowTotals]);
   /** Зээлээр өгсөн бараа — миль×үнэ, тос/барааны борлуулалтад ороогүй тул тулгалтад нөлөөлөхгүй. */
   const creditGoodsTotal = useMemo(() => dSum(creditRowTotals.map((row) => row.goods)), [creditRowTotals]);
   /** Харилцагчдад нэхэмжлэх нийт (түлш + бараа). */
@@ -1182,14 +1138,14 @@ export function AttendantShiftPage() {
 
   /**
    * Тушаах ёстой — серверийн «байвал зохих» томьёотой ЯГ адил:
-   * эхний үлдэгдэл + миль×үнэ − зээлийн түлш (колонкийн дүн) + тос/бараа
+   * эхний үлдэгдэл + миль×үнэ − зээлийн түлш + тос/бараа
    * + өглөг төлөлт − бэлэн зарлага − бэлэн буцаалт + өдрийн бусад кассын
    * гүйлгээ + өдрийн бэлэн борлуулалт. Зээлээр өгсөн бараа нөлөөлөхгүй.
    */
   const mustOf = (pv: DailyPreview): MoneyStr =>
     dSub(
       dSum([pv.opening_cash, pv.fuel_total, oilTotal, arTotal, pv.other_cash ?? "0", pv.day_cash_sales ?? "0"]),
-      dSum([creditFuelGross, expenseCashTotal, pv.refunds_cash ?? "0"]),
+      dSum([creditFuelTotal, expenseCashTotal, pv.refunds_cash ?? "0"]),
     );
 
   const readingsPayload = (): TotalizerReadingInput[] =>
@@ -1361,8 +1317,7 @@ export function AttendantShiftPage() {
       fuel_total: preview?.fuel_total ?? null,
       oil_total: oilTotal,
       credit_total: creditTotal,
-      credit_fuel_gross: creditFuelGross,
-      credit_fuel_net: creditFuelTotal,
+      credit_fuel: creditFuelTotal,
       credit_goods: creditGoodsTotal,
       refunds_cash: preview?.refunds_cash ?? null,
       other_cash: preview?.other_cash ?? null,
@@ -2020,19 +1975,13 @@ export function AttendantShiftPage() {
                       </Button>
                     </div>
 
-                    {/* Мөрийн дүн — харилцагчид нэхэмжлэх (хөнгөлөлт хасагдсан) + колонкийн дүн */}
+                    {/* Мөрийн дүн — түлш + бараа */}
                     <div className="num flex items-baseline justify-between gap-3 border-t border-line pt-2">
-                      <span className="text-sm text-ink-soft">{t.attendant.creditBilled} ≈</span>
+                      <span className="text-sm text-ink-soft">{t.attendant.creditSales} ≈</span>
                       <span className="text-base font-bold text-ink">
                         {formatMNT(creditRowTotals[index]?.total ?? "0")}
                       </span>
                     </div>
-                    {creditRowTotals[index] && dCmp(creditRowTotals[index].gross, creditRowTotals[index].net) !== 0 ? (
-                      <span className="num -mt-1 text-right text-xs text-ink-soft">
-                        {t.attendant.creditPumpValue}: {formatMNT(creditRowTotals[index].gross)} ·{" "}
-                        {t.attendant.creditDiscount}: {formatMNT(dSub(creditRowTotals[index].gross, creditRowTotals[index].net))}
-                      </span>
-                    ) : null}
                     {creditRowTotals[index]?.short ? (
                       <span className="rounded-lg bg-danger-soft px-2 py-1 text-xs font-medium text-danger-dark">
                         {t.attendant.creditShort}
@@ -2063,11 +2012,7 @@ export function AttendantShiftPage() {
               <TotalBox
                 label={t.attendant.creditSales}
                 value={creditTotal}
-                hint={`${t.sales.fuel}: ${formatMNT(creditFuelTotal)}${
-                  dCmp(creditFuelGross, creditFuelTotal) !== 0
-                    ? ` (${t.attendant.creditPumpValue}: ${formatMNT(creditFuelGross)})`
-                    : ""
-                } · ${t.products.title}: ${formatMNT(creditGoodsTotal)}`}
+                hint={`${t.sales.fuel}: ${formatMNT(creditFuelTotal)} · ${t.products.title}: ${formatMNT(creditGoodsTotal)}`}
               />
             </div>
   );
@@ -2679,13 +2624,7 @@ export function AttendantShiftPage() {
                         <Row label={`+ ${t.attendant.fuelByMile}`} value={preview.fuel_total} />
                         <Row label={`+ ${t.attendant.oilSales}`} value={oilTotal} />
                         <Row label={`+ ${t.attendant.arAll}`} value={arTotal} />
-                        <Row label={`− ${t.attendant.creditFuelPump}`} value={creditFuelGross} negative />
-                        {dCmp(creditFuelGross, creditFuelTotal) !== 0 ? (
-                          <span className="num -mt-1 text-right text-xs text-ink-soft">
-                            {t.attendant.creditBilled}: {formatMNT(creditFuelTotal)} · {t.attendant.creditDiscount}:{" "}
-                            {formatMNT(dSub(creditFuelGross, creditFuelTotal))}
-                          </span>
-                        ) : null}
+                        <Row label={`− ${t.attendant.creditFuelPump}`} value={creditFuelTotal} negative />
                         {dIsPositive(creditGoodsTotal) ? (
                           <span className="num -mt-1 text-right text-xs text-ink-soft">
                             {t.attendant.creditGoodsNote}: {formatMNT(creditGoodsTotal)}

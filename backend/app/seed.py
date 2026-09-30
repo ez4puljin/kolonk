@@ -300,7 +300,6 @@ async def seed_partners(db) -> None:
                     contract_no=contract_no,
                     credit_limit=limit,
                     balance=Decimal("0"),
-                    price_discount_per_l=Decimal("40.00"),
                     billing_day=1,
                     status=ContractStatus.ACTIVE,
                 )

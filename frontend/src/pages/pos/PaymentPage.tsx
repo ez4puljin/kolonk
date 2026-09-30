@@ -36,10 +36,8 @@ import {
   dIsZero,
   dMax,
   dMin,
-  dMul,
   dSub,
   dSum,
-  dToQty,
   toDisplay,
 } from "../../lib/decimal";
 import { formatLiters, formatMNT, formatQty } from "../../lib/format";
@@ -68,7 +66,6 @@ function blankLine(method: PaymentMethod, amount: MoneyStr, manual = false): Ten
     received: null,
     contractId: null,
     contractLabel: null,
-    discountPerL: null,
     refNo: null,
   };
 }
@@ -80,7 +77,7 @@ function blankLine(method: PaymentMethod, amount: MoneyStr, manual = false): Ten
  * дарааллаараа аваад, **хамгийн сүүлийн** авто мөр үлдэгдлийг бүхэлд нь шингээнэ.
  * Ингэснээр хоёр зүйл шийдэгдэнэ:
  *  - хосолсон төлбөрт эхний мөрийн дүнг өөрчлөхөд дараагийнх нь өөрөө бөглөгдөнө;
- *  - гэрээ сонгоход хөнгөлөлтөөр нийт дүн буурвал төлбөр «илүү» болж үлдэхгүй.
+ *  - нийт дүн өөрчлөгдвөл (сагс засах гэх мэт) төлбөр «илүү» болж үлдэхгүй.
  */
 function balanceTenders(lines: readonly TenderLine[], total: MoneyStr): TenderLine[] {
   const autoIndexes = lines.map((line, index) => (line.manual ? -1 : index)).filter((i) => i >= 0);
@@ -226,41 +223,17 @@ export function PaymentPage() {
   const storeTotal = hasStore ? cartTotal() : D_ZERO;
 
   const contractLine = rawTenders.find((line) => line.method === "contract" && line.contractId) ?? null;
-  const discountPerL = contractLine?.discountPerL ?? D_ZERO;
 
   /**
-   * Гэрээний литрийн хөнгөлөлт орсон түлшний мөр.
-   *
-   * Юуг тогтмол барихыг касс юугаар оруулснаас хамааруулна:
-   *  - **мөнгөн дүнгээр** оруулсан бол дүн нь тогтмол — хөнгөлөлттэй үнээр
-   *    илүү литр өгнө (90 000₮ гэвэл 90 000₮-ийн шатахуун);
-   *  - **литрээр** оруулсан (эсвэл насосноос ирсэн) бол литр тогтмол —
-   *    хөнгөлөлтөөр дүн буурна.
-   *
-   * Литр 3 оронтой тул `литр × үнэ` нь оруулсан дүнгээс 1-2₮ зөрж болно.
-   * Мөнгөн горимд оруулсан дүнг ЯГ хэвээр барина (сервер мөн адил — мөрийн
-   * `amount`-ыг 1 мл-ийн үнийн хүрээнд зөвшөөрдөг); эс бөгөөс түгээгч
-   * 90 000₮ гэж бичээд 89 999₮ гэсэн баримт барьж өгнө.
+   * Түлшний мөр — литр ба дүн насос/кассын оруулснаар (гэрээт харилцагч ч
+   * жагсаалтын үнээр авна). Мөнгөн горимд оруулсан дүнг ЯГ хэвээр барина.
    */
   const fuelLine = useMemo(() => {
     if (!hasFuel || fuelLiters === null) {
       return { liters: fuelLiters, amount: D_ZERO };
     }
-    const base = toDisplay(fuelBaseAmount ?? D_ZERO);
-    if (dIsZero(discountPerL) || sale.unitPrice === null) {
-      return { liters: fuelLiters, amount: base };
-    }
-
-    const unitPrice = dMax(dSub(sale.unitPrice, discountPerL), D_ZERO);
-    if (dCmp(unitPrice, "0") <= 0) return { liters: fuelLiters, amount: D_ZERO };
-
-    if (sale.entryMode === "amount") {
-      // Мөнгө тогтмол: хөнгөлөлттэй үнээр литрийг дахин бодно, дүн хэвээр.
-      return { liters: dDiv(base, unitPrice, 3), amount: base };
-    }
-    // Литр тогтмол: хөнгөлөлтөөр дүн буурна.
-    return { liters: fuelLiters, amount: dMul(unitPrice, dToQty(fuelLiters)) };
-  }, [hasFuel, discountPerL, sale.unitPrice, sale.entryMode, fuelLiters, fuelBaseAmount]);
+    return { liters: fuelLiters, amount: toDisplay(fuelBaseAmount ?? D_ZERO) };
+  }, [hasFuel, fuelLiters, fuelBaseAmount]);
 
   const fuelQty = fuelLine.liters;
   const fuelAmount = fuelLine.amount;
@@ -369,7 +342,6 @@ export function PaymentPage() {
     patchLine(pickerLineId, {
       contractId: contract.id,
       contractLabel: `${customer.name} · ${contract.contract_no}`,
-      discountPerL: contract.price_discount_per_l,
     });
     setPickerLineId(null);
   };

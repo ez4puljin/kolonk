@@ -590,10 +590,8 @@ export interface ClosingView {
   credit_total: MoneyStr;
   /** Зээлийн түлш — харилцагчдад нэхэмжилсэн дүн. */
   credit_fuel: MoneyStr;
-  /** Зээлийн түлш — колонкийн (бүтэн үнийн) дүн; тулгалтад ЭНЭ хасагдана. */
+  /** Зээлийн түлш — колонкийн дүн (миль×үнэ − нэгдсэн борлуулалт); тулгалтад ЭНЭ хасагдана. */
   credit_fuel_gross: MoneyStr;
-  /** Гэрээний хөнгөлөлт = колонкийн дүн − нэхэмжилсэн. */
-  credit_discount: MoneyStr;
   credit_goods: MoneyStr;
   fuel_sale_total: MoneyStr;
   /** Ээлжийн хугацаанд батлагдсан бэлэн буцаалт. */
@@ -1552,7 +1550,6 @@ export interface ContractBrief {
   credit_unlimited: boolean;
   balance: MoneyStr;
   credit_available: MoneyStr;
-  price_discount_per_l: MoneyStr;
   status: ContractStatus | string;
   status_name: string;
 }
@@ -1616,7 +1613,6 @@ export interface Contract {
   credit_unlimited: boolean;
   balance: MoneyStr;
   credit_available: MoneyStr;
-  price_discount_per_l: MoneyStr;
   billing_day: number;
   status: ContractStatus | string;
   status_name: string;
@@ -1641,7 +1637,6 @@ export interface ContractCreate {
   customer_id: UUID;
   contract_no: string;
   credit_limit?: MoneyStr;
-  price_discount_per_l?: MoneyStr;
   billing_day?: number;
   status?: ContractStatus;
 }
@@ -1649,7 +1644,6 @@ export interface ContractCreate {
 export interface ContractUpdate {
   contract_no?: string;
   credit_limit?: MoneyStr;
-  price_discount_per_l?: MoneyStr;
   billing_day?: number;
   status?: ContractStatus;
 }
@@ -2788,7 +2782,7 @@ export interface CreditItemInput {
   fuel_id?: UUID | null;
   product_id?: UUID | null;
   qty?: string | null;
-  /** Түлш: колонкийн (бүтэн үнийн) дүн — хөнгөлөлтийг сервер хасна. */
+  /** Түлш: колонкийн дэлгэц дээрх дүн. */
   amount?: MoneyStr | null;
   /** Ээлжийн дундуур үнэ өөрчлөгдсөн бол аль үнээр авсан. */
   unit_price?: MoneyStr | null;
@@ -2963,6 +2957,81 @@ export interface DailyClosingFilters {
   attendant_id?: UUID[];
   status?: "approved" | "pending";
   only_variance?: boolean;
+}
+
+/** Эхний үлдэгдлийн түүхийн мөр — өмнө оруулсныг засахад. */
+export interface OpeningRecord {
+  id: UUID;
+  product_id: UUID;
+  product_name: string;
+  sku: string | null;
+  unit: string | null;
+  branch_id: UUID | null;
+  branch_name: string;
+  qty: LitersStr;
+  unit_cost: MoneyStr;
+  value: MoneyStr;
+  /** Ямар огнооны байдлаар бүртгэгдсэн (журналын огноо). */
+  as_of: IsoDate;
+  entered_at: IsoDateTime;
+  entered_by: string;
+  /** `opening` — «Эхний үлдэгдэл» цонх, `product` — бараа үүсгэхэд. */
+  source: "opening" | "product" | string;
+  note: string | null;
+  editable: boolean;
+  /** Хэдэн удаа засагдсан. */
+  corrections: number;
+}
+
+export interface OpeningFixInput {
+  qty: string;
+  unit_cost: MoneyStr;
+  note?: string | null;
+}
+
+/** Эхний үлдэгдлийн засварын нөлөө (урьдчилан харах / хэрэгжүүлсэн). */
+export interface OpeningFixResult {
+  tx_id: UUID;
+  product_id: UUID;
+  product_name: string;
+  unit: string | null;
+  branch_id: UUID | null;
+  branch_name: string;
+  old_qty: LitersStr;
+  old_unit_cost: MoneyStr;
+  old_value: MoneyStr;
+  new_qty: LitersStr;
+  new_unit_cost: MoneyStr;
+  new_value: MoneyStr;
+  value_change: MoneyStr;
+  stock: {
+    product_id: UUID;
+    product_name: string;
+    unit: string | null;
+    branch_id: UUID | null;
+    branch_name: string;
+    before: LitersStr;
+    after: LitersStr;
+  }[];
+  avg_cost: { product_id: UUID; product_name: string; before: MoneyStr; after: MoneyStr }[];
+  sales_count: number;
+  /** Борлуулалтын өртгийн өөрчлөлт (+ бол ашиг буурна). */
+  cogs_change: MoneyStr;
+  refunds_count: number;
+  refund_cogs_change: MoneyStr;
+  adjustments_count: number;
+  adjustment_value_change: MoneyStr;
+  transfers_count: number;
+  conversions_count: number;
+  journal_entries: number;
+  shift_count: number;
+  shifts_closed: number;
+  shifts_approved: number;
+  shift_numbers: number[];
+  date_from: IsoDate | null;
+  date_to: IsoDate | null;
+  warnings: string[];
+  applied: boolean;
 }
 
 /** `POST /api/inventory/opening-balances` — эхний үлдэгдэл оруулах хүсэлт. */

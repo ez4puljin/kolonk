@@ -58,7 +58,6 @@ class Contract(UUIDPKMixin, TimestampMixin, Base):
     contract_no: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     credit_limit: Mapped[Decimal] = mapped_column(Money, nullable=False, default=Decimal("0"))
     balance: Mapped[Decimal] = mapped_column(Money, nullable=False, default=Decimal("0"))
-    price_discount_per_l: Mapped[Decimal] = mapped_column(Money, nullable=False, default=Decimal("0"))
     billing_day: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=ContractStatus.ACTIVE)
     #: Системд шилжихэд импортоор орж ирсэн авлагын эхний үлдэгдэл (балансад

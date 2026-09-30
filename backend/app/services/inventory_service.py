@@ -194,6 +194,9 @@ async def consume_product(
 
     product.stock_qty = balance_after
     await _move_branch_stock(db, product, branch_id, -qty)
+    # Салбарууд өөр өртөгтэй үед нийт дундаж хуучирч, нөөцийн үнэлгээ
+    # (үлдэгдэл × дундаж) 1302 данснаас зөрдөг байв — зарлага бүрийн дараа.
+    await sync_product_cost(db, product)
     _record(
         db,
         product,
@@ -286,6 +289,7 @@ async def restock_product(
     balance_after = q3(_d(product.stock_qty) + qty)
     product.stock_qty = balance_after
     await _move_branch_stock(db, product, branch_id, qty)
+    await sync_product_cost(db, product)
 
     _record(
         db,
@@ -480,6 +484,7 @@ async def adjust_product(
     unit_cost = await branch_unit_cost(db, product, branch_id)
     product.stock_qty = balance_after
     await _move_branch_stock(db, product, branch_id, qty)
+    await sync_product_cost(db, product)
     return _record(
         db,
         product,
@@ -561,6 +566,7 @@ async def set_opening_balances(
             cost_now = await branch_unit_cost(db, product, branch_id)
             product.stock_qty = q3(_d(product.stock_qty) + delta)
             await _move_branch_stock(db, product, branch_id, delta)
+            await sync_product_cost(db, product)
             _record(
                 db, product,
                 tx_type=InventoryTxType.OPENING,

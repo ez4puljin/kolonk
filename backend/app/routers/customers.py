@@ -65,7 +65,6 @@ def _contract_brief(contract: Contract, customer: Customer) -> ContractBrief:
         credit_unlimited=bool(customer.credit_unlimited),
         balance=contract.balance,
         credit_available=credit_available(contract),
-        price_discount_per_l=contract.price_discount_per_l,
         status=str(contract.status),
         status_name=CONTRACT_STATUS_MN.get(str(contract.status), str(contract.status)),
     )

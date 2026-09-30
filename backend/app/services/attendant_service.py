@@ -400,47 +400,39 @@ class _SegmentSlots:
         )
 
     @staticmethod
-    def _merge(parts: list[tuple[uuid.UUID, Decimal, Decimal, Decimal, Decimal]]):
-        """(сав, үнэ)-ээр нэгтгэнэ — нэг сав, нэг үнэ нэг мөр.
-
-        Мөр бүр: (сав, литрийн үнэ, литр, харилцагчид нэхэмжлэх дүн, колонкийн дүн).
-        """
+    def _merge(parts: list[tuple[uuid.UUID, Decimal, Decimal, Decimal]]):
+        """(сав, үнэ)-ээр нэгтгэнэ — нэг сав, нэг үнэ нэг мөр: (сав, үнэ, литр, дүн)."""
         merged: dict[tuple[uuid.UUID, Decimal], list[Decimal]] = {}
-        for tank_id, price, liters, net, gross in parts:
-            row = merged.setdefault((tank_id, price), [ZERO_L, ZERO, ZERO])
+        for tank_id, price, liters, amount in parts:
+            row = merged.setdefault((tank_id, price), [ZERO_L, ZERO])
             row[0] = q3(row[0] + liters)
-            row[1] = q2(row[1] + net)
-            row[2] = q2(row[2] + gross)
-        return [(tank, price, row[0], row[1], row[2]) for (tank, price), row in merged.items()]
+            row[1] = q2(row[1] + amount)
+        return [(tank, price, row[0], row[1]) for (tank, price), row in merged.items()]
 
     def take_credit(
         self,
         fuel_id: uuid.UUID,
         liters: Decimal,
-        discount: Decimal,
         unit_price: Decimal | None = None,
-    ) -> list[tuple[uuid.UUID, Decimal, Decimal, Decimal, Decimal]]:
+    ) -> list[tuple[uuid.UUID, Decimal, Decimal, Decimal]]:
         """``liters``-ийг тухайн түлшний сегментүүдээс (сүүлээс нь) хасна.
 
-        Литр бүр ӨӨРИЙН сегментийн үнээр (− гэрээний хөнгөлөлт) үнэлэгдэнэ —
-        ингэснээр зээл + нэгдсэн борлуулалт = миль×үнэ яг таарна.
+        Литр бүр ӨӨРИЙН сегментийн үнээр үнэлэгдэнэ — ингэснээр зээл +
+        нэгдсэн борлуулалт = миль×үнэ яг таарна.
         """
         price_filter = self._price_filter(fuel_id, unit_price)
         need = q3(liters)
-        parts: list[tuple[uuid.UUID, Decimal, Decimal, Decimal, Decimal]] = []
+        parts: list[tuple[uuid.UUID, Decimal, Decimal, Decimal]] = []
         for slot in self._credit_slots(fuel_id, price_filter):
             if need <= ZERO_L:
                 break
             price = slot["seg"].price
-            unit = q2(price - discount)
-            if unit <= ZERO:
-                raise HTTPException(status_code=422, detail="Гэрээний хөнгөлөлт түлшний үнээс их байна")
             take = min(slot["remaining"], need)
-            gross = slot["remaining_amount"] if take >= slot["remaining"] else q2(take * price)
+            amount = slot["remaining_amount"] if take >= slot["remaining"] else q2(take * price)
             slot["remaining"] = q3(slot["remaining"] - take)
-            slot["remaining_amount"] = q2(slot["remaining_amount"] - gross)
+            slot["remaining_amount"] = q2(slot["remaining_amount"] - amount)
             need = q3(need - take)
-            parts.append((slot["calc"].nozzle.tank_id, price, take, q2(take * unit), gross))
+            parts.append((slot["calc"].nozzle.tank_id, price, take, amount))
         if need > ZERO_L:
             raise self._short(fuel_id, price_filter, "литр")
         return self._merge(parts)
@@ -449,26 +441,19 @@ class _SegmentSlots:
         self,
         fuel_id: uuid.UUID,
         amount: Decimal,
-        discount: Decimal,
         unit_price: Decimal | None = None,
-    ) -> list[tuple[uuid.UUID, Decimal, Decimal, Decimal, Decimal]]:
-        """Дүнгээр оруулсан зээл — ``amount`` нь КОЛОНКИЙН (бүтэн үнийн) дүн.
+    ) -> list[tuple[uuid.UUID, Decimal, Decimal, Decimal]]:
+        """Дүнгээр оруулсан зээл — ``amount`` нь колонкийн дэлгэц дээрх дүн.
 
-        Түгээгч колонкийн дэлгэцээс уншсан дүнг оруулдаг: литр = дүн ÷ сегментийн
-        үнэ, тулгалтад ЭНЭ дүн хасагдана. Гэрээний хөнгөлөлттэй харилцагчид
-        литр × хөнгөлөлтийг хассан дүн нэхэмжлэгдэнэ. Урьд нь дүнг хөнгөлөлттэй
-        (нэхэмжлэх) дүн гэж үзэж литрийг хөнгөлөлттэй үнээр бодож байсан тул
-        колонк тоолсон литрээс зөрдөг байв.
+        Литр = дүн ÷ сегментийн үнэ; оруулсан дүн яг хадгалагдана.
         """
         price_filter = self._price_filter(fuel_id, unit_price)
         left = q2(amount)
-        parts: list[tuple[uuid.UUID, Decimal, Decimal, Decimal, Decimal]] = []
+        parts: list[tuple[uuid.UUID, Decimal, Decimal, Decimal]] = []
         for slot in self._credit_slots(fuel_id, price_filter):
             if left <= ZERO:
                 break
             price = slot["seg"].price
-            if q2(price - discount) <= ZERO:
-                raise HTTPException(status_code=422, detail="Гэрээний хөнгөлөлт түлшний үнээс их байна")
             capacity = slot["remaining_amount"]
             if left >= capacity:
                 take, gross = slot["remaining"], capacity
@@ -478,7 +463,7 @@ class _SegmentSlots:
             slot["remaining"] = q3(slot["remaining"] - take)
             slot["remaining_amount"] = q2(slot["remaining_amount"] - gross)
             left = q2(left - gross)
-            parts.append((slot["calc"].nozzle.tank_id, price, take, q2(gross - take * discount), gross))
+            parts.append((slot["calc"].nozzle.tank_id, price, take, gross))
         if left > ZERO:
             raise self._short(fuel_id, price_filter, "дүн")
         return self._merge(parts)
@@ -528,7 +513,6 @@ async def _contract_for_customer(
         contract_no=await _next_contract_no(db, f"ЗЭ-{today:%Y%m%d}"),
         credit_limit=q2(_d(customer.credit_limit)),
         balance=ZERO,
-        price_discount_per_l=ZERO,
         billing_day=1,
         status=str(ContractStatus.ACTIVE),
     )
@@ -617,7 +601,6 @@ async def _contract_for_new_customer(
             contract_no=await _next_contract_no(db, f"ЗЭ-{today:%Y%m%d}"),
             credit_limit=q2(_d(payload.credit_limit)),
             balance=ZERO,
-            price_discount_per_l=ZERO,
             billing_day=1,
             status=str(ContractStatus.ACTIVE),
         )
@@ -772,8 +755,7 @@ async def _create_credit_sales(
     Түлшний литрийг милийн зөрүүний сегментүүдээс хуваарилж авдаг тул сав
     хэд байхаас үл хамааран зөв савнаас хасагдана.
 
-    Буцаана: (харилцагчдад нэхэмжилсэн нийт дүн, sale_id-ууд, зээлийн түлшний
-    колонкийн (бүтэн үнийн) дүн).
+    Буцаана: (харилцагчдад нэхэмжилсэн нийт дүн, sale_id-ууд, зээлийн түлшний дүн).
     """
     total = ZERO
     fuel_gross = ZERO
@@ -803,8 +785,6 @@ async def _create_credit_sales(
             contract = await db.scalar(select(Contract).where(Contract.id == line.contract_id))
             if contract is None:
                 raise HTTPException(status_code=404, detail="Гэрээ олдсонгүй")
-        discount = q2(_d(contract.price_discount_per_l))
-
         items: list[SaleItemIn] = []
         line_total = ZERO
         for item in line.items:
@@ -813,19 +793,17 @@ async def _create_credit_sales(
                 # нь, ТЭР сегментийн үнээр авна (хаалтын мөчийн жагсаалтын үнээр биш).
                 unit_price = getattr(item, "unit_price", None)
                 if item.amount is not None and _d(item.amount) > ZERO:
-                    splits = slots.take_credit_amount(
-                        item.fuel_id, q2(_d(item.amount)), discount, unit_price
-                    )
+                    splits = slots.take_credit_amount(item.fuel_id, q2(_d(item.amount)), unit_price)
                 elif item.qty is not None and _d(item.qty) > ZERO_L:
-                    splits = slots.take_credit(item.fuel_id, q3(_d(item.qty)), discount, unit_price)
+                    splits = slots.take_credit(item.fuel_id, q3(_d(item.qty)), unit_price)
                 else:
                     raise HTTPException(
                         status_code=422, detail="Зээлийн түлшний литр эсвэл дүнг оруулна уу"
                     )
-                for tank_id, price, liters, amount, gross in splits:
+                for tank_id, price, liters, amount in splits:
                     if liters <= ZERO_L:
                         continue
-                    fuel_gross = q2(fuel_gross + gross)
+                    fuel_gross = q2(fuel_gross + amount)
                     items.append(
                         SaleItemIn(
                             item_type=ItemType.FUEL,

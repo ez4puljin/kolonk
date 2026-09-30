@@ -56,8 +56,8 @@ interface FuelSaleState {
   complete: (liters: LitersStr, amount: MoneyStr) => void;
   /** Тоног төхөөрөмжгүй гар борлуулалт — шууд төлбөрийн шатанд.
 
-  `mode` нь касс юугаар оруулсныг заана: "amount" бол мөнгөн дүн тогтмол
-  (гэрээний хөнгөлөлт орвол литр нэмэгдэнэ), "liters" бол литр тогтмол. */
+  `mode` нь касс юугаар оруулсныг заана: "amount" бол мөнгөн дүн тогтмол,
+  "liters" бол литр тогтмол. */
   manual: (liters: LitersStr, amount: MoneyStr, mode: "amount" | "liters") => void;
   fail: (message: string) => void;
   toPayment: () => void;

@@ -28,6 +28,7 @@ INVENTORY_TX_NAMES_MN: dict[str, str] = {
     InventoryTxType.CONVERT_IN: "Задлалт (орсон)",
     InventoryTxType.TRANSFER_OUT: "Шилжүүлэг (гарсан)",
     InventoryTxType.TRANSFER_IN: "Шилжүүлэг (орсон)",
+    InventoryTxType.OPENING: "Эхний үлдэгдэл",
 }
 
 #: Борлуулах хэлбэрийн монгол нэр.
@@ -375,3 +376,93 @@ class OpeningBalanceOut(BaseModel):
     products_changed: int = 0
     value_change: Decimal = Decimal("0")
     journal_entry_id: uuid.UUID | None = None
+
+
+class OpeningRecordOut(BaseModel):
+    """Эхний үлдэгдлийн түүхийн нэг мөр (нөөцийн дэвтрийн бичлэг)."""
+
+    id: uuid.UUID
+    product_id: uuid.UUID
+    product_name: str
+    sku: str | None = None
+    unit: str | None = None
+    branch_id: uuid.UUID | None = None
+    branch_name: str = ""
+    qty: Decimal
+    unit_cost: Decimal
+    value: Decimal
+    #: Эхний үлдэгдэл ямар огнооны байдлаар бүртгэгдсэн (журналын огноо).
+    as_of: date
+    entered_at: datetime
+    entered_by: str = ""
+    #: ``opening`` — «Эхний үлдэгдэл» цонх, ``product`` — бараа үүсгэхэд.
+    source: str = "opening"
+    note: str | None = None
+    editable: bool = True
+    #: Хэдэн удаа засагдсан.
+    corrections: int = 0
+
+
+class OpeningFixIn(BaseModel):
+    """Эхний үлдэгдлийн засвар — шинэ тоо хэмжээ, нэгж өртөг."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    qty: Decimal = Field(ge=0)
+    unit_cost: Decimal = Field(ge=0)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class OpeningFixStockRow(BaseModel):
+    product_id: uuid.UUID
+    product_name: str
+    unit: str | None = None
+    branch_id: uuid.UUID | None = None
+    branch_name: str = ""
+    before: Decimal
+    after: Decimal
+
+
+class OpeningFixAvgRow(BaseModel):
+    product_id: uuid.UUID
+    product_name: str
+    before: Decimal
+    after: Decimal
+
+
+class OpeningFixOut(BaseModel):
+    """Засварын нөлөө — урьдчилан харах болон хэрэгжүүлсний дараа."""
+
+    tx_id: uuid.UUID
+    product_id: uuid.UUID
+    product_name: str
+    unit: str | None = None
+    branch_id: uuid.UUID | None = None
+    branch_name: str = ""
+    old_qty: Decimal
+    old_unit_cost: Decimal
+    old_value: Decimal
+    new_qty: Decimal
+    new_unit_cost: Decimal
+    new_value: Decimal
+    value_change: Decimal
+    stock: list[OpeningFixStockRow] = Field(default_factory=list)
+    avg_cost: list[OpeningFixAvgRow] = Field(default_factory=list)
+    sales_count: int = 0
+    #: Борлуулалтын өртгийн өөрчлөлт (+ бол ашиг буурна).
+    cogs_change: Decimal = ZERO
+    refunds_count: int = 0
+    refund_cogs_change: Decimal = ZERO
+    adjustments_count: int = 0
+    adjustment_value_change: Decimal = ZERO
+    transfers_count: int = 0
+    conversions_count: int = 0
+    journal_entries: int = 0
+    shift_count: int = 0
+    shifts_closed: int = 0
+    shifts_approved: int = 0
+    shift_numbers: list[int] = Field(default_factory=list)
+    date_from: date | None = None
+    date_to: date | None = None
+    warnings: list[str] = Field(default_factory=list)
+    applied: bool = False

@@ -30,7 +30,6 @@ class ContractBrief(BaseModel):
     credit_unlimited: bool = False
     balance: Decimal = ZERO
     credit_available: Decimal = ZERO
-    price_discount_per_l: Decimal = ZERO
     status: str
     status_name: str = ""
 
@@ -114,7 +113,6 @@ class ContractCreate(BaseModel):
     customer_id: uuid.UUID
     contract_no: str = Field(min_length=1, max_length=32)
     credit_limit: Decimal = Field(default=ZERO, ge=0)
-    price_discount_per_l: Decimal = Field(default=ZERO, ge=0)
     billing_day: int = Field(default=1, ge=1, le=28)
     status: ContractStatus = ContractStatus.ACTIVE
 
@@ -124,7 +122,6 @@ class ContractUpdate(BaseModel):
 
     contract_no: str | None = Field(default=None, min_length=1, max_length=32)
     credit_limit: Decimal | None = Field(default=None, ge=0)
-    price_discount_per_l: Decimal | None = Field(default=None, ge=0)
     billing_day: int | None = Field(default=None, ge=1, le=28)
     status: ContractStatus | None = None
 
@@ -138,7 +135,6 @@ class ContractOut(BaseModel):
     credit_unlimited: bool = False
     balance: Decimal = ZERO
     credit_available: Decimal = ZERO
-    price_discount_per_l: Decimal = ZERO
     billing_day: int = 1
     status: str
     status_name: str = ""

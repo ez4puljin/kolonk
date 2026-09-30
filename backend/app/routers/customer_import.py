@@ -297,7 +297,6 @@ async def import_customers(
                 contract_no=await _next_contract_no(db, stamp),
                 credit_limit=amount,
                 balance=ZERO,
-                price_discount_per_l=ZERO,
                 billing_day=1,
                 status=str(ContractStatus.ACTIVE),
             )

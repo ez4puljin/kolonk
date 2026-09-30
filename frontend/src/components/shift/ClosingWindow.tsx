@@ -147,7 +147,6 @@ export function ClosingWindow({ shiftId }: { shiftId: UUID }) {
       : view.needs_recalc
         ? T.mismatchLegacy
         : T.mismatchRows;
-  const creditDiscount = dSub(view.credit_fuel_gross ?? view.credit_fuel, view.credit_fuel);
 
   const removeButton = (kind: "remove-credit" | "remove-ar" | "remove-expense", id: UUID, label: string) =>
     editable ? (
@@ -266,11 +265,6 @@ export function ClosingWindow({ shiftId }: { shiftId: UUID }) {
           <Row label={`+ ${t.shift.openingCash}`} value={view.opening_cash} />
           <Row label={`+ ${T.fuelByMile}`} value={view.fuel_total} />
           <Row label={T.creditFuelPump} value={view.credit_fuel_gross ?? view.credit_fuel} negative />
-          {!dIsZero(creditDiscount) ? (
-            <span className="num -mt-0.5 text-right text-xs text-ink-soft">
-              {T.creditBilled}: {formatMoneyExact(view.credit_fuel)} · {T.creditDiscount}: {formatMoneyExact(creditDiscount)}
-            </span>
-          ) : null}
           <Row label={`+ ${T.oil}`} value={view.oil_total} />
           <Row label={`+ ${T.ar}`} value={view.ar_total} />
           <Row label={T.expenseCash} value={view.expense_by_method.cash} negative />

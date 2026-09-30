@@ -6,7 +6,7 @@ Sale/SaleItem/Payment бичих → журналын бичилт → И-бар
 ``get_db`` нэг л commit хийнэ (CONTRACTS.md §1).
 
 Тестлэх боломжтой математикийг доорх **цэвэр функцүүдэд** салгасан:
-``line_amount``, ``discounted_price``, ``compute_totals``, ``payments_total``,
+``line_amount``, ``compute_totals``, ``payments_total``,
 ``validate_payment_total``, ``compute_change``, ``credit_available``,
 ``fits_credit_limit``, ``liters_match``.
 """
@@ -99,12 +99,6 @@ def to_decimal(value: Any, default: Decimal = ZERO) -> Decimal:
 def line_amount(qty: Decimal, unit_price: Decimal) -> Decimal:
     """Мөрийн дүн = тоо хэмжээ × нэгж үнэ (2 орон)."""
     return q2(to_decimal(qty) * to_decimal(unit_price))
-
-
-def discounted_price(unit_price: Decimal, discount_per_l: Decimal) -> Decimal:
-    """Гэрээний литр тутмын хөнгөлөлт. Сөрөг үнэ гарахыг зөвшөөрөхгүй."""
-    price = q2(to_decimal(unit_price) - to_decimal(discount_per_l))
-    return price if price > ZERO else ZERO
 
 
 def compute_totals(amounts: Iterable[Decimal], rate: Decimal = VAT_RATE) -> tuple[Decimal, Decimal, Decimal]:
@@ -393,11 +387,10 @@ async def _resolve_fuel_line(
     if base_price <= ZERO:
         raise HTTPException(status_code=422, detail="Түлшний үнэ тодорхойлогдоогүй байна")
 
-    discount = q2(to_decimal(contract.price_discount_per_l)) if contract is not None else ZERO
-    unit_price = discounted_price(base_price, discount)
+    unit_price = base_price
 
-    # Насосны дүн нь эрх мэдэлтэй: хөнгөлөлтгүй, үнэ өөрчлөгдөөгүй үед түүнийг барина.
-    if record is not None and record.amount is not None and discount == ZERO and unit_price == base_price:
+    # Насосны дүн нь эрх мэдэлтэй: үнэ өөрчлөгдөөгүй үед түүнийг барина.
+    if record is not None and record.amount is not None:
         amount = q2(record.amount)
     else:
         amount = line_amount(qty, unit_price)
@@ -578,11 +571,13 @@ async def _consume_line(
         return unit_cost, q2(cogs)
 
     # Барааны нөөцийг WP7-ийн inventory_service эзэмшинэ.
-    from app.services.inventory_service import consume_product
+    from app.services.inventory_service import branch_unit_cost, consume_product
 
     if line.product is None:  # pragma: no cover
         raise HTTPException(status_code=404, detail="Бараа олдсонгүй")
-    unit_cost = q6(to_decimal(line.product.avg_cost))
+    # Өртгийг ЗАРСАН САЛБАРЫНХААР (consume_product-ийн хэрэглэх утга) — урьд нь
+    # барааны нийт дунджаар хадгалагдаж, буцаалт өөр өртгөөр сэргээгддэг байв.
+    unit_cost = await branch_unit_cost(db, line.product, branch_id)
     cogs = await consume_product(
         db,
         line.product,

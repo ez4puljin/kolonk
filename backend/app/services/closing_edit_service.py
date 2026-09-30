@@ -366,9 +366,8 @@ async def closing_view(db: AsyncSession, shift_id: uuid.UUID) -> dict[str, Any]:
     oil_total = q2(_d(closing.oil_total))
     ar_total = q2(sum(ar_by.values(), ZERO))
     credit_total = q2(credit_fuel + credit_goods)
-    # Зээлийн түлшний КОЛОНКИЙН дүн: миль×үнэ − нэгдсэн борлуулалт. Колонк
-    # зээлийн литрийг бүтэн үнээр тоолсон тул тулгалтад ЭНЭ хасагдана —
-    # гэрээний хөнгөлөлт (нэхэмжилсэн дүнгээс илүү) бэлэн мөнгөнд нөлөөлөхгүй.
+    # Зээлийн түлшний колонкийн дүн: миль×үнэ − нэгдсэн борлуулалт — тулгалтад
+    # ЭНЭ хасагдана (сегментийн яг үлдэгдлээр бодогдсон тул дугуйлалтгүй).
     fuel_sale_total = q2(_d(fuel_sale.total)) if fuel_sale is not None else ZERO
     credit_fuel_gross = q2(fuel_total - fuel_sale_total)
 
@@ -414,8 +413,6 @@ async def closing_view(db: AsyncSession, shift_id: uuid.UUID) -> dict[str, Any]:
         "credit_total": credit_total,
         "credit_fuel": credit_fuel,
         "credit_fuel_gross": credit_fuel_gross,
-        #: Гэрээний хөнгөлөлт — колонкийн дүн − харилцагчид нэхэмжилсэн дүн.
-        "credit_discount": q2(credit_fuel_gross - credit_fuel),
         "credit_goods": credit_goods,
         "credit_lines": credit_lines,
         "fuel_sale_total": fuel_sale_total,
@@ -609,15 +606,14 @@ async def add_credit(
 ) -> dict[str, Any]:
     """Нэгдсэн (бэлэн) түлшний борлуулалтаас литрийг харилцагчийн зээл рүү шилжүүлнэ.
 
-    Өдрийн хаалтын дүрэмтэй ижил: ``amount`` нь колонкийн (бүтэн үнийн) дүн,
-    ээлжид олон үнэ байвал ``unit_price``-ээр аль үнээр авсныг сонгоно.
+    Өдрийн хаалтын дүрэмтэй ижил: ``amount`` нь колонкийн дүн, ээлжид олон
+    үнэ байвал ``unit_price``-ээр аль үнээр авсныг сонгоно.
     """
     shift, closing = await _editable(db, shift_id)
     fuel_sale = await _sale(db, closing.fuel_sale_id)
     if fuel_sale is None:
         raise HTTPException(status_code=422, detail="Түлшний нэгдсэн борлуулалт олдсонгүй")
     contract = await _resolve_contract(db, user, shift, target)
-    discount = q2(_d(contract.price_discount_per_l))
 
     items, pays = await _sale_rows(db, fuel_sale)
     available = [i for i in items if i.fuel_id == fuel_id and _d(i.qty, ZERO_L) > ZERO_L]
@@ -650,15 +646,13 @@ async def add_credit(
 
     pieces: list[tuple[SaleItem, Decimal, Decimal, Decimal, Decimal]] = []  # item, take, gross, credit, cogs
     if amount is not None and _d(amount) > ZERO:
-        # Колонкийн дүн: литр = дүн ÷ үнэ, харилцагчид дүн − литр × хөнгөлөлт.
+        # Колонкийн дүн: литр = дүн ÷ үнэ, оруулсан дүн яг хадгалагдана.
         left = q2(_d(amount))
         for item in fuel_items:
             if left <= ZERO:
                 break
             item_qty = q3(_d(item.qty, ZERO_L))
             price = q2(_d(item.unit_price))
-            if q2(price - discount) <= ZERO:
-                raise HTTPException(status_code=422, detail="Гэрээний хөнгөлөлт түлшний үнээс их байна")
             capacity = q2(_d(item.amount))
             if left >= capacity:
                 take, gross = item_qty, capacity
@@ -667,7 +661,7 @@ async def add_credit(
                 gross = capacity if take >= item_qty else left
             full = take >= item_qty
             cogs = q2(_d(item.cogs_amount)) if full else q2(take * _d(item.unit_cost))
-            pieces.append((item, take, gross, q2(gross - take * discount), cogs))
+            pieces.append((item, take, gross, gross, cogs))
             left = q2(left - gross)
         if left > ZERO:
             raise HTTPException(status_code=422, detail="Зээлийн дүн нэгдсэн борлуулалтын энэ түлшний дүнгээс их байна")
@@ -678,13 +672,10 @@ async def add_credit(
                 break
             item_qty = q3(_d(item.qty, ZERO_L))
             take = min(item_qty, need)
-            unit = q2(_d(item.unit_price) - discount)
-            if unit <= ZERO:
-                raise HTTPException(status_code=422, detail="Гэрээний хөнгөлөлт түлшний үнээс их байна")
             full = take >= item_qty
             gross = q2(_d(item.amount)) if full else q2(take * _d(item.unit_price))
             cogs = q2(_d(item.cogs_amount)) if full else q2(take * _d(item.unit_cost))
-            pieces.append((item, take, gross, q2(take * unit), cogs))
+            pieces.append((item, take, gross, gross, cogs))
             need = q3(need - take)
         if need > ZERO_L:
             raise HTTPException(status_code=422, detail="Зээлийн литр нэгдсэн борлуулалтын энэ түлшний литрээс их байна")
@@ -728,7 +719,7 @@ async def add_credit(
             nozzle_id=item.nozzle_id,
             name_snapshot=item.name_snapshot,
             qty=take,
-            unit_price=q2(_d(item.unit_price) - discount),
+            unit_price=q2(_d(item.unit_price)),
             amount=credit,
             unit_cost=item.unit_cost,
             cogs_amount=cogs,
@@ -817,16 +808,15 @@ async def remove_credit(db: AsyncSession, user: User, *, shift_id: uuid.UUID, sa
     if any(str(i.item_type) != str(ItemType.FUEL) for i in items):
         raise HTTPException(status_code=422, detail="Бараатай зээлийн мөрийг устгах боломжгүй — зөвхөн түлшний зээл")
     contract = await db.scalar(select(Contract).where(Contract.id == credit.contract_id)) if credit.contract_id else None
-    discount = q2(_d(contract.price_discount_per_l)) if contract is not None else ZERO
 
     fuel_items, fuel_pays = await _sale_rows(db, fuel_sale)
     next_line = max((i.line_no for i in fuel_items), default=0)
     gross_total = ZERO
     for ci in items:
-        base = q2(_d(ci.unit_price) + discount)
+        base = q2(_d(ci.unit_price))
         # Нэгдсэн борлуулалтаас хасахдаа авсан дүнг ЯГ буцаана (литр × үнээр дахин
         # бодвол дүнгээр оруулсан зээлийн дугуйлалтаас 1-2₮ зөрдөг).
-        gross = q2(_d(ci.amount) + _d(ci.qty, ZERO_L) * discount)
+        gross = q2(_d(ci.amount))
         gross_total = q2(gross_total + gross)
         target = next(
             (i for i in fuel_items if i.nozzle_id == ci.nozzle_id and i.tank_id == ci.tank_id and q2(_d(i.unit_price)) == base),

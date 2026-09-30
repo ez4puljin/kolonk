@@ -21,7 +21,6 @@ from app.services.sale_service import (
     compute_change,
     compute_totals,
     credit_available,
-    discounted_price,
     fits_credit_limit,
     line_amount,
     liters_match,
@@ -61,20 +60,6 @@ class TestLineAmount:
 
     def test_never_returns_float(self) -> None:
         assert isinstance(line_amount(D("1.5"), D("100")), Decimal)
-
-
-# --------------------------------------------------------------------------- #
-# Гэрээний хөнгөлөлт
-# --------------------------------------------------------------------------- #
-class TestDiscountedPrice:
-    def test_discount_applied_per_liter(self) -> None:
-        assert discounted_price(D("2940.00"), D("40.00")) == D("2900.00")
-
-    def test_no_discount_keeps_price(self) -> None:
-        assert discounted_price(D("2940.00"), D("0")) == D("2940.00")
-
-    def test_never_goes_negative(self) -> None:
-        assert discounted_price(D("100.00"), D("500.00")) == D("0.00")
 
 
 # --------------------------------------------------------------------------- #
@@ -259,9 +244,8 @@ class TestWholeSaleMath:
         validate_payment_total(total, payments)
         assert compute_change(payments[0], D("50000.00")) == D("10000.00")
 
-    def test_contract_sale_uses_discounted_price(self) -> None:
-        price = discounted_price(D("2940.00"), D("40.00"))
-        amount = line_amount(D("50.000"), price)
+    def test_contract_sale_uses_list_price(self) -> None:
+        amount = line_amount(D("50.000"), D("2900.00"))
         _subtotal, _vat, total = compute_totals([amount])
         assert total == D("145000.00")
 

@@ -47,9 +47,12 @@ from app.schemas.product import (
     InventoryTxOut,
     OpeningBalanceIn,
     OpeningBalanceOut,
+    OpeningFixIn,
+    OpeningFixOut,
+    OpeningRecordOut,
     ProductOut,
 )
-from app.services import branch_service, inventory_service
+from app.services import branch_service, inventory_service, opening_fix_service
 from app.services.audit_service import audit
 from app.services.posting import posting
 from app.services.posting_rules import (
@@ -612,3 +615,58 @@ async def create_opening_balances(
         ip=_client_ip(request),
     )
     return OpeningBalanceOut(**result)
+
+
+# --------------------------------------------------------------------------- #
+# Өмнө оруулсан эхний үлдэгдлийг засах (бүрэн хувилбар)
+# --------------------------------------------------------------------------- #
+@router.get("/inventory/openings", response_model=list[OpeningRecordOut])
+async def list_openings(
+    branch_id: uuid.UUID | None = Query(default=None),
+    product_id: uuid.UUID | None = Query(default=None),
+    search: str | None = Query(default=None, description="Нэр / SKU"),
+    limit: int = Query(default=300, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("inventory.manage")),
+) -> list[dict]:
+    """Эхний үлдэгдлийн түүх — огноо, тоо, өртөг, оруулсан хүн, засварын тоотой."""
+    branch_id = getattr(user, "branch_id", None) or branch_id
+    return await opening_fix_service.list_openings(
+        db, branch_id=branch_id, product_id=product_id, search=search, limit=limit
+    )
+
+
+async def _own_opening(db: AsyncSession, user: User, tx_id: uuid.UUID) -> None:
+    own = getattr(user, "branch_id", None)
+    if own is None:
+        return
+    tx = await db.scalar(select(InventoryTransaction).where(InventoryTransaction.id == tx_id))
+    if tx is not None and tx.branch_id is not None and tx.branch_id != own:
+        raise HTTPException(status_code=404, detail="Эхний үлдэгдлийн бичлэг олдсонгүй")
+
+
+@router.post("/inventory/openings/{tx_id}/preview", response_model=OpeningFixOut)
+async def preview_opening_fix(
+    tx_id: uuid.UUID,
+    payload: OpeningFixIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("inventory.manage")),
+) -> dict:
+    """Засварын нөлөөг урьдчилан бодно — юу ч бичихгүй."""
+    await _own_opening(db, user, tx_id)
+    return await opening_fix_service.preview(db, tx_id, payload.qty, payload.unit_cost)
+
+
+@router.post("/inventory/openings/{tx_id}/correct", response_model=OpeningFixOut)
+async def correct_opening(
+    tx_id: uuid.UUID,
+    payload: OpeningFixIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("inventory.manage")),
+) -> dict:
+    """Эхний үлдэгдлийг засаж, тэр мөчөөс хойших нөөцийн өртөг, борлуулалтын
+    өртөг, журналыг дахин бодно (бүрэн хувилбар)."""
+    await _own_opening(db, user, tx_id)
+    return await opening_fix_service.apply(
+        db, user, tx_id, payload.qty, payload.unit_cost, note=payload.note
+    )

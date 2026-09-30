@@ -18,15 +18,13 @@ export interface TenderLine {
    * Түгээгч дүнг нь гараар тогтоосон эсэх.
    *
    * `false` үед мөр «авто» — үлдэгдэл дүнг өөртөө шингээж, нийт дүн өөрчлөгдөхөд
-   * (жишээ нь гэрээний хөнгөлөлт орох) автоматаар дахин бөглөгдөнө.
+   * автоматаар дахин бөглөгдөнө.
    */
   manual: boolean;
   /** Бэлэн — хүлээн авсан мөнгө. */
   received: MoneyStr | null;
   contractId: UUID | null;
   contractLabel: string | null;
-  /** Гэрээний литр тутмын хөнгөлөлт (түлшний дүн дахин бодоход). */
-  discountPerL: MoneyStr | null;
   refNo: string | null;
 }
 

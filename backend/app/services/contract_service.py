@@ -133,7 +133,6 @@ def contract_out(contract: Contract, *, customer_name: str | None = None) -> dic
         "credit_unlimited": is_unlimited(contract),
         "balance": q2(_dec(contract.balance)),
         "credit_available": credit_available(contract),
-        "price_discount_per_l": q2(_dec(contract.price_discount_per_l)),
         "billing_day": int(contract.billing_day or 1),
         "status": str(contract.status),
         "status_name": CONTRACT_STATUS_MN.get(str(contract.status), str(contract.status)),

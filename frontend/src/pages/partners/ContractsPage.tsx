@@ -53,7 +53,6 @@ interface ContractForm {
   customer_id: string;
   contract_no: string;
   credit_limit: string;
-  price_discount_per_l: string;
   billing_day: string;
   status: ContractStatus;
 }
@@ -62,7 +61,6 @@ const EMPTY_FORM: ContractForm = {
   customer_id: "",
   contract_no: "",
   credit_limit: "",
-  price_discount_per_l: "",
   billing_day: "1",
   status: "active",
 };
@@ -172,7 +170,6 @@ export function ContractsPage() {
             customer_id: contract.customer_id,
             contract_no: contract.contract_no,
             credit_limit: contract.credit_limit,
-            price_discount_per_l: contract.price_discount_per_l,
             billing_day: String(contract.billing_day),
             status: (contract.status as ContractStatus) ?? "active",
           }
@@ -197,8 +194,6 @@ export function ContractsPage() {
           payload: {
             contract_no: form.contract_no.trim(),
             credit_limit: form.credit_limit === "" ? "0" : form.credit_limit,
-            price_discount_per_l:
-              form.price_discount_per_l === "" ? "0" : form.price_discount_per_l,
             billing_day: billingDay,
             status: form.status,
           },
@@ -211,7 +206,6 @@ export function ContractsPage() {
           customer_id: form.customer_id,
           contract_no: form.contract_no.trim(),
           credit_limit: form.credit_limit === "" ? "0" : form.credit_limit,
-          price_discount_per_l: form.price_discount_per_l === "" ? "0" : form.price_discount_per_l,
           billing_day: billingDay,
           status: form.status,
         },
@@ -295,14 +289,6 @@ export function ContractsPage() {
           {row.credit_unlimited ? t.partners.creditUnlimited : formatMNT(row.credit_available)}
         </span>
       ),
-    },
-    {
-      key: "discount",
-      header: t.partners.discountPerL,
-      align: "right",
-      numeric: true,
-      hideOnMobile: true,
-      render: (row) => formatMNT(row.price_discount_per_l),
     },
     {
       key: "status",
@@ -641,13 +627,6 @@ export function ContractsPage() {
             value={form.credit_limit}
             onChange={(value) => setForm({ ...form, credit_limit: value })}
             suffix={t.units.mnt}
-          />
-          <NumberField
-            name="contract-form-discount"
-            label={t.partners.discountPerL}
-            value={form.price_discount_per_l}
-            onChange={(value) => setForm({ ...form, price_discount_per_l: value })}
-            suffix={t.units.perLiter}
           />
           <NumberField
             name="contract-form-billing-day"

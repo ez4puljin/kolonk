@@ -112,7 +112,6 @@ export function CustomersPage() {
   const [contractOpen, setContractOpen] = useState(false);
   const [contractNo, setContractNo] = useState("");
   const [creditLimit, setCreditLimit] = useState("");
-  const [discount, setDiscount] = useState("");
   const [billingDay, setBillingDay] = useState("1");
   const [contractError, setContractError] = useState<string | null>(null);
 
@@ -278,7 +277,6 @@ export function CustomersPage() {
         customer_id: selected.id,
         contract_no: contractNo.trim(),
         credit_limit: creditLimit === "" ? "0" : creditLimit,
-        price_discount_per_l: discount === "" ? "0" : discount,
         billing_day: Math.min(28, Math.max(1, Math.round(dToNumber(billingDay)) || 1)),
         status: "active",
       },
@@ -288,7 +286,6 @@ export function CustomersPage() {
           setContractOpen(false);
           setContractNo("");
           setCreditLimit("");
-          setDiscount("");
         },
         onError: (error) => setContractError(errorMessage(error)),
       },
@@ -736,11 +733,6 @@ export function CustomersPage() {
                               value={contract.credit_unlimited ? t.partners.creditUnlimited : formatMNT(contract.credit_available)}
                               numeric
                             />
-                            <KeyValue
-                              label={t.partners.discountPerL}
-                              value={formatMNT(contract.price_discount_per_l)}
-                              numeric
-                            />
                           </div>
                         </div>
                       );
@@ -961,13 +953,6 @@ export function CustomersPage() {
             value={creditLimit}
             onChange={setCreditLimit}
             suffix={t.units.mnt}
-          />
-          <NumberField
-            name="contract-discount"
-            label={t.partners.discountPerL}
-            value={discount}
-            onChange={setDiscount}
-            suffix={t.units.perLiter}
           />
           <NumberField
             name="contract-billing-day"

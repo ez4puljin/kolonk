@@ -47,7 +47,6 @@ def _snapshot(contract: Contract) -> dict:
         "contract_no": contract.contract_no,
         "credit_limit": str(contract.credit_limit),
         "balance": str(contract.balance),
-        "price_discount_per_l": str(contract.price_discount_per_l),
         "billing_day": contract.billing_day,
         "status": str(contract.status),
     }
@@ -137,7 +136,6 @@ async def create_contract(
         contract_no=contract_no,
         credit_limit=payload.credit_limit,
         balance=Decimal("0.00"),
-        price_discount_per_l=payload.price_discount_per_l,
         billing_day=payload.billing_day,
         status=str(payload.status),
     )
@@ -183,8 +181,6 @@ async def update_contract(
         contract.contract_no = contract_no
     if changes.get("credit_limit") is not None:
         contract.credit_limit = changes["credit_limit"]
-    if changes.get("price_discount_per_l") is not None:
-        contract.price_discount_per_l = changes["price_discount_per_l"]
     if changes.get("billing_day") is not None:
         contract.billing_day = int(changes["billing_day"])
     if changes.get("status") is not None:

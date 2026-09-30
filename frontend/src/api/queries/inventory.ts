@@ -9,6 +9,9 @@ import type {
   InventoryAdjustment,
   OpeningBalanceRequest,
   OpeningBalanceResult,
+  OpeningFixInput,
+  OpeningFixResult,
+  OpeningRecord,
   InventoryRow,
   InventoryTransaction,
   Paged,
@@ -112,6 +115,40 @@ export function useOpeningBalanceMutation() {
       void queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
       void queryClient.invalidateQueries({ queryKey: ["products"] });
       void queryClient.invalidateQueries({ queryKey: ["accounting"] });
+    },
+  });
+}
+
+/** Эхний үлдэгдлийн түүх — өмнө оруулсан бичлэгүүд (засахад). */
+export function useOpeningRecords(params: { branch_id?: UUID; search?: string }, enabled = true) {
+  return useQuery({
+    queryKey: ["inventory", "openings", params],
+    queryFn: () => api.get<OpeningRecord[]>("/api/inventory/openings", { params: { ...params } }),
+    enabled,
+  });
+}
+
+/** Засварын нөлөөг урьдчилан бодно — юу ч бичихгүй. */
+export function useOpeningFixPreviewMutation() {
+  return useMutation({
+    mutationFn: ({ txId, payload }: { txId: UUID; payload: OpeningFixInput }) =>
+      api.post<OpeningFixResult>(`/api/inventory/openings/${txId}/preview`, payload),
+  });
+}
+
+/**
+ * Эхний үлдэгдлийг засна — тэр мөчөөс хойших дундаж өртөг, борлуулалтын
+ * өртөг, ашиг, журнал бүгд дахин бодогдоно.
+ */
+export function useOpeningFixMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ txId, payload }: { txId: UUID; payload: OpeningFixInput }) =>
+      api.post<OpeningFixResult>(`/api/inventory/openings/${txId}/correct`, payload),
+    onSuccess: () => {
+      for (const key of [inventoryKeys.all, ["products"], ["accounting"], ["shifts"], ["sales"], ["reports"], ["dashboard"]]) {
+        void queryClient.invalidateQueries({ queryKey: key });
+      }
     },
   });
 }

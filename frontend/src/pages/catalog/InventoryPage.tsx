@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ArrowLeftRight, Boxes, ClipboardList, Scissors } from "lucide-react";
+import { ArrowLeftRight, Boxes, ClipboardList, History, Scissors } from "lucide-react";
 
 import { errorMessage } from "../../api/client";
 import { useBranches } from "../../api/queries/branches";
@@ -19,6 +19,7 @@ import { Modal } from "../../components/ui/Modal";
 import { StatBox } from "../../components/ui/StatBox";
 import { useCan } from "../../hooks/usePermission";
 import { OpeningBalanceModal } from "./OpeningBalanceModal";
+import { OpeningHistoryModal } from "./OpeningHistoryModal";
 import { t } from "../../i18n/mn";
 import { PAGE_SIZE } from "../../lib/constants";
 import { dMul, dSum, dToNumber, dToQty } from "../../lib/decimal";
@@ -53,6 +54,7 @@ export function InventoryPage() {
   const [convertOpen, setConvertOpen] = useState(false);
 
   const [openingOpen, setOpeningOpen] = useState(false);
+  const [openingHistoryOpen, setOpeningHistoryOpen] = useState(false);
 
   // Салбар хоорондын шилжүүлэг
   const [transferOpen, setTransferOpen] = useState(false);
@@ -191,6 +193,16 @@ export function InventoryPage() {
             {canConvert ? (
               <Button variant="secondary" size="lg" icon={<Scissors />} onClick={() => setConvertOpen(true)}>
                 {t.inventory.convertTitle}
+              </Button>
+            ) : null}
+            {canManage ? (
+              <Button
+                variant="secondary"
+                size="lg"
+                icon={<History />}
+                onClick={() => setOpeningHistoryOpen(true)}
+              >
+                {t.inventory.openingFix}
               </Button>
             ) : null}
             {canManage ? (
@@ -406,6 +418,12 @@ export function InventoryPage() {
       <OpeningBalanceModal
         open={openingOpen}
         onClose={() => setOpeningOpen(false)}
+        branchId={branchId}
+      />
+
+      <OpeningHistoryModal
+        open={openingHistoryOpen}
+        onClose={() => setOpeningHistoryOpen(false)}
         branchId={branchId}
       />
     </div>
