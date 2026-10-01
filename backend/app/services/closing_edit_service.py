@@ -16,6 +16,9 @@
 * зээл устгах — эсрэгээр нь нэгдсэн борлуулалт руу буцаана;
 * өглөг төлөлт, зарлага нэмэх/устгах.
 
+Админ (``shifts.adjust``) үүнээс гадна бараа, зээлийн харилцагч/мөр, хаалтын
+миль, үнийн тэмдэглэлийг засна — ``closing_admin_service``.
+
 Засвар бүрийн дараа байвал зохих бэлэн мөнгө, кассын зөрүү, журнал дахин
 бодогдоно. Батлагдсан хаалтыг засахаас өмнө батламжийг буцаана.
 """
@@ -56,7 +59,10 @@ CORRECTION_ACTIONS = (
     "shift.closing_corrected",
     "shift.closing_tenders_edited",
     "shift.closing_credit_added",
+    "shift.closing_credit_edited",
     "shift.closing_credit_removed",
+    "shift.closing_oil_edited",
+    "shift.closing_fuel_edited",
     "shift.closing_ar_added",
     "shift.closing_ar_removed",
     "shift.closing_expense_added",
@@ -287,7 +293,14 @@ async def closing_view(db: AsyncSession, shift_id: uuid.UUID) -> dict[str, Any]:
         )
         if label == "oil":
             oil_lines = [
-                {"name": i.name_snapshot, "qty": q3(_d(i.qty, ZERO_L)), "unit_price": q2(_d(i.unit_price)), "amount": q2(_d(i.amount))}
+                {
+                    "item_id": i.id,
+                    "product_id": i.product_id,
+                    "name": i.name_snapshot,
+                    "qty": q3(_d(i.qty, ZERO_L)),
+                    "unit_price": q2(_d(i.unit_price)),
+                    "amount": q2(_d(i.amount)),
+                }
                 for i in items
             ]
 
@@ -316,11 +329,24 @@ async def closing_view(db: AsyncSession, shift_id: uuid.UUID) -> dict[str, Any]:
                 "number": sale.number,
                 "customer": await customer_name(sale.customer_id),
                 "contract_no": contract.contract_no if contract else "",
+                "contract_id": sale.contract_id,
+                "customer_id": sale.customer_id,
                 "total": q2(_d(sale.total)),
                 "fuel_only": all(str(i.item_type) == str(ItemType.FUEL) for i in items),
                 "edited": (sale.note or "").endswith(EDIT_NOTE),
+                #: Өдрийн хаалтаар үүссэн (ПОС-оор биш) — мөрүүдийг нь админ засна.
+                "from_closing": sale.created_at == closing.created_at or (sale.note or "").startswith(CLOSE_NOTE),
                 "items": [
-                    {"name": i.name_snapshot, "qty": q3(_d(i.qty, ZERO_L)), "unit_price": q2(_d(i.unit_price)), "amount": q2(_d(i.amount))}
+                    {
+                        "item_id": i.id,
+                        "item_type": str(i.item_type),
+                        "fuel_id": i.fuel_id,
+                        "product_id": i.product_id,
+                        "name": i.name_snapshot,
+                        "qty": q3(_d(i.qty, ZERO_L)),
+                        "unit_price": q2(_d(i.unit_price)),
+                        "amount": q2(_d(i.amount)),
+                    }
                     for i in items
                 ],
             }
@@ -404,6 +430,9 @@ async def closing_view(db: AsyncSession, shift_id: uuid.UUID) -> dict[str, Any]:
     needs_recalc = shift_service.needs_recalc(shift, fresh)
 
     client = (closing.close_input or {}).get("client") if closing.close_input else None
+    from app.services.closing_admin_service import price_hint_map  # noqa: PLC0415
+
+    price_hints = (await price_hint_map(db, [shift])).get(shift.id, [])
     return {
         "shift_id": shift.id,
         "editable": closing.approved_at is None and shift.status != str(ShiftStatus.OPEN),
@@ -442,6 +471,8 @@ async def closing_view(db: AsyncSession, shift_id: uuid.UUID) -> dict[str, Any]:
         "needs_recalc": needs_recalc,
         "expected_recalc": fresh.get(shift.id) if needs_recalc else None,
         "client": client,
+        #: Ээлжийн хугацаанд түлшний үнэ батлагдсан ч зарим хошуунд тэмдэглэл алга.
+        "price_hints": price_hints,
         "corrections": await _corrections(db, shift),
     }
 
@@ -868,6 +899,8 @@ async def remove_credit(db: AsyncSession, user: User, *, shift_id: uuid.UUID, sa
     await posting.reverse(db, event_type=str(EventType.SALE_POSTED), source_type=str(SourceType.SALE), source_id=credit.id)
     for q in (await db.scalars(select(EbarimtQueue).where(EbarimtQueue.sale_id == credit.id))).all():
         await db.delete(q)
+    # Дарааллын мөр борлуулалтаас ӨМНӨ устах ёстой (FK).
+    await db.flush()
     total = q2(_d(credit.total))
     await db.delete(credit)
     await db.flush()

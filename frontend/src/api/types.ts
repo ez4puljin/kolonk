@@ -595,10 +595,112 @@ export interface CashRecalcBulkResult {
 export type ClosingMethod = "cash" | "card" | "transfer";
 
 export interface ClosingLineItem {
+  item_id?: UUID;
+  item_type?: "fuel" | "product";
+  fuel_id?: UUID | null;
+  product_id?: UUID | null;
   name: string;
   qty: LitersStr;
   unit_price: MoneyStr;
   amount: MoneyStr;
+}
+
+/** Ээлжийн хугацаанд түлшний үнэ батлагдсан ч зарим хошуунд үнийн тэмдэглэл алга. */
+export interface ClosingPriceHint {
+  fuel_id: UUID;
+  fuel_name: string;
+  old_price: MoneyStr;
+  new_price: MoneyStr;
+  applied_at: IsoDateTime;
+  nozzles: { nozzle_id: UUID; label: string }[];
+}
+
+export interface ClosingSegment {
+  liters: LitersStr;
+  price: MoneyStr;
+  amount: MoneyStr;
+}
+
+/** Админ — хаалтын миль, үнийн тэмдэглэлийн засварын цонхны өгөгдөл. */
+export interface ClosingFuelEditor {
+  shift_id: UUID;
+  editable: boolean;
+  fuel_total: MoneyStr;
+  nozzles: {
+    nozzle_id: UUID;
+    label: string;
+    fuel_id: UUID;
+    fuel_name: string;
+    tank_id: UUID;
+    tank_name: string;
+    open_reading: LitersStr;
+    close_reading: LitersStr;
+    open_price: MoneyStr;
+    liters: LitersStr;
+    amount: MoneyStr;
+    segments: ClosingSegment[];
+    marks: { reading: LitersStr; old_price: MoneyStr; new_price: MoneyStr }[];
+    /** Дараагийн ээлжийн нээлтийн миль (байвал) — миль залгамж. */
+    next_open: LitersStr | null;
+    /** Савны хэмжилттэй хаалт — хаалтын милийг засахгүй. */
+    locked: boolean;
+  }[];
+  hints: ClosingPriceHint[];
+}
+
+export interface ClosingFuelInput {
+  readings?: { nozzle_id: UUID; reading: LitersStr }[];
+  /** Ээлжийн бүх үнийн тэмдэглэл; хоосон (null) бол хэвээр. */
+  marks?: { nozzle_id: UUID; reading: LitersStr; new_price: MoneyStr }[] | null;
+  credit_prices?: { item_id: UUID; unit_price: MoneyStr }[];
+  note?: string | null;
+}
+
+/** Миль/үнийн тэмдэглэлийн засварын урьдчилсан тооцоо. */
+export interface ClosingFuelPreview {
+  fuel_total: { old: MoneyStr; new: MoneyStr };
+  fuel_sale_total: { old: MoneyStr; new: MoneyStr };
+  credit_total: { old: MoneyStr; new: MoneyStr };
+  must: { old: MoneyStr; new: MoneyStr };
+  diff: { old: MoneyStr; new: MoneyStr };
+  nozzles: {
+    nozzle_id: UUID;
+    label: string;
+    fuel_name: string;
+    open_reading: LitersStr;
+    old_close: LitersStr;
+    close_reading: LitersStr;
+    old_amount: MoneyStr;
+    amount: MoneyStr;
+    segments: ClosingSegment[];
+  }[];
+  credit_items: {
+    item_id: UUID;
+    sale_id: UUID;
+    number: number;
+    customer: string;
+    fuel_id: UUID;
+    fuel_name: string;
+    liters: LitersStr;
+    old_price: MoneyStr;
+    price: MoneyStr;
+    old_amount: MoneyStr;
+    amount: MoneyStr;
+    /** Шинэ сегментүүдийн энэ түлшний үнүүд. */
+    prices: MoneyStr[];
+    ok: boolean;
+  }[];
+  tanks: { tank_id: UUID; name: string; liters: LitersStr }[];
+  errors: string[];
+}
+
+/** Админы зээлийн мөр — түлш (литр/дүн, үнэ) эсвэл бараа. */
+export interface ClosingCreditItemInput {
+  fuel_id?: UUID | null;
+  product_id?: UUID | null;
+  qty?: string | null;
+  amount?: MoneyStr | null;
+  unit_price?: MoneyStr | null;
 }
 
 /** Ээлжийн тайлан — өдрийн хаалтын цонх (серверийн бүртгэл + түгээгчийн тулгалт). */
@@ -633,9 +735,13 @@ export interface ClosingView {
     number: number;
     customer: string;
     contract_no: string;
+    contract_id?: UUID | null;
+    customer_id?: UUID | null;
     total: MoneyStr;
     fuel_only: boolean;
     edited: boolean;
+    /** Өдрийн хаалтаар үүссэн (ПОС-оор биш) — мөрүүдийг нь админ засна. */
+    from_closing?: boolean;
     items: ClosingLineItem[];
   }[];
   ar_total: MoneyStr;
@@ -662,6 +768,8 @@ export interface ClosingView {
   expected_recalc?: MoneyStr | null;
   /** Түгээгчийн дэлгэц дээр харсан тулгалт (шинэ хаалтуудад). */
   client: { must?: MoneyStr; handed?: MoneyStr; diff?: MoneyStr; [key: string]: unknown } | null;
+  /** Үнэ батлагдсан ч тэмдэглэлгүй хошуу — админ миль, үнийг засна. */
+  price_hints?: ClosingPriceHint[];
   /** Хаалтын дараах засварууд. */
   corrections?: ClosingCorrection[];
 }
@@ -2976,6 +3084,8 @@ export interface DailyClosingRow {
   mile_gap_l: LitersStr;
   /** Хэдэн хошуу дээр зөрсөн. */
   mile_gap_nozzles: number;
+  /** Үнэ батлагдсан ч тэмдэглэлгүй үлдсэн үнийн өөрчлөлтийн тоо. */
+  price_hints?: number;
   attendant_id: UUID | null;
   branch_id: UUID | null;
   branch_name: string;

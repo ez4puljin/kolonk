@@ -29,6 +29,9 @@ from app.enums import ShiftStatus
 from app.models.user import User
 from app.models.shift import ShiftAttachment
 from app.schemas.shift import (
+    AdminCreditIn,
+    AdminFuelIn,
+    AdminOilLinesIn,
     CloseDraftIn,
     CloseDraftOut,
     ClosingApprovalIn,
@@ -62,7 +65,7 @@ from app.schemas.shift import (
     ShiftOpenIn,
     ShiftReportOut,
 )
-from app.services import attendant_service, closing_edit_service, shift_service
+from app.services import attendant_service, closing_admin_service, closing_edit_service, shift_service
 from app.services.audit_service import audit
 
 router = APIRouter(prefix="/api", tags=["shifts"])
@@ -578,9 +581,118 @@ async def closing_remove_credit(
     shift_id: uuid.UUID,
     sale_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_permission("shifts.approve")),
+    user: User = Depends(require_permission("shifts.approve", "shifts.adjust")),
 ) -> dict[str, Any]:
+    # Админ бараатай зээлийг ч устгана (бараа нөөцөд буцна).
+    if "shifts.adjust" in user_permissions(user):
+        return await closing_admin_service.delete_credit(db, user, shift_id=shift_id, sale_id=sale_id)
     return await closing_edit_service.remove_credit(db, user, shift_id=shift_id, sale_id=sale_id)
+
+
+# --------------------------------------------------------------------------- #
+# Хаалтын бүрэн засвар — зөвхөн Admin (бараа, зээлийн харилцагч/мөр, миль, үнэ)
+# --------------------------------------------------------------------------- #
+@router.post("/shifts/{shift_id}/closing/credit-sales")
+async def closing_admin_add_credit(
+    shift_id: uuid.UUID,
+    payload: AdminCreditIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.adjust")),
+) -> dict[str, Any]:
+    """Зээлийн борлуулалт нэмэх — түлш ба бараа холимог мөртэй."""
+    return await closing_admin_service.save_credit(
+        db,
+        user,
+        shift_id=shift_id,
+        sale_id=None,
+        target=payload if payload.has_target else None,
+        items=payload.items,
+        note=payload.note,
+    )
+
+
+@router.put("/shifts/{shift_id}/closing/credit-sales/{sale_id}")
+async def closing_admin_edit_credit(
+    shift_id: uuid.UUID,
+    sale_id: uuid.UUID,
+    payload: AdminCreditIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.adjust")),
+) -> dict[str, Any]:
+    """Зээлийн борлуулалтыг засах — харилцагч солих, мөрүүдийг бүрэн солих."""
+    return await closing_admin_service.save_credit(
+        db,
+        user,
+        shift_id=shift_id,
+        sale_id=sale_id,
+        target=payload if payload.has_target else None,
+        items=payload.items,
+        note=payload.note,
+    )
+
+
+@router.put("/shifts/{shift_id}/closing/oil-lines")
+async def closing_admin_oil_lines(
+    shift_id: uuid.UUID,
+    payload: AdminOilLinesIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.adjust")),
+) -> dict[str, Any]:
+    """Тос, барааны борлуулалтын мөрүүдийг солих (бараа, тоо, үнэ)."""
+    return await closing_admin_service.set_oil_lines(
+        db, user, shift_id=shift_id, lines=payload.lines, note=payload.note
+    )
+
+
+@router.get("/shifts/{shift_id}/closing-view/fuel-editor")
+async def closing_admin_fuel_editor(
+    shift_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_permission("shifts.adjust")),
+) -> dict[str, Any]:
+    """Хаалтын миль, үнийн тэмдэглэлийн засварын цонхны өгөгдөл."""
+    return await closing_admin_service.fuel_editor(db, shift_id)
+
+
+@router.get("/shifts/{shift_id}/closing-view/product-price")
+async def closing_admin_product_price(
+    shift_id: uuid.UUID,
+    product_id: uuid.UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_permission("shifts.adjust")),
+) -> dict[str, Any]:
+    """Барааны ээлжийн үеийн үнэ (мөр нэмэхэд урьдчилан бөглөнө)."""
+    return await closing_admin_service.product_price(db, shift_id, product_id)
+
+
+def _fuel_args(payload: AdminFuelIn) -> dict[str, Any]:
+    return {
+        "readings": payload.readings,
+        "marks": payload.marks,
+        "credit_prices": {row.item_id: row.unit_price for row in payload.credit_prices},
+    }
+
+
+@router.post("/shifts/{shift_id}/closing/fuel/preview")
+async def closing_admin_fuel_preview(
+    shift_id: uuid.UUID,
+    payload: AdminFuelIn,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_permission("shifts.adjust")),
+) -> dict[str, Any]:
+    """Миль/үнийн тэмдэглэлийн засварын үр дүн — юу ч хадгалахгүй."""
+    return await closing_admin_service.fuel_preview(db, shift_id=shift_id, **_fuel_args(payload))
+
+
+@router.put("/shifts/{shift_id}/closing/fuel")
+async def closing_admin_fuel(
+    shift_id: uuid.UUID,
+    payload: AdminFuelIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("shifts.adjust")),
+) -> dict[str, Any]:
+    """Хаалтын миль, үнийн тэмдэглэлийг засаж түлшний борлуулалтыг дахин бодно."""
+    return await closing_admin_service.set_fuel(db, user, shift_id=shift_id, note=payload.note, **_fuel_args(payload))
 
 
 @router.post("/shifts/{shift_id}/closing/ar-payments")

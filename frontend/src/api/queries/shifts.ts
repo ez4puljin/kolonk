@@ -5,7 +5,11 @@ import type {
   CashAdjustBulkResult,
   CashAdjustInfo,
   CashRecalcBulkResult,
+  ClosingCreditItemInput,
+  ClosingFuelEditor,
+  ClosingFuelInput,
   ClosingFuelOption,
+  ClosingFuelPreview,
   ClosingMethod,
   ClosingTarget,
   ClosingView,
@@ -336,6 +340,38 @@ export function useClosingFuels(shiftId: UUID | null, enabled = true) {
   });
 }
 
+/** Админ — хаалтын миль, үнийн тэмдэглэлийн засварын цонхны өгөгдөл. */
+export function useClosingFuelEditor(shiftId: UUID | null, enabled = true) {
+  return useQuery({
+    queryKey: ["shifts", "closing-view", shiftId ?? "", "fuel-editor"],
+    queryFn: () => api.get<ClosingFuelEditor>(`/api/shifts/${shiftId}/closing-view/fuel-editor`),
+    enabled: Boolean(shiftId) && enabled,
+  });
+}
+
+/** Админ — миль/үнийн тэмдэглэлийн засварын үр дүн (юу ч хадгалахгүй). */
+export function useClosingFuelPreviewMutation(shiftId: UUID) {
+  return useMutation({
+    mutationFn: (input: ClosingFuelInput) =>
+      api.post<ClosingFuelPreview>(`/api/shifts/${shiftId}/closing/fuel/preview`, input),
+  });
+}
+
+/** Барааны ээлжийн үеийн үнэ — мөр нэмэхэд урьдчилан бөглөнө. */
+export function useClosingProductPriceFetcher(shiftId: UUID) {
+  const queryClient = useQueryClient();
+  return (productId: UUID) =>
+    queryClient.fetchQuery({
+      queryKey: ["shifts", "closing-view", shiftId, "product-price", productId],
+      queryFn: () =>
+        api.get<{ product_id: UUID; price: MoneyStr; current: MoneyStr }>(
+          `/api/shifts/${shiftId}/closing-view/product-price`,
+          { params: { product_id: productId } },
+        ),
+      staleTime: 60_000,
+    });
+}
+
 type ClosingEdit =
   | { kind: "tenders"; declared_cash: MoneyStr; settlement_total: MoneyStr; transfer_total: MoneyStr; note?: string }
   | { kind: "add-credit"; target: ClosingTarget; fuel_id: UUID; qty?: string; amount?: MoneyStr; unit_price?: MoneyStr | null }
@@ -343,7 +379,21 @@ type ClosingEdit =
   | { kind: "add-ar"; target: ClosingTarget; amount: MoneyStr; method: ClosingMethod }
   | { kind: "remove-ar"; payment_id: UUID }
   | { kind: "add-expense"; account_code: string; amount: MoneyStr; method: ClosingMethod; description?: string }
-  | { kind: "remove-expense"; expense_id: UUID };
+  | { kind: "remove-expense"; expense_id: UUID }
+  // Админ — хаалтын бүрэн засвар
+  | {
+      kind: "save-credit";
+      sale_id: UUID | null;
+      target: ClosingTarget | null;
+      items: ClosingCreditItemInput[] | null;
+      note?: string;
+    }
+  | {
+      kind: "oil-lines";
+      lines: { product_id: UUID; qty: string; unit_price: MoneyStr | null }[];
+      note?: string;
+    }
+  | { kind: "fuel"; input: ClosingFuelInput };
 
 /** Нягтлан/админ — өдрийн хаалтын засвар (тушаалт, зээл, өглөг, зарлага). */
 export function useClosingEditMutation(shiftId: UUID) {
@@ -376,6 +426,16 @@ export function useClosingEditMutation(shiftId: UUID) {
         }
         case "remove-expense":
           return api.del<ClosingView>(`${base}/expenses/${edit.expense_id}`);
+        case "save-credit": {
+          const body = { ...(edit.target ?? {}), items: edit.items, note: edit.note || null };
+          return edit.sale_id
+            ? api.put<ClosingView>(`${base}/credit-sales/${edit.sale_id}`, body)
+            : api.post<ClosingView>(`${base}/credit-sales`, body);
+        }
+        case "oil-lines":
+          return api.put<ClosingView>(`${base}/oil-lines`, { lines: edit.lines, note: edit.note || null });
+        case "fuel":
+          return api.put<ClosingView>(`${base}/fuel`, edit.input);
       }
     },
     onSuccess: (data) => {
@@ -389,6 +449,11 @@ export function useClosingEditMutation(shiftId: UUID) {
         ["customers"],
         ["contracts"],
         ["expenses"],
+        // Админы засвар нөөц, сав, хошууны заалтыг хөдөлгөнө.
+        ["products"],
+        ["inventory"],
+        ["tanks"],
+        ["pumps"],
       ]) {
         void queryClient.invalidateQueries({ queryKey: key });
       }

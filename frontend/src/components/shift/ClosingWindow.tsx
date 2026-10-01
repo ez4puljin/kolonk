@@ -6,12 +6,11 @@
  * түгээгчийн дэлгэц дээр харсан тулгалттай харьцуулна. Нягтлан/админ
  * (shifts.approve) батлагдаагүй хаалтыг энд засна.
  */
-import { useMemo, useState, type ReactNode } from "react";
-import { AlertTriangle, History, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { AlertTriangle, Gauge, History, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 
 import { errorMessage } from "../../api/client";
 import { useExpenseCategories } from "../../api/queries/expenses";
-import { useCustomers } from "../../api/queries/partners";
 import {
   useClosingEditMutation,
   useClosingFuels,
@@ -22,7 +21,7 @@ import type { ClosingCorrection, ClosingMethod, ClosingTarget, ClosingView, Mone
 import { usePermission } from "../../hooks/usePermission";
 import { t } from "../../i18n/mn";
 import { dCmp, dIsZero, dSub, dSum, dToQty, toDisplay } from "../../lib/decimal";
-import { formatDateTime, formatLiters, formatMoneyExact } from "../../lib/format";
+import { formatDateTime, formatLiters, formatMoneyExact, formatQty } from "../../lib/format";
 import { useUiStore } from "../../stores/ui";
 import { NumberField, PickerField, TextField } from "../../pages/catalog/_shared";
 import { Button } from "../ui/Button";
@@ -30,15 +29,10 @@ import { Card } from "../ui/Card";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { Modal } from "../ui/Modal";
 import { Spinner } from "../ui/Spinner";
+import { CreditEditDialog, FuelEditorDialog, OilLinesDialog, PriceHintList } from "./ClosingAdminDialogs";
+import { DialogFooter, METHOD_LABEL, METHOD_OPTIONS, T, TargetFields, toTarget } from "./closingShared";
 
-const T = t.closingWindow;
-const METHOD_LABEL: Record<ClosingMethod, string> = {
-  cash: T.methodCash,
-  card: T.methodCard,
-  transfer: T.methodTransfer,
-};
-const METHOD_OPTIONS = (["cash", "card", "transfer"] as const).map((value) => ({ value, label: METHOD_LABEL[value] }));
-const NEW = "__new__";
+type CreditLine = ClosingView["credit_lines"][number];
 
 function Row({ label, value, strong, negative }: { label: ReactNode; value: MoneyStr; strong?: boolean; negative?: boolean }) {
   return (
@@ -57,40 +51,31 @@ function diffTone(value: MoneyStr): string {
   return n < 0 ? "border-danger bg-danger-soft text-danger-dark" : n > 0 ? "border-warning bg-warning-soft text-warning-dark" : "border-success bg-success-soft text-success-dark";
 }
 
-/** Харилцагчийн сонголт — гэрээ / гэрээгүй харилцагч / шинэ. */
-function useTargetOptions(enabled: boolean) {
-  const { data } = useCustomers({ q: "", active_only: true, limit: 500 });
-  return useMemo(() => {
-    if (!enabled) return [];
-    const out: { value: string; label: string; hint?: string }[] = [{ value: NEW, label: T.newCustomer }];
-    for (const customer of data?.items ?? []) {
-      const active = customer.contracts.filter((c) => c.status === "active");
-      const hint = customer.phone ?? undefined;
-      if (active.length === 0) out.push({ value: `u:${customer.id}`, label: customer.full_name || customer.name, hint });
-      for (const contract of active) {
-        out.push({ value: `c:${contract.id}`, label: `${customer.full_name || customer.name} · ${contract.contract_no}`, hint });
-      }
-    }
-    return out;
-  }, [data, enabled]);
-}
-
-function toTarget(value: string, name: string, phone: string): ClosingTarget | null {
-  if (value === NEW) return name.trim() ? { new_customer: { name: name.trim(), phone: phone.trim() || null } } : null;
-  if (value.startsWith("c:")) return { contract_id: value.slice(2) };
-  if (value.startsWith("u:")) return { customer_id: value.slice(2) };
-  return null;
-}
-
-type Dialog = null | "tenders" | "credit" | "ar" | "expense";
+type Dialog = null | "tenders" | "credit" | "ar" | "expense" | "oil" | "credit-admin" | "fuel";
 
 /** Аудитын before/after-аас товч тайлбар: «Тоолсон бэлэн 100 000 → 120 000». */
-const MONEY_KEYS = ["declared_cash", "settlement_total", "transfer_total", "opening_cash", "expected_cash", "cash_over_short", "amount", "adjustment"] as const;
+const MONEY_KEYS = [
+  "declared_cash",
+  "settlement_total",
+  "transfer_total",
+  "opening_cash",
+  "expected_cash",
+  "cash_over_short",
+  "amount",
+  "adjustment",
+  "fuel_total",
+] as const;
 function correctionDetail(row: ClosingCorrection): string {
   const parts: string[] = [];
   const text = (key: string, value: unknown): string =>
-    key === "liters" ? formatLiters(String(value), 3) : key === "method" ? (METHOD_LABEL[value as ClosingMethod] ?? String(value)) : formatMoneyExact(String(value));
-  for (const key of [...MONEY_KEYS, "liters", "method"]) {
+    key === "liters"
+      ? formatLiters(String(value), 3)
+      : key === "method"
+        ? (METHOD_LABEL[value as ClosingMethod] ?? String(value))
+        : key === "customer"
+          ? String(value)
+          : formatMoneyExact(String(value));
+  for (const key of ["customer", ...MONEY_KEYS, "liters", "method"]) {
     const before = row.before[key];
     const after = row.after[key];
     const label = T.fields[key as keyof typeof T.fields];
@@ -106,6 +91,8 @@ function correctionDetail(row: ClosingCorrection): string {
 export function ClosingWindow({ shiftId }: { shiftId: UUID }) {
   const { can } = usePermission();
   const canEdit = can("shifts.approve");
+  /** Зөвхөн Admin — бараа, зээлийн харилцагч/мөр, миль, үнийн тэмдэглэлийг засна. */
+  const canAdjust = can("shifts.adjust");
   const viewQuery = useClosingView(shiftId);
   const edit = useClosingEditMutation(shiftId);
   const recalc = useRecalculateCashMutation();
@@ -113,9 +100,12 @@ export function ClosingWindow({ shiftId }: { shiftId: UUID }) {
   const toastError = useUiStore((state) => state.toastError);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [removing, setRemoving] = useState<null | { kind: "remove-credit" | "remove-ar" | "remove-expense"; id: UUID; label: string }>(null);
+  /** Админы зээлийн цонх — засах мөр (хоосон бол шинэ зээл). */
+  const [creditLine, setCreditLine] = useState<CreditLine | null>(null);
 
   const view = viewQuery.data;
   const editable = Boolean(view?.editable && canEdit);
+  const adminEdit = Boolean(view?.editable && canAdjust);
 
   if (viewQuery.isLoading) {
     return (
@@ -150,15 +140,16 @@ export function ClosingWindow({ shiftId }: { shiftId: UUID }) {
 
   const removeButton = (kind: "remove-credit" | "remove-ar" | "remove-expense", id: UUID, label: string) =>
     editable ? (
-      <Button variant="ghost" size="sm" icon={<Trash2 />} onClick={() => setRemoving({ kind, id, label })} aria-label={T.remove} />
+      <Button variant="ghost" size="sm" icon={<Trash2 />} onClick={() => setRemoving({ kind, id, label })} aria-label={T.remove} title={T.remove} />
     ) : null;
 
-  const section = (title: string, total: MoneyStr, onAdd: (() => void) | null, children: ReactNode) => (
+  const section = (title: string, total: MoneyStr, onAdd: (() => void) | null, children: ReactNode, extra?: ReactNode) => (
     <div className="flex flex-col gap-2 rounded-xl border border-line px-3 py-2.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="font-bold text-ink">{title}</span>
         <span className="flex items-center gap-2">
           <span className="num font-bold text-ink">{formatMoneyExact(total)}</span>
+          {extra}
           {onAdd && editable ? (
             <Button variant="secondary" size="sm" icon={<Plus />} onClick={onAdd}>
               {T.add}
@@ -169,6 +160,11 @@ export function ClosingWindow({ shiftId }: { shiftId: UUID }) {
       {children}
     </div>
   );
+  const priceHints = view.price_hints ?? [];
+  const openCredit = (line: CreditLine | null) => {
+    setCreditLine(line);
+    setDialog("credit-admin");
+  };
 
   return (
     <Card title={T.title} subtitle={T.subtitle}>
@@ -240,8 +236,41 @@ export function ClosingWindow({ shiftId }: { shiftId: UUID }) {
             ) : null}
           </div>
         ) : null}
-        {canEdit && !view.editable ? <p className="text-sm text-ink-soft">{T.approvedLocked}</p> : null}
-        {editable ? <p className="text-xs text-ink-soft">{T.editHint}</p> : null}
+        {priceHints.length > 0 ? (
+          <div className="flex flex-col gap-2 rounded-xl border-2 border-warning bg-warning-soft px-3 py-2.5 text-warning-dark">
+            <span className="flex items-center gap-2 font-bold">
+              <AlertTriangle className="h-5 w-5 shrink-0" />
+              {T.priceHintTitle}
+            </span>
+            <PriceHintList hints={priceHints} />
+            {adminEdit ? (
+              <div>
+                <Button variant="warning" size="sm" icon={<Gauge />} onClick={() => setDialog("fuel")}>
+                  {T.fuelEdit}
+                </Button>
+              </div>
+            ) : canEdit ? (
+              <span className="text-xs">{T.priceHintAdmin}</span>
+            ) : null}
+          </div>
+        ) : null}
+        {(canEdit || canAdjust) && !view.editable ? <p className="text-sm text-ink-soft">{T.approvedLocked}</p> : null}
+        {adminEdit ? <p className="text-xs text-ink-soft">{T.adminHint}</p> : editable ? <p className="text-xs text-ink-soft">{T.editHint}</p> : null}
+
+        {/* Миль ба үнийн тэмдэглэл — зөвхөн админ засна */}
+        {adminEdit ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line px-3 py-2.5">
+            <span className="flex min-w-0 flex-col">
+              <span className="font-bold text-ink">{T.fuelSection}</span>
+              <span className="num text-sm text-ink-soft">
+                {T.fuelByMile}: <b className="text-ink">{formatMoneyExact(view.fuel_total)}</b>
+              </span>
+            </span>
+            <Button variant="secondary" size="sm" icon={<Gauge />} onClick={() => setDialog("fuel")}>
+              {T.fuelEdit}
+            </Button>
+          </div>
+        ) : null}
 
         {/* Тушаалт */}
         <div className="flex flex-col gap-1 rounded-xl border border-line px-3 py-2.5">
@@ -300,20 +329,25 @@ export function ClosingWindow({ shiftId }: { shiftId: UUID }) {
             <span className="text-sm text-ink-faint">{T.none}</span>
           ) : (
             view.oil_lines.map((line, index) => (
-              <div key={index} className="num flex justify-between gap-2 text-sm">
+              <div key={line.item_id ?? index} className="num flex justify-between gap-2 text-sm">
                 <span className="text-ink">
-                  {line.name} · {formatLiters(line.qty, 0)} × {formatMoneyExact(line.unit_price)}
+                  {line.name} · {formatQty(line.qty)} × {formatMoneyExact(line.unit_price)}
                 </span>
                 <span className="font-semibold">{formatMoneyExact(line.amount)}</span>
               </div>
             ))
           ),
+          adminEdit ? (
+            <Button variant="secondary" size="sm" icon={<Pencil />} onClick={() => setDialog("oil")}>
+              {T.editOil}
+            </Button>
+          ) : null,
         )}
 
         {section(
           T.credit,
           view.credit_total,
-          () => setDialog("credit"),
+          adminEdit ? () => openCredit(null) : () => setDialog("credit"),
           view.credit_lines.length === 0 ? (
             <span className="text-sm text-ink-faint">{T.none}</span>
           ) : (
@@ -326,13 +360,28 @@ export function ClosingWindow({ shiftId }: { shiftId: UUID }) {
                   </div>
                   <div className="num text-ink-soft">
                     {line.items
-                      .map((item) => `${item.name} ${formatLiters(item.qty, 2)} × ${formatMoneyExact(item.unit_price)}`)
+                      .map(
+                        (item) =>
+                          `${item.name} ${item.item_type === "product" ? formatQty(item.qty) : formatLiters(item.qty, 2)} × ${formatMoneyExact(item.unit_price)}`,
+                      )
                       .join(" · ")}
                   </div>
                 </div>
                 <span className="flex shrink-0 items-center gap-1">
                   <span className="num font-semibold">{formatMoneyExact(line.total)}</span>
-                  {line.fuel_only ? removeButton("remove-credit", line.sale_id, `${line.customer} · ${formatMoneyExact(line.total)}`) : null}
+                  {adminEdit ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={<Pencil />}
+                      onClick={() => openCredit(line)}
+                      aria-label={T.creditEdit}
+                      title={T.creditEdit}
+                    />
+                  ) : null}
+                  {line.fuel_only || adminEdit
+                    ? removeButton("remove-credit", line.sale_id, `${line.customer} · ${formatMoneyExact(line.total)}`)
+                    : null}
                 </span>
               </div>
             ))
@@ -404,6 +453,32 @@ export function ClosingWindow({ shiftId }: { shiftId: UUID }) {
         ) : null}
       </div>
 
+      {adminEdit && dialog === "oil" ? (
+        <OilLinesDialog
+          shiftId={shiftId}
+          view={view}
+          busy={edit.isPending}
+          onClose={() => setDialog(null)}
+          onSave={(body) => run({ kind: "oil-lines", ...body }, () => setDialog(null))}
+        />
+      ) : null}
+      {adminEdit && dialog === "credit-admin" ? (
+        <CreditEditDialog
+          shiftId={shiftId}
+          line={creditLine}
+          busy={edit.isPending}
+          onClose={() => setDialog(null)}
+          onSave={(body) => run({ kind: "save-credit", ...body }, () => setDialog(null))}
+        />
+      ) : null}
+      {adminEdit && dialog === "fuel" ? (
+        <FuelEditorDialog
+          shiftId={shiftId}
+          busy={edit.isPending}
+          onClose={() => setDialog(null)}
+          onSave={(input) => run({ kind: "fuel", input }, () => setDialog(null))}
+        />
+      ) : null}
       {editable ? (
         <>
           <TendersDialog open={dialog === "tenders"} view={view} busy={edit.isPending} onClose={() => setDialog(null)} onSave={(body) => run({ kind: "tenders", ...body }, () => setDialog(null))} />
@@ -444,19 +519,6 @@ export function ClosingWindow({ shiftId }: { shiftId: UUID }) {
 // --------------------------------------------------------------------------
 // Засварын цонхнууд
 // --------------------------------------------------------------------------
-function DialogFooter({ busy, disabled, onClose, onSave }: { busy: boolean; disabled?: boolean; onClose: () => void; onSave: () => void }) {
-  return (
-    <>
-      <Button variant="secondary" size="md" onClick={onClose}>
-        {t.common.cancel}
-      </Button>
-      <Button variant="primary" size="md" loading={busy} disabled={disabled} onClick={onSave}>
-        {t.common.save}
-      </Button>
-    </>
-  );
-}
-
 function TendersDialog({
   open,
   view,
@@ -492,21 +554,6 @@ function TendersDialog({
         <TextField label={T.description} value={note} onChange={setNote} />
       </div>
     </Modal>
-  );
-}
-
-function TargetFields({ value, onChange, name, onName, phone, onPhone, enabled }: { value: string; onChange: (v: string) => void; name: string; onName: (v: string) => void; phone: string; onPhone: (v: string) => void; enabled: boolean }) {
-  const options = useTargetOptions(enabled);
-  return (
-    <>
-      <PickerField label={T.customer} value={value} options={options} onChange={onChange} />
-      {value === NEW ? (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <TextField label={T.newName} value={name} onChange={onName} />
-          <TextField kind="tel" label={T.newPhone} value={phone} onChange={onPhone} />
-        </div>
-      ) : null}
-    </>
   );
 }
 

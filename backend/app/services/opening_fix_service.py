@@ -53,6 +53,9 @@ from app.stationtime import STATION_TZ
 ZERO = Decimal("0")
 OPENING_REF = str(SourceType.OPENING_BALANCE)
 CORRECTED_ACTION = "inventory.opening_corrected"
+#: Өдрийн хаалтын засвараар цуцалсан борлуулалтын мөрийн буцаалт — ``ref_id`` нь
+#: цуцалсан SALE мөрийн id (``closing_admin_service``).
+CLOSING_EDIT_REF = "closing_edit"
 
 T_PURCHASE = str(InventoryTxType.PURCHASE)
 T_SALE = str(InventoryTxType.SALE)
@@ -160,8 +163,12 @@ _PRIORITY = {T_TRANSFER_OUT: 0, T_CONVERT_OUT: 0, T_TRANSFER_IN: 2, T_CONVERT_IN
 
 def _sort_key(tx: InventoryTransaction) -> tuple[Any, ...]:
     # Нэг transaction-д үүссэн мөрүүд ижил created_at-тэй: шилжүүлэг/задлалтын
-    # «гарсан» мөр «орсон»-оосоо өмнө (өртөг нь дамжина).
-    return (tx.created_at, _PRIORITY.get(str(tx.tx_type), 1), str(tx.id))
+    # «гарсан» мөр «орсон»-оосоо өмнө (өртөг нь дамжина). Хаалтын засвар хуучин
+    # мөрөө эхлээд цуцалж, дараа нь шинийг зарлагадна — дахин тоглуулалт ч мөн.
+    priority = _PRIORITY.get(str(tx.tx_type), 1)
+    if str(tx.tx_type) == T_REFUND and str(tx.ref_type or "") == CLOSING_EDIT_REF:
+        priority = 0
+    return (tx.created_at, priority, str(tx.id))
 
 
 def _replay(
@@ -172,8 +179,10 @@ def _replay(
     edit_cost: Decimal,
     refund_source: dict[uuid.UUID, uuid.UUID],
     conv_external: dict[tuple[Any, Any], Decimal],
+    edit_returns: dict[uuid.UUID, uuid.UUID] | None = None,
 ) -> _Run:
     run = _Run()
+    edit_returns = edit_returns or {}
     conv_totals: dict[tuple[Any, Any], Decimal] = {}
     transfer_costs: dict[tuple[Any, Any, Decimal], Decimal] = {}
 
@@ -221,6 +230,19 @@ def _replay(
         elif kind in (T_PURCHASE, T_OPENING) and (qty > ZERO or edited):
             # Орлого — хөдлөх дундаж (``receive_product``).
             cost = q6(edit_cost) if edited else q6(_d(tx.unit_cost))
+            if qty > ZERO:
+                old_qty = q3(st.qty)
+                denominator = old_qty + qty
+                st.avg = q6((old_qty * q6(st.avg) + qty * cost) / denominator) if denominator > ZERO else cost
+                st.qty = q3(denominator)
+                st.move(branch, qty, in_cost=cost)
+                st.sync()
+            balance = st.qty
+        elif kind == T_REFUND and tx.id in edit_returns:
+            # Хаалтын засвараар цуцалсан мөр — анх зарлагадсан өртгөөрөө буцаж
+            # орно (``receive_product``, дундаж хөдөлнө): зарлага, буцаалт хоёр
+            # бие биеэ яг нөхнө.
+            cost = run.cost.get(edit_returns[tx.id], q6(_d(tx.unit_cost)))
             if qty > ZERO:
                 old_qty = q3(st.qty)
                 denominator = old_qty + qty
@@ -390,8 +412,18 @@ async def _plan(
         ).all():
             conv_external[(out.created_at, out.ref_id or out.product_id)] = abs(q3(_d(out.qty))) * q6(_d(out.unit_cost))
 
+    # --- Хаалтын засвараар цуцалсан борлуулалтын мөрүүд (SALE ↔ буцаалт хос) ---
+    edit_returns = {
+        tx.id: tx.ref_id
+        for tx in rows
+        if str(tx.tx_type) == T_REFUND and str(tx.ref_type or "") == CLOSING_EDIT_REF and tx.ref_id is not None
+    }
+    cancelled = set(edit_returns.values())
+
     # --- Борлуулалтын мөрүүдтэй холбох ---
-    sale_ids = {tx.ref_id for tx in rows if str(tx.tx_type) == T_SALE and tx.ref_id is not None}
+    sale_ids = {
+        tx.ref_id for tx in rows if str(tx.tx_type) == T_SALE and tx.ref_id is not None and tx.id not in cancelled
+    }
     sales = (
         {s.id: s for s in (await db.scalars(select(Sale).where(Sale.id.in_(sale_ids)))).all()}
         if sale_ids
@@ -409,7 +441,8 @@ async def _plan(
             items_by_sale[(item.sale_id, item.product_id)].append(item)
     tx_item: dict[uuid.UUID, SaleItem] = {}
     for tx in rows:
-        if str(tx.tx_type) != T_SALE or tx.ref_id is None:
+        # Цуцалсан мөрийн зарлага буцаалттайгаа нөхөгдөнө — борлуулалтын мөргүй.
+        if str(tx.tx_type) != T_SALE or tx.ref_id is None or tx.id in cancelled:
             continue
         pool = items_by_sale.get((tx.ref_id, tx.product_id), [])
         match = next((item for item in pool if q3(_d(item.qty)) == abs(q3(_d(tx.qty)))), None)
@@ -424,7 +457,9 @@ async def _plan(
     item_tx = {item.id: tx_id_ for tx_id_, item in tx_item.items()}
 
     # --- Буцаалтын сэргээлтийг эх борлуулалтын мөртэй холбох ---
-    refund_ids = {tx.ref_id for tx in rows if str(tx.tx_type) == T_REFUND and tx.ref_id is not None}
+    refund_ids = {
+        tx.ref_id for tx in rows if str(tx.tx_type) == T_REFUND and tx.ref_id is not None and tx.id not in edit_returns
+    }
     refund_source: dict[uuid.UUID, uuid.UUID] = {}
     if refund_ids:
         refund_lines = (
@@ -444,7 +479,7 @@ async def _plan(
             if item is not None and item.product_id is not None:
                 pools[(ri.refund_id, item.product_id)].append(ri)
         for tx in rows:
-            if str(tx.tx_type) != T_REFUND or tx.ref_id is None:
+            if str(tx.tx_type) != T_REFUND or tx.ref_id is None or tx.id in edit_returns:
                 continue
             pool = pools.get((tx.ref_id, tx.product_id), [])
             match = next((ri for ri in pool if q3(_d(ri.qty)) == q3(_d(tx.qty))), None)
@@ -463,6 +498,7 @@ async def _plan(
         edit_cost=q6(_d(edit.unit_cost)),
         refund_source=refund_source,
         conv_external=conv_external,
+        edit_returns=edit_returns,
     )
     fixed = _replay(
         rows,
@@ -471,6 +507,7 @@ async def _plan(
         edit_cost=new_cost,
         refund_source=refund_source,
         conv_external=conv_external,
+        edit_returns=edit_returns,
     )
 
     branch_ids = {tx.branch_id for tx in rows if tx.branch_id is not None}

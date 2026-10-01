@@ -10,6 +10,8 @@ export interface Column<T> {
   key: string;
   header: string;
   render: (row: T) => ReactNode;
+  /** Картан харагдацад өөрөөр (жишээ нь үйлдлийн товчийг бичигтэй) харуулах. */
+  renderCard?: (row: T) => ReactNode;
   align?: ColumnAlign;
   width?: string;
   /** 768px-ээс доош далдлах (гар утасны картад орохгүй). */
@@ -32,6 +34,15 @@ export interface DataTableProps<T> {
   /** Мөрд нэмэлт анги (анхааруулга өнгө гэх мэт). */
   rowClassName?: (row: T) => string;
   className?: string;
+  /**
+   * Хүснэгт ↔ карт шилжих цэг.
+   *
+   * * ``md`` — дэлгэцийн өргөн 768px;
+   * * ``wide`` — хүснэгтийн ЭЗЛЭХ зай 60rem-ээс бага бол карт (хажуугийн
+   *   цэс нээлттэй жижиг зөөврийн компьютерт олон баганат хүснэгт баруун
+   *   тийш гүйлгэж, үйлдлийн товч нуугдахаас сэргийлнэ).
+   */
+  stack?: "md" | "wide";
 }
 
 const ALIGN: Record<ColumnAlign, string> = {
@@ -39,6 +50,18 @@ const ALIGN: Record<ColumnAlign, string> = {
   right: "text-right",
   center: "text-center",
 };
+
+/**
+ * ``stack="wide"``-тэй хүснэгтийн олон мөртэй дүнгийн нүд — хүснэгтэд баруун
+ * тийш, картанд зүүн тийш эгнэнэ (шилжих цэг нь доорх 60rem-тэй ижил).
+ */
+export const WIDE_ALIGN_END = "items-start @min-[60rem]:items-end";
+export const WIDE_JUSTIFY_END = "justify-start @min-[60rem]:justify-end";
+
+const STACK = {
+  md: { root: "", table: "hidden md:block", cards: "md:hidden" },
+  wide: { root: "@container", table: "hidden @min-[60rem]:block", cards: "@min-[60rem]:hidden" },
+} as const;
 
 export function DataTable<T>({
   columns,
@@ -51,7 +74,9 @@ export function DataTable<T>({
   footer,
   rowClassName,
   className = "",
+  stack = "md",
 }: DataTableProps<T>) {
+  const layout = STACK[stack];
   // Хэвтээ гүйлт байгаа эсэхийг мэдэрч ирмэг дээр сүүдэр үзүүлнэ —
   // ингэснээр нуугдсан багана байгаа нь хэрэглэгчид шууд мэдэгдэнэ.
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -103,9 +128,9 @@ export function DataTable<T>({
   const interactive = typeof onRowClick === "function";
 
   return (
-    <div className={className}>
-      {/* Дэлгэц ≥768px — хүснэгт */}
-      <div className="relative hidden md:block">
+    <div className={`${layout.root} ${className}`}>
+      {/* Өргөн зай — хүснэгт */}
+      <div className={`relative ${layout.table}`}>
         {edges.left ? (
           <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-gradient-to-r from-black/10 to-transparent" />
         ) : null}
@@ -162,12 +187,13 @@ export function DataTable<T>({
         </div>
       </div>
 
-      {/* Дэлгэц <768px — карт */}
-      <div className="flex flex-col gap-3 md:hidden">
+      {/* Нарийн зай — карт */}
+      <div className={`flex flex-col gap-3 ${layout.cards}`}>
         {rows.map((row) => {
+          const cell = (column: Column<T>) => (column.renderCard ?? column.render)(row);
           const body = (
             <>
-              <div className="mb-2 text-base font-bold text-ink">{primaryColumn.render(row)}</div>
+              <div className="mb-2 text-base font-bold text-ink">{cell(primaryColumn)}</div>
               <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5">
                 {mobileColumns.map((column) => (
                   <div key={column.key} className="flex min-w-0 flex-col">
@@ -176,7 +202,7 @@ export function DataTable<T>({
                     </dt>
                     {/* truncate биш — утсанд урт нэр, дүн «…» болж алдагддаг байв. */}
                     <dd className={`min-w-0 text-sm text-ink [overflow-wrap:anywhere] ${column.numeric ? "num" : ""}`}>
-                      {column.render(row)}
+                      {cell(column)}
                     </dd>
                   </div>
                 ))}
@@ -186,10 +212,9 @@ export function DataTable<T>({
 
           const shell = `rounded-xl border border-line bg-white px-4 py-3.5 text-left ${rowClassName?.(row) ?? ""}`;
 
-          const actions = actionColumn ? (
-            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
-              {actionColumn.render(row)}
-            </div>
+          const actionContent = actionColumn ? cell(actionColumn) : null;
+          const actions = actionContent ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">{actionContent}</div>
           ) : null;
 
           return (

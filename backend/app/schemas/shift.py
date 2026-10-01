@@ -485,6 +485,96 @@ class ClosingCreditIn(ClosingTargetMixin):
     unit_price: Decimal | None = Field(default=None, gt=0)
 
 
+class AdminCreditItemIn(BaseModel):
+    """Админы зээлийн мөр — түлш эсвэл бараа.
+
+    Түлш: ``amount`` (колонкийн дүн) эсвэл ``qty`` (литр); хоёуланг нь өгвөл
+    өөрчлөгдөөгүй мөр гэж танина. ``unit_price`` — ээлжид олон үнэ байвал аль
+    үнээр авсан. Бараа: ``qty`` ба ``unit_price`` (хоосон бол ээлжийн үеийн үнэ).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    fuel_id: uuid.UUID | None = None
+    product_id: uuid.UUID | None = None
+    qty: Decimal | None = Field(default=None, gt=0)
+    amount: Decimal | None = Field(default=None, gt=0)
+    unit_price: Decimal | None = Field(default=None, ge=0)
+
+
+class AdminCreditIn(BaseModel):
+    """Админ — зээлийн борлуулалт нэмэх/засах: харилцагч солих ба/эсвэл мөрүүд."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    contract_id: uuid.UUID | None = None
+    customer_id: uuid.UUID | None = None
+    new_customer: NewCreditCustomerIn | None = None
+    #: Хоосон (None) бол мөрүүд хэвээр — зөвхөн харилцагч солино.
+    items: list[AdminCreditItemIn] | None = Field(default=None, max_length=50)
+    note: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def _at_most_one_target(self) -> "AdminCreditIn":
+        given = sum(x is not None for x in (self.contract_id, self.customer_id, self.new_customer))
+        if given > 1:
+            raise ValueError("Гэрээ, харилцагч эсвэл шинэ харилцагч — аль нэгийг нь")
+        return self
+
+    @property
+    def has_target(self) -> bool:
+        return any(x is not None for x in (self.contract_id, self.customer_id, self.new_customer))
+
+
+class AdminOilLineIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    product_id: uuid.UUID
+    qty: Decimal = Field(gt=0)
+    #: Хоосон бол ээлжийн үеийн үнэ.
+    unit_price: Decimal | None = Field(default=None, ge=0)
+
+
+class AdminOilLinesIn(BaseModel):
+    """Админ — тос, барааны борлуулалтын мөрүүдийг бүрэн солих (хоосон бол устгана)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    lines: list[AdminOilLineIn] = Field(default_factory=list, max_length=200)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class AdminPriceMarkIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    nozzle_id: uuid.UUID
+    #: Шинэ үнэ эхэлсэн миль (нээлт ба хаалтын хооронд).
+    reading: Decimal = Field(ge=0)
+    new_price: Decimal = Field(gt=0)
+
+
+class AdminCreditPriceIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: uuid.UUID
+    unit_price: Decimal = Field(gt=0)
+
+
+class AdminFuelIn(BaseModel):
+    """Админ — хаалтын миль ба үнийн тэмдэглэл.
+
+    ``readings`` — өөрчлөх хаалтын милүүд; ``marks`` — ээлжийн бүх тэмдэглэл
+    (None бол хэвээр); ``credit_prices`` — зээлийн түлшний мөрийн шинэ үнэ.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    readings: list[TotalizerReadingIn] = Field(default_factory=list, max_length=200)
+    marks: list[AdminPriceMarkIn] | None = Field(default=None, max_length=200)
+    credit_prices: list[AdminCreditPriceIn] = Field(default_factory=list, max_length=500)
+    note: str | None = Field(default=None, max_length=500)
+
+
 class ClosingArIn(ClosingTargetMixin):
     """Хаалтын засвар — өглөг төлөлт нэмэх."""
 

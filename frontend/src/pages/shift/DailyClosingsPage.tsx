@@ -24,7 +24,7 @@ import type { DailyClosingRow, UUID } from "../../api/types";
 import { Button } from "../../components/ui/Button";
 import { CashAdjustBulkModal, CashAdjustModal } from "../../components/shift/CashAdjustModal";
 import { Card } from "../../components/ui/Card";
-import { Column, DataTable } from "../../components/ui/DataTable";
+import { Column, DataTable, WIDE_ALIGN_END, WIDE_JUSTIFY_END } from "../../components/ui/DataTable";
 import { DateRangePicker } from "../../components/ui/DateRangePicker";
 import { Modal } from "../../components/ui/Modal";
 import { MultiSelect } from "../../components/ui/MultiSelect";
@@ -220,6 +220,8 @@ export function DailyClosingsPage() {
   const [attendantIds, setAttendantIds] = useState<UUID[]>([]);
   const [status, setStatus] = useState<StatusFilter>("");
   const [onlyVariance, setOnlyVariance] = useState(false);
+  /** Үнэ батлагдсан ч тэмдэглэлгүй хаасан ээлжүүдийг л харуулах. */
+  const [onlyPriceHints, setOnlyPriceHints] = useState(false);
   const [editing, setEditing] = useState<DailyClosingRow | null>(null);
 
   const canApprove = can("shifts.approve");
@@ -289,6 +291,7 @@ export function DailyClosingsPage() {
   /** Хуучин дүрмээр бодогдсон «байвал зохих» дүнтэй ээлжүүд — батлагдаагүйг нь дахин бодно. */
   const legacyRows = useMemo(() => rows.filter((r) => r.needs_recalc), [rows]);
   const legacyEditable = useMemo(() => legacyRows.filter((r) => !r.approved), [legacyRows]);
+  const priceHintCount = useMemo(() => rows.filter((r) => (r.price_hints ?? 0) > 0).length, [rows]);
 
   // Батлахдаа ээлжийн огноог сонгуулна (хожуу хаасан ээлжийг зөв өдөрт нь).
   const [approving, setApproving] = useState<DailyClosingRow | null>(null);
@@ -308,13 +311,34 @@ export function DailyClosingsPage() {
     );
   };
 
+  const BADGE = {
+    warning: "bg-warning-soft text-warning-dark",
+    action: "bg-action-soft text-action",
+    danger: "bg-danger-soft text-danger-dark",
+  } as const;
+  const badge = (key: string, tone: keyof typeof BADGE, text: string, title?: string) => (
+    <span
+      key={key}
+      title={title}
+      className={`inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap ${BADGE[tone]}`}
+    >
+      {text}
+    </span>
+  );
+  const statusBadge = (row: DailyClosingRow) =>
+    row.approved ? (
+      <StatusBadge dot tone="success" size="sm" label={t.dailyClosings.approved} />
+    ) : (
+      <StatusBadge dot tone="warning" size="sm" label={t.dailyClosings.pending} />
+    );
+
   const columns: Column<DailyClosingRow>[] = [
     ...(canAdjust
       ? [
           {
             key: "select",
             header: "",
-            width: "2.5rem",
+            width: "2.75rem",
             hideOnMobile: true,
             render: (row: DailyClosingRow) =>
               isTotals(row) || row.approved ? null : (
@@ -331,216 +355,213 @@ export function DailyClosingsPage() {
         ]
       : []),
     {
-      key: "date",
-      header: t.dailyClosings.workedDate,
+      // Огноо, ээлжийн дугаар, түгээгч, салбар — нэг нүдэнд (хэвтээ гүйлтгүй).
+      key: "shift",
+      header: t.dailyClosings.shift,
+      primary: true,
       render: (row) =>
         isTotals(row) ? (
-          // Утсанд карт болох тул гарчиг нь `attendant` багана — давхар
-          // бичихгүйн тулд энд зөвхөн ширээний дэлгэцэд гаргана.
-          <span className="hidden font-black text-ink md:inline">{t.dailyClosings.grandTotal}</span>
+          <span className="font-black text-ink">{t.dailyClosings.grandTotal}</span>
         ) : (
-          <span className="num">
-            {row.date}
-            {row.opened_date && row.opened_date !== row.date ? (
-              <span className="block text-xs text-ink-soft">{t.dailyClosings.openedOn}: {row.opened_date}</span>
-            ) : null}
+          <span className="flex min-w-0 flex-col">
+            <span className="num font-bold text-ink">
+              {row.date}
+              <span className="ml-1.5 text-xs font-semibold text-ink-faint">№{row.shift_number}</span>
+            </span>
+            <span className="text-[15px] font-semibold text-ink">{row.attendant || "—"}</span>
+            <span className="text-xs font-normal text-ink-soft">
+              {[
+                row.branch_name,
+                row.opened_date && row.opened_date !== row.date ? `${t.dailyClosings.openedOn}: ${row.opened_date}` : null,
+                row.closed_date && row.closed_date !== row.date ? `${t.dailyClosings.closedDate}: ${row.closed_date}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
           </span>
         ),
-      width: "7rem",
-    },
-    {
-      key: "closed_date",
-      header: t.dailyClosings.closedDate,
-      hideOnMobile: true,
-      render: (row) => (isTotals(row) ? "" : <span className="num">{row.closed_date ?? "—"}</span>),
-      width: "7rem",
-    },
-    {
-      key: "branch",
-      header: t.dailyClosings.branch,
-      render: (row) => (isTotals(row) ? "" : row.branch_name || "—"),
-      hideOnMobile: true,
-    },
-    {
-      key: "attendant",
-      header: t.dailyClosings.attendant,
-      render: (row) =>
-        isTotals(row) ? (
-          <span className="font-black text-ink md:hidden">{t.dailyClosings.grandTotal}</span>
-        ) : (
-          row.attendant || "—"
-        ),
-      primary: true,
     },
     {
       key: "fuel",
       header: t.dailyClosings.fuelTotal,
-      render: (row) => <span className="font-bold">{formatMNT(row.fuel_total)}</span>,
+      render: (row) => (
+        <span className={`inline-flex flex-col ${WIDE_ALIGN_END}`}>
+          <span className="font-bold">{formatMNT(row.fuel_total)}</span>
+          {!dIsZero(row.credit_total ?? "0") ? (
+            <span className="text-xs font-normal text-ink-soft">
+              {t.dailyClosings.creditShort} {formatMNT(row.credit_total)}
+            </span>
+          ) : null}
+        </span>
+      ),
       align: "right",
       numeric: true,
     },
     {
-      key: "credit",
-      header: t.dailyClosings.creditTotal,
-      render: (row) => formatMNT(row.credit_total),
-      align: "right",
-      numeric: true,
-      hideOnMobile: true,
-    },
-    {
-      key: "settlement",
-      header: t.dailyClosings.settlementTotal,
-      render: (row) => formatMNT(row.settlement_total),
-      align: "right",
-      numeric: true,
-      hideOnMobile: true,
-    },
-    {
-      key: "transfer",
-      header: t.dailyClosings.transferTotal,
-      render: (row) => formatMNT(row.transfer_total ?? "0"),
-      align: "right",
-      numeric: true,
-      hideOnMobile: true,
-    },
-    {
-      key: "declared",
-      header: t.dailyClosings.declaredCash,
-      render: (row) => (row.declared_cash === null ? "—" : formatMNT(row.declared_cash)),
-      align: "right",
-      numeric: true,
-      hideOnMobile: true,
-    },
-    {
-      // Миль хуримтлагдсан заалт тул өмнөх хаалттай ЯГ тэнцүү байх ёстой.
-      key: "mile_gap",
-      header: t.dailyClosings.mileGap,
-      render: (row) => {
-        if (dIsZero(row.mile_gap_l ?? "0")) {
-          return <span className="text-ink-faint">0</span>;
-        }
-        return (
-          <span className="font-bold text-warning-dark">
-            {dToQty(row.mile_gap_l) > 0 ? "+" : ""}
-            {formatLiters(row.mile_gap_l, 3)}
+      // Тушаалт — бэлэн, терминал, шилжүүлэг (тэгээс ялгаатайг нь).
+      key: "handover",
+      header: t.dailyClosings.handover,
+      render: (row) => (
+        <span className={`inline-flex flex-col ${WIDE_ALIGN_END}`}>
+          <span className="font-bold">
+            <span className="mr-1 text-xs font-semibold text-ink-faint">{t.dailyClosings.handoverCash}</span>
+            {row.declared_cash === null ? "—" : formatMNT(row.declared_cash)}
           </span>
-        );
-      },
+          {!dIsZero(row.settlement_total ?? "0") ? (
+            <span className="text-xs font-normal text-ink-soft">
+              {t.dailyClosings.handoverCard} {formatMNT(row.settlement_total)}
+            </span>
+          ) : null}
+          {!dIsZero(row.transfer_total ?? "0") ? (
+            <span className="text-xs font-normal text-ink-soft">
+              {t.dailyClosings.handoverTransfer} {formatMNT(row.transfer_total)}
+            </span>
+          ) : null}
+        </span>
+      ),
       align: "right",
       numeric: true,
     },
     {
+      // Зөрүү + тэмдэглэгээ: админы засвар, хуучин дүрэм, милийн зөрүү, үнийн тэмдэглэлгүй.
       key: "over_short",
       header: t.dailyClosings.overShort,
       render: (row) => {
-        if (row.cash_over_short === null) return "—";
-        const value = dToQty(row.cash_over_short);
+        const value = row.cash_over_short === null ? null : dToQty(row.cash_over_short);
         const tone =
-          value < 0 ? "text-danger-dark" : value > 0 ? "text-warning-dark" : "text-success-dark";
+          value === null ? "text-ink-faint" : value < 0 ? "text-danger-dark" : value > 0 ? "text-warning-dark" : "text-success-dark";
+        const badges = [];
+        if (!isTotals(row) && row.cash_adjustment && !dIsZero(row.cash_adjustment)) {
+          badges.push(
+            badge("adj", "action", `${t.cashAdjust.badge}: ${formatMNT(row.cash_adjustment)}`, row.cash_adjustment_note ?? undefined),
+          );
+        }
+        if (row.needs_recalc && row.expected_recalc && row.declared_cash !== null) {
+          badges.push(
+            badge("legacy", "warning", `${t.dailyClosings.legacyBadge}: ${formatMNT(dSub(row.declared_cash, row.expected_recalc))}`),
+          );
+        }
+        if (!dIsZero(row.mile_gap_l ?? "0")) {
+          badges.push(
+            badge(
+              "gap",
+              "warning",
+              t.dailyClosings.mileGapBadge.replace(
+                "{gap}",
+                `${dToQty(row.mile_gap_l) > 0 ? "+" : ""}${formatLiters(row.mile_gap_l, 3)}`,
+              ),
+              t.dailyClosings.mileGapTip.replace("{n}", String(row.mile_gap_nozzles ?? 0)),
+            ),
+          );
+        }
+        if (!isTotals(row) && (row.price_hints ?? 0) > 0) {
+          badges.push(badge("price", "danger", t.dailyClosings.priceHint, t.dailyClosings.priceHintTip));
+        }
         return (
-          <span className={`font-bold ${tone}`}>
-            {formatMNT(row.cash_over_short)}
-            {!isTotals(row) && row.cash_adjustment && !dIsZero(row.cash_adjustment) ? (
-              <span className="block text-xs font-semibold text-action" title={row.cash_adjustment_note ?? undefined}>
-                {t.cashAdjust.badge}: {formatMNT(row.cash_adjustment)}
-              </span>
-            ) : null}
-            {row.needs_recalc && row.expected_recalc && row.declared_cash !== null ? (
-              // Одоогийн дүрмээр бодвол зөрүү ийм болно.
-              <span className="block text-xs font-semibold text-warning-dark">
-                {t.dailyClosings.legacyBadge}: {formatMNT(dSub(row.declared_cash, row.expected_recalc))}
-              </span>
-            ) : null}
+          <span className={`inline-flex flex-col gap-1 ${WIDE_ALIGN_END}`}>
+            <span className={`font-bold ${tone}`}>{row.cash_over_short === null ? "—" : formatMNT(row.cash_over_short)}</span>
+            {badges.length > 0 ? <span className={`flex flex-wrap gap-1 ${WIDE_JUSTIFY_END}`}>{badges}</span> : null}
           </span>
         );
       },
       align: "right",
       numeric: true,
     },
-    {
+  ];
+
+  // Батлах эрхгүй (зөвхөн харах) хэрэглэгчид төлөв тусдаа багана.
+  if (!(canApprove || canAdjust)) {
+    columns.push({
       key: "status",
       header: t.dailyClosings.status,
-      render: (row) =>
-        isTotals(row) ? null : row.approved ? (
-          <StatusBadge
-            dot
-            tone="success"
+      render: (row) => (isTotals(row) ? null : statusBadge(row)),
+    });
+  }
+
+  /**
+   * Үйлдэл — хүснэгтэд дүрстэй жижиг товч (үргэлж харагдана), картанд бичигтэй.
+   * Батлагдсан мөрөнд төлөв + буцаах товч.
+   */
+  const actionButtons = (row: DailyClosingRow, labels: boolean) => {
+    if (isTotals(row)) return null;
+    const wrap = labels ? "flex flex-wrap items-center gap-2" : "flex items-center justify-end gap-1.5 whitespace-nowrap";
+    if (row.approved) {
+      return (
+        <div className={wrap} onClick={(event) => event.stopPropagation()} role="presentation">
+          {statusBadge(row)}
+          {canApprove ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Undo2 />}
+              onClick={() => setApproval(row, false)}
+              aria-label={t.dailyClosings.unapprove}
+              title={t.dailyClosings.unapprove}
+            >
+              {labels ? t.dailyClosings.unapprove : null}
+            </Button>
+          ) : null}
+        </div>
+      );
+    }
+    return (
+      <div className={wrap} onClick={(event) => event.stopPropagation()} role="presentation">
+        {canAdjust ? (
+          <Button
+            variant="secondary"
             size="sm"
-            label={t.dailyClosings.approved}
-          />
-        ) : (
-          <StatusBadge dot tone="warning" size="sm" label={t.dailyClosings.pending} />
-        ),
-    },
-  ];
+            icon={<Wrench />}
+            onClick={() => setAdjusting(row)}
+            aria-label={t.cashAdjust.action}
+            title={t.cashAdjust.action}
+          >
+            {labels ? t.cashAdjust.actionShort : null}
+          </Button>
+        ) : null}
+        {canApprove ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<Pencil />}
+            onClick={() => setEditing(row)}
+            aria-label={t.dailyClosings.correct}
+            title={t.dailyClosings.correct}
+          >
+            {labels ? t.dailyClosings.correct : null}
+          </Button>
+        ) : null}
+        {canApprove ? (
+          <Button
+            variant="success"
+            size="sm"
+            icon={<CircleCheck />}
+            onClick={() => {
+              setApproveDate(row.date);
+              setApproving(row);
+            }}
+          >
+            {t.dailyClosings.approve}
+          </Button>
+        ) : null}
+      </div>
+    );
+  };
 
   if (canApprove || canAdjust) {
     columns.push({
       key: "actions",
-      header: "",
-      render: (row) =>
-        isTotals(row) ? null : (
-        <div
-          className="flex justify-end gap-2"
-          onClick={(event) => event.stopPropagation()}
-          role="presentation"
-        >
-          {row.approved ? (
-            canApprove ? (
-              <Button
-                variant="secondary"
-                size="md"
-                icon={<Undo2 />}
-                onClick={() => setApproval(row, false)}
-              >
-                {t.dailyClosings.unapprove}
-              </Button>
-            ) : null
-          ) : (
-            <>
-              {canAdjust ? (
-                <Button
-                  variant="secondary"
-                  size="md"
-                  icon={<Wrench />}
-                  onClick={() => setAdjusting(row)}
-                  aria-label={t.cashAdjust.action}
-                >
-                  {t.cashAdjust.actionShort}
-                </Button>
-              ) : null}
-              {canApprove ? (
-              <Button
-                variant="secondary"
-                size="md"
-                icon={<Pencil />}
-                onClick={() => setEditing(row)}
-              >
-                {t.dailyClosings.correct}
-              </Button>
-              ) : null}
-              {canApprove ? (
-              <Button
-                variant="success"
-                size="md"
-                icon={<CircleCheck />}
-                onClick={() => {
-                  setApproveDate(row.date);
-                  setApproving(row);
-                }}
-              >
-                {t.dailyClosings.approve}
-              </Button>
-              ) : null}
-            </>
-          )}
-        </div>
-      ),
+      header: t.dailyClosings.actions,
+      render: (row) => actionButtons(row, false),
+      renderCard: (row) => actionButtons(row, true),
       align: "right",
     });
   }
 
-  const tableRows = useMemo(() => withTotalsRow(rows), [rows]);
+  const visibleRows = useMemo(
+    () => (onlyPriceHints ? rows.filter((r) => (r.price_hints ?? 0) > 0) : rows),
+    [rows, onlyPriceHints],
+  );
+  const tableRows = useMemo(() => withTotalsRow(visibleRows), [visibleRows]);
 
   return (
     <div className="flex flex-col gap-4 sm:gap-5">
@@ -594,6 +615,17 @@ export function DailyClosingsPage() {
               {t.dailyClosings.legacyRecalc.replace("{n}", String(legacyEditable.length))}
             </Button>
           ) : null}
+        </div>
+      ) : null}
+
+      {priceHintCount > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border-2 border-danger bg-danger-soft px-4 py-3 text-danger-dark">
+          <span className="min-w-0 flex-1 text-sm">
+            {t.dailyClosings.priceHintBanner.replace("{n}", String(priceHintCount))}
+          </span>
+          <Button variant="secondary" size="md" onClick={() => setOnlyPriceHints((value) => !value)}>
+            {onlyPriceHints ? t.dailyClosings.priceHintAll : t.dailyClosings.priceHintOnly}
+          </Button>
         </div>
       ) : null}
 
@@ -677,6 +709,7 @@ export function DailyClosingsPage() {
         columns={columns}
         rows={tableRows}
         rowKey={(row) => row.shift_id}
+        stack="wide"
         loading={listQuery.isLoading}
         emptyTitle={t.dailyClosings.empty}
         rowClassName={(row) => (isTotals(row) ? "bg-surface-alt font-bold" : "")}

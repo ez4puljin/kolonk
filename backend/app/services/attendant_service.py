@@ -194,12 +194,17 @@ class NozzleCalc:
 
 
 async def compute_dispensed(
-    db: AsyncSession, shift: Shift, closing_readings: dict[uuid.UUID, Decimal]
+    db: AsyncSession,
+    shift: Shift,
+    closing_readings: dict[uuid.UUID, Decimal],
+    marks: list[Any] | None = None,
 ) -> list[NozzleCalc]:
     """Хошуу бүрийн түгээлтийг үнийн сегментээр бодно.
 
     ``closing_readings`` — хаалтын миль (хошуу бүрд).  Нээлтийн заалтгүй
     хошууг алгасна (ээлжийн дундуур нэмэгдсэн насос гэх мэт).
+    ``marks`` — DB-гийн оронд эдгээр үнийн тэмдэглэлээр (``nozzle_id``,
+    ``reading``, ``new_price``) бодно: админы засварын урьдчилсан тооцоо.
     """
     opens = (
         await db.scalars(
@@ -216,14 +221,19 @@ async def compute_dispensed(
     if not opens:
         return []
 
-    marks = (
-        await db.scalars(
-            select(ShiftPriceMark)
-            .where(ShiftPriceMark.shift_id == shift.id)
-            .order_by(ShiftPriceMark.reading)
+    if marks is None:
+        marks = list(
+            (
+                await db.scalars(
+                    select(ShiftPriceMark)
+                    .where(ShiftPriceMark.shift_id == shift.id)
+                    .order_by(ShiftPriceMark.reading)
+                )
+            ).all()
         )
-    ).all()
-    marks_by_nozzle: dict[uuid.UUID, list[ShiftPriceMark]] = {}
+    else:
+        marks = sorted(marks, key=lambda m: q3(_d(m.reading, ZERO_L)))
+    marks_by_nozzle: dict[uuid.UUID, list[Any]] = {}
     for mark in marks:
         marks_by_nozzle.setdefault(mark.nozzle_id, []).append(mark)
 
@@ -1751,6 +1761,10 @@ async def daily_closings_list(
     # Хадгалсан «байвал зохих» дүн одоогийн дүрмээр бодсоноос өөр (хуучин
     # дүрмээр хаагдсан) ээлж — жагсаалтад тэмдэглэж, бөөнөөр дахин бодуулна.
     fresh = await shift_service.expected_cash_map(db, [shift for _, shift in rows])
+    # Үнэ батлагдсан ч тэмдэглэлгүй хаасан ээлж — админ миль, үнийг засна.
+    from app.services.closing_admin_service import price_hint_map  # noqa: PLC0415
+
+    price_hints = await price_hint_map(db, [shift for _, shift in rows])
 
     branch_ids_seen = {shift.branch_id for _, shift in rows if shift.branch_id is not None}
     branches = (
@@ -1801,6 +1815,7 @@ async def daily_closings_list(
                 "client_diff": shift_service._client_diff(closing),
                 "mile_gap_l": gaps.get(shift.id, (ZERO_L, 0))[0],
                 "mile_gap_nozzles": gaps.get(shift.id, (ZERO_L, 0))[1],
+                "price_hints": len(price_hints.get(shift.id, [])),
                 "approved": closing.approved_at is not None,
                 "approved_at": closing.approved_at,
                 "approved_by_name": approver.full_name if approver else "",
